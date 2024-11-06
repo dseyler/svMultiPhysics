@@ -128,6 +128,9 @@ class FSILS_faceType
     /// Included in the computations   (IN)
     bool incFlag = false;
 
+    /// Flag for virtual face          (USE)
+    bool vrtual = false;
+
     /// Number of nodes                (IN)
     int nNo = 0;
 
