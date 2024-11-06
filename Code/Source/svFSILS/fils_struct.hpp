@@ -128,9 +128,6 @@ class FSILS_faceType
     /// Included in the computations   (IN)
     bool incFlag = false;
 
-    /// Flag for virtual face          (USE)
-    bool vrtual = false;
-
     /// Number of nodes                (IN)
     int nNo = 0;
 
@@ -157,6 +154,15 @@ class FSILS_faceType
 
     /// Neu W*Sai                      (TMP)
     Array<double> valM;
+
+    /// Flag for virtual face          (USE)
+    bool vrtual = false;
+
+    /// Index of mesh associated with this face
+    int iFa = 0;
+
+    /// Index of face that caps this face
+    faInCap = 0;
 };
 
 /// @brief Modified in:
