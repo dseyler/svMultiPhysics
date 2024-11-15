@@ -117,8 +117,8 @@ void add_bc_mul(FSILS_lhsType& lhs, const BcopType op_Type, const int dof, const
         //be over the uncapped surfce (because we do not apply a pressure
         //to the capping surface). We can achieve this by adding the cappping
         //surface's contribution to S.
-        if (face.cap != 0) {
-          int faInCap = face.cap;
+        if (face.faInCap != 0) {
+          int faInCap = face.faInCap;
           auto& faceCap = lhs.face[faInCap];
 
           if (!faceCap.coupledFlag) {
@@ -157,8 +157,8 @@ void add_bc_mul(FSILS_lhsType& lhs, const BcopType op_Type, const int dof, const
         }
 
         //If a virtual face caps this face, add its contribution to S
-        if (face.cap != 0) {
-          int faInCap = face.cap;
+        if (face.faInCap != 0) {
+          int faInCap = face.faInCap;
           auto& faceCap = lhs.face[faInCap];
 
           if (!faceCap.coupledFlag) {

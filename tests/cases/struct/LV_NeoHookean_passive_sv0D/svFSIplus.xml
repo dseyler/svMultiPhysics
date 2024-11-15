@@ -87,9 +87,10 @@
    <Couple_to_svZeroD type="SI">
    </Couple_to_svZeroD>
 
-   <Add_BC name="top" > 
-      <Type> Dirichlet </Type> 
-      <Value> 0.0 </Value>
+   <Add_BC name="epi" > 
+      <Type> Robin </Type> 
+      <Stiffness> 1.0e5 </Stiffness>
+      <Damping> 0.0 </Damping>
    </Add_BC> 
 
    <Add_BC name="endo" > 
