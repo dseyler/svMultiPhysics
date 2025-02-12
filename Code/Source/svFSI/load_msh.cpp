@@ -256,6 +256,17 @@ void read_sv(Simulation* simulation, mshType& mesh, const MeshParameters* mesh_p
                     }
                 }
             }
+            if (face.vrtual){
+                face.gnEl = face.nEl;
+                face.gE.resize(face.nEl, 0);
+                face.gebc.resize(face.eNon, face.nEl);
+                face.gebc.row(0).setZero(); // Set the first row to 0
+                for (int e = 0; e < face.nEl; e++){
+                    for (int a = 0; a < face.eNoN; a++) {
+                        face.gebc(a, e) = face.IEN(a,e);
+                    }
+                }
+            }
         }
         if (!mesh.lFib) {
             // Create a hash map for nodes and elements.
@@ -291,7 +302,7 @@ void read_sv(Simulation* simulation, mshType& mesh, const MeshParameters* mesh_p
                     }
                     face.gE(e) = mesh_element_set[key];
                 }
-            }
+            }         
         }
         }
         for (int i = 0; i<mesh.nFa; i++){

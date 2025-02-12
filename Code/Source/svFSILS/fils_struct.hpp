@@ -162,7 +162,7 @@ class FSILS_faceType
     int iFa = 0;
 
     /// Index of face that caps this face
-    faInCap = 0;
+    int faInCap = 0;
 };
 
 /// @brief Modified in:

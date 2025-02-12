@@ -300,6 +300,18 @@ void b_neu_folw_p(ComMod& com_mod, const bcType& lBc, const faceType& lFa, const
       eq.linear_algebra->assemble(com_mod, eNoN, ptr, lK, lR);
     }
   }
+
+  // Now update surface integrals involved in coupled/resistance BC
+  // contribution to the stiffness matrix to reflect deformed geometry
+  // The value of this integral is stored in lhs.face.val.
+  // Since we are using the deformed geometry to compute the
+  // contribution of the pressure load to the residual vector
+  // (i.e. follower pressure), we must also use the deformed geometry
+  // to compute the contribution of the resistance BC to the tangent
+  // matrix.
+  if (btest(lBc.bType, BCType::resistance)) {
+    fsi_ls_upd(com_mod, lBc, lFa);
+  }
 }
 
 /// @brief Update the surface integral involved in the coupled/resistance BC
