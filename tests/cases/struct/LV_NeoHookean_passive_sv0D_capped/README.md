@@ -1,6 +1,9 @@
 This test case simulates an idealized left ventricle (LV) with a NeoHookean material model
 coupled to a lumped-parameter network (LPN), implemented in sv0DSolver. The LPN consists of a large pressure source and large resistor, which together produce an approximately constant flowrate into
 the LV. This inflates the LV at an approximately constant rate of change of volume.
+This is the same test case as LV_NeoHookean_passive_sv0D except for a virtual cap surface on the endocardial surface.
+This is used to correctly calculate the flow rate if the base/top moves.
+Dirichlet BC on the base has been removed, and a Robin BC has been added to the epicardial surface.
 
 ### Build svZeroDSolver
 Importantly, to automatically run test cases with `pytest` (see below), you need to build `svZeroDSolver` in the folder
