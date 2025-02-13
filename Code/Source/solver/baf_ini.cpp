@@ -191,6 +191,34 @@ void baf_ini(Simulation* simulation)
       int iM = bc.iM;
       bc.lsPtr = 0;
       fsi_ls_ini(com_mod, cm_mod, bc, com_mod.msh[iM].fa[iFa], lsPtr);
+      // Store mesh and face index in corresponding lhs.face(i). This
+      // Explicitly maps mesh and face indices  between lhs object
+      // (used in the linear solver for coupled surface) and the
+      // msh object. Used in MATCHFACE below.
+      if (eq(iEq).bc(iBc).lsPtr != 0) {
+        com_mod.lhs.face(bc(iBc).lsPtr).iM = iM;
+        com_mod.lhs.face(bc(iBc).lsPtr).iFa = iFa;
+      }
+    }
+  }
+
+  // If any face in msh(:).fa(:) are capped, share information with
+  // lhs.face(:)
+
+  for (int iEq = 0; iEq < com_mod.nEq; iEq++) {
+    auto& eq = com_mod.eq[iEq];
+    for (int iBc = 0; iBc < eq.nBc; iBc++) {
+      auto& bc = eq.bc[iBc];
+      int iFa = bc.iFa;
+      int iM = bc.iM;
+      if (msh(iM).fa(iFa).capID != 0) {
+        // Find lhs.face(i) index of face being capped
+        match_lhs_face(iM, iFa, int faIn);
+        // Find lhs.face(:) index of capping face
+        match_lhs_face(iM, msh(iM).fa(iFa).capID, int faInCap);
+        // Store capping relation in lhs.face(faIn)
+        com_mod.lhs.face(faIn).capID = faInCap;
+      }
     }
   }
 
@@ -245,6 +273,27 @@ void baf_ini(Simulation* simulation)
 
     lsPtr = com_mod.nFacesLS - 1;
     fsils_bc_create(com_mod.lhs, lsPtr, i, nsd, BcType::BC_TYPE_Dir, gNodes); 
+  }
+}
+
+// Reproduces MATCH_LHS_FACE subroutine in BAFINIT.f
+// Find lhs.face(:) index faIn corresponding iM and iFa, which
+// index msh(:).fa(:) and lhs.face(:) respectively.
+void match_lhs_face(int iM, int iFa, int& faIn) {
+
+  // Loop over lhs.faces to find corresponding face
+  faIn = 0;
+  
+  for (int i = 0; i < lhs.nFaces; i++) {
+      // If lhs.face matches mesh and face index
+      if ((lhs.face[i].iFa == iFa) && (lhs.face[i].iM == iM)) {
+          faIn = i;
+          break;
+      }
+  }
+  
+  if (faIn == 0) {
+      throw std::runtime_error("Cannot match LHS face and mesh indices.");
   }
 }
 
@@ -507,9 +556,12 @@ void face_ini(Simulation* simulation, mshType& lM, faceType& lFa)
 
         for (int a = 0; a < lFa.eNoN; a++) { 
           int Ac = lFa.IEN(a,e);
-          for (int i = 0; i < sV.nrows(); i++) { 
-            sV(i,Ac) = sV(i,Ac) + nV(i)*lFa.N(a,g)*lFa.w(g);
-          }
+          // Skip if virtual face, i.e. Ac == 0
+          if (Ac != 0) {
+            for (int i = 0; i < sV.nrows(); i++) { 
+              sV(i,Ac) = sV(i,Ac) + nV(i)*lFa.N(a,g)*lFa.w(g);
+            }
+          } 
         }
       }
     }
@@ -608,8 +660,10 @@ void face_ini(Simulation* simulation, mshType& lM, faceType& lFa)
 
         for (int a = 0; a < fs.eNoN; a++) {
           int Ac = lFa.IEN(a,e);
-          for (int j = 0; j < sV.nrows(); j++) {
-            sV(j,Ac) = sV(j,Ac) + fs.w(g)*fs.N(a,g)*nV(j);
+          if (Ac != 0) {
+            for (int j = 0; j < sV.nrows(); j++) {
+              sV(j,Ac) = sV(j,Ac) + fs.w(g)*fs.N(a,g)*nV(j);
+            }
           }
         }
       }
@@ -638,19 +692,20 @@ void face_ini(Simulation* simulation, mshType& lM, faceType& lFa)
         int b = a - fs.eNoN;
         int Ac = lFa.IEN(a,e);
         int Bc = lFa.IEN(b,e);
+        if ((Ac != 0) && (Bc != 0)) {
+          for (int i = 0; i < sV.nrows(); i++) {
+            nV(i) = sV(i,Bc);
+          }
 
-        for (int i = 0; i < sV.nrows(); i++) {
-          nV(i) = sV(i,Bc);
-        }
+          if (b == fs.eNoN-1) {
+            Bc = lFa.IEN(0,e);
+          } else {
+            Bc = lFa.IEN(b+1,e);
+          }
 
-        if (b == fs.eNoN-1) {
-          Bc = lFa.IEN(0,e);
-        } else {
-          Bc = lFa.IEN(b+1,e);
-        }
-
-        for (int i = 0; i < sV.nrows(); i++) {
-          sV(i,Ac) = (nV(i) + sV(i,Bc)) * 0.5;
+          for (int i = 0; i < sV.nrows(); i++) {
+            sV(i,Ac) = (nV(i) + sV(i,Bc)) * 0.5;
+          }
         }
       }
     }
@@ -757,8 +812,10 @@ void fsi_ls_ini(ComMod& com_mod, const CmMod& cm_mod, bcType& lBc, const faceTyp
 
           for (int a = 0; a < lFa.eNoN; a++) {
             int Ac = lFa.IEN(a,e);
-            for (int i = 0; i < nsd; i++) {
-              sV(i,Ac) = sV(i,Ac) + lFa.N(a,g)*lFa.w(g)*n(i);
+            if (Ac != 0) {}
+              for (int i = 0; i < nsd; i++) {
+                sV(i,Ac) = sV(i,Ac) + lFa.N(a,g)*lFa.w(g)*n(i);
+              }
             }
           }
         }
@@ -775,7 +832,7 @@ void fsi_ls_ini(ComMod& com_mod, const CmMod& cm_mod, bcType& lBc, const faceTyp
       lBc.lsPtr = lsPtr;
       
       // Fills lhs.face(i) variables, including val is sVl exists
-      fsils_bc_create(com_mod.lhs, lsPtr, lFa.nNo, nsd, BcType::BC_TYPE_Neu, gNodes, sVl); 
+      fsils_bc_create(com_mod.lhs, lsPtr, lFa.nNo, nsd, BcType::BC_TYPE_Neu, gNodes, sVl, lFa.vrtual); 
     } else {
       lBc.lsPtr = -1;
     }

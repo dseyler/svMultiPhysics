@@ -154,6 +154,15 @@ class FSILS_faceType
 
     /// Neu W*Sai                      (TMP)
     Array<double> valM;
+
+    /// Flag for virtual face          (USE)
+    bool vrtual = false;
+
+    /// Index of mesh associated with this face
+    int iFa = 0;
+
+    /// Index of face that caps this face
+    int faInCap = 0;
 };
 
 /// @brief Modified in:
