@@ -41,6 +41,11 @@
       <Face_file_path> mesh/mesh-surfaces/top.vtp </Face_file_path>
   </Add_face>
 
+   <Add_face name="cap">
+         <Face_file_path> mesh/mesh-surfaces/endo_cap.vtp </Face_file_path>
+         <Virtual> true </Virtual>
+   </Add_face>
+
   <Mesh_scale_factor> 100.0 </Mesh_scale_factor>  <!-- Convert from m to cm -->
 </Add_mesh>
 
@@ -87,16 +92,20 @@
    <Couple_to_svZeroD type="SI">
    </Couple_to_svZeroD>
 
-   <Add_BC name="top" > 
-      <Type> Dirichlet </Type> 
-      <Value> 0.0 </Value>
-   </Add_BC> 
+   <Add_BC name="epi" > 
+      <Type> Robin </Type> 
+      <Stiffness> 1.0e5 </Stiffness>
+      <Damping> 0.0 </Damping>
+      <Apply_along_normal_direction> 1 </Apply_along_normal_direction>
+   </Add_BC>
 
    <Add_BC name="endo" > 
       <Type> Neu </Type> 
       <Time_dependence> Coupled </Time_dependence> 
-      <Follower_pressure_load> true </Follower_pressure_load> 
+      <Follower_pressure_load> true </Follower_pressure_load>
+      <Capping_face> cap </Capping_face>    <!-- Specify capping surface for dVdt calculation on endo surface -->
    </Add_BC> 
+
    
 </Add_equation>
 
