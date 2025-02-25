@@ -262,6 +262,9 @@ void read_bc(Simulation* simulation, EquationParameters* eq_params, eqType& lEq,
       throw std::runtime_error("[read_bc] Couple to cplBC' must be specified before using Coupled BC.");
     }
 
+    // Read cap face name for this coupled BC
+    lBc.capName = list.get("Capping face");
+
   } else if (ctmp == "Resistance") { 
     lBc.bType = utils::ibset(lBc.bType, enum_int(BoundaryConditionType::bType_res)); 
     if (!utils::btest(lBc.bType, enum_int(BoundaryConditionType::bType_Neu))) { 
@@ -468,7 +471,7 @@ void read_bc(Simulation* simulation, EquationParameters* eq_params, eqType& lEq,
     }
   }
 
-  //  For Neumann BC, is load vector changing with deformation (follower pressure)
+  //  For Neumann BC, if the load vector changes with deformation (follower pressure)
   //
   lBc.flwP = false;
   if (utils::btest(lBc.bType, enum_int(BoundaryConditionType::bType_Neu))) {
@@ -1477,6 +1480,19 @@ void read_eq(Simulation* simulation, EquationParameters* eq_params, eqType& lEq)
     lEq.bc[iBc].iFa = iFa;
 
     read_bc(simulation, eq_params, lEq, bc_params, lEq.bc[iBc]);
+  }
+
+  // If an LPN-coupled face has a cap, automatically create a coupled
+  // BC for the cap face. This is necessary because we need svFSI to
+  // process the cap face as a coupled BC to add its contribution to
+  // the tangent.
+  for (int iBc = 0; iBc < lEq.nBc; iBc++) {
+    if (btest(lEq.bc[iBc].bType, enum_int(BoundaryConditionType::bType_cpl))) {
+      if (lEq.bc[iBc].capName != "") {
+        // Add a BC for the cap to the end of lEq.bc and add cap face
+        // info to the face being capped (capName and capID fields).
+      add_cap_bc(simulation, lEq, lEq.bc[iBc]);
+    }
   }
 
   // Initialize cplBC for RCR-type BC
@@ -2921,6 +2937,8 @@ void read_solid_visc_model(Simulation* simulation, EquationParameters* eq_params
 //--------------------
 // read_wall_props_ff
 //--------------------
+// Reproduces 'SUBROUTINE READWALLPROPSFF(fname, iM, iFa)' defined in READFILES.f.
+//
 // Read CMM variable wall properties from a file.
 //
 // Modifies:
@@ -3006,6 +3024,135 @@ void read_wall_props_ff(ComMod& com_mod, const std::string& file_name, const int
       com_mod.varWallProps(1,Ac) = face.x(0,a);
     }
   }
+}
+
+//--------------------
+// Adds a BC to lEq.bc at the end for a cap. Copies most of the BC
+// info from lEq.bc[iBc], which corresponds to the capped surface.
+// Also, sets info about capping face in capped face (capName and
+// capID fields).
+//
+void addCapBC(eqType& lEq, int iBc, MeshType& msh, CoupledBCType& cplBC) {
+  // We are adding a new BC for the cap, so we need to update the relevant structures.
+
+  // Store old BCs in a temporary container
+  std::vector<bcType> oldBCs(lEq.nBc);
+  for (int jBc = 0; jBc < lEq.nBc; jBc++) {
+      oldBCs[jBc] = lEq.bc[jBc]; // Copy BC information
+  }
+
+  // Increment number of BCs
+  lEq.nBc += 1;
+
+  // Resize lEq.bc to hold an extra cap BC
+  lEq.bc.resize(lEq.nBc);
+
+  // Copy back old BCs
+  for (int jBc = 0; jBc < lEq.nBc - 1; jBc++) {
+      lEq.bc[jBc] = oldBCs[jBc];
+  }
+
+  // Add new BC for capping surface by copying the capped surface BC
+  lEq.bc[lEq.nBc - 1] = lEq.bc[iBc];
+
+  // Correct some values in the new capping surface BC
+  cplBC.nFa += 1;  // Increment coupled BC face count
+  lEq.bc[lEq.nBc - 1].cplBcPtr = cplBC.nFa;
+
+  // Find the capping face
+  findFace(lEq.bc[iBc].capName, lEq.bc[lEq.nBc - 1].iM, lEq.bc[lEq.nBc - 1].iFa);
+
+  // Reset cap name for the new capping BC
+  lEq.bc[lEq.nBc - 1].capName.clear();
+
+  // Set capID pointer in the capped face
+  int iFa = lEq.bc[iBc].iFa;
+  int iM  = lEq.bc[iBc].iM;
+  msh[iM].fa[iFa].capID = lEq.bc[lEq.nBc - 1].iFa; // Copy cap face ID
+
+  // Set a pointer to the capping surface BC in the capped surface BC
+  lEq.bc[iBc].iCapBC = lEq.nBc - 1;
+}
+
+//--------------------
+// Performs a deep copy of old BC (oBc) to new BC (nBc).
+//
+void copyBC(const bcType& oBc, bcType& nBc, const MeshType& msh) {
+  // Copy primitive (bool, int, double) values
+  nBc.weakDir  = oBc.weakDir;
+  nBc.flwP     = oBc.flwP;
+  nBc.rbnN     = oBc.rbnN;
+  nBc.bType    = oBc.bType;
+  nBc.cplBCptr = oBc.cplBCptr;
+  nBc.iFa      = oBc.iFa;
+  nBc.iM       = oBc.iM;
+  nBc.lsPtr    = oBc.lsPtr;
+  nBc.masN     = oBc.masN;
+  nBc.g        = oBc.g;
+  nBc.r        = oBc.r;
+  nBc.k        = oBc.k;
+  nBc.c        = oBc.c;
+  nBc.tauB     = oBc.tauB;
+
+  // Set local iFa and iM
+  int iFa = nBc.iFa;
+  int iM  = nBc.iM;
+
+  // Copy fixed-size arrays (always allocated in Fortran)
+  nBc.eDrn.resize(nsd);
+  nBc.h.resize(nsd);
+  std::copy(oBc.eDrn.begin(), oBc.eDrn.end(), nBc.eDrn.begin());
+  std::copy(oBc.h.begin(), oBc.h.end(), nBc.h.begin());
+
+  // Copy spatial profile if allocated
+  if (!oBc.gx.empty()) {
+      nBc.gx.resize(msh[iM].fa[iFa].nNo);
+      std::copy(oBc.gx.begin(), oBc.gx.end(), nBc.gx.begin());
+  }
+
+  // Copy moving boundary data if allocated
+  if (oBc.gm) {
+      nBc.gm = std::make_unique<MovingBoundaryType>();
+      nBc.gm->dof    = oBc.gm->dof;
+      nBc.gm->nTP    = oBc.gm->nTP;
+      nBc.gm->period = oBc.gm->period;
+
+      nBc.gm->t.resize(nBc.gm->nTP);
+      nBc.gm->d.resize(nBc.gm->dof, msh[iM].fa[iFa].nNo, nBc.gm->nTP);
+      std::copy(oBc.gm->t.begin(), oBc.gm->t.end(), nBc.gm->t.begin());
+      std::copy(oBc.gm->d.begin(), oBc.gm->d.end(), nBc.gm->d.begin());
+  }
+
+  // Copy Fourier Coefficients if allocated
+  if (oBc.gt) {
+      nBc.gt = std::make_unique<FourierType>();
+      nBc.gt->lrmp = oBc.gt->lrmp;
+      nBc.gt->n    = oBc.gt->n;
+      nBc.gt->d    = oBc.gt->d;
+      nBc.gt->T    = oBc.gt->T;
+      nBc.gt->ti   = oBc.gt->ti;
+
+      nBc.gt->qi.resize(nBc.gt->d);
+      nBc.gt->qs.resize(nBc.gt->d);
+      std::copy(oBc.gt->qi.begin(), oBc.gt->qi.end(), nBc.gt->qi.begin());
+      std::copy(oBc.gt->qs.begin(), oBc.gt->qs.end(), nBc.gt->qs.begin());
+
+      nBc.gt->r.resize(nBc.gt->d, nBc.gt->n);
+      nBc.gt->i.resize(nBc.gt->d, nBc.gt->n);
+      std::copy(oBc.gt->r.begin(), oBc.gt->r.end(), nBc.gt->r.begin());
+      std::copy(oBc.gt->i.begin(), oBc.gt->i.end(), nBc.gt->i.begin());
+  }
+
+  // Copy RCR data structure
+  nBc.RCR.Rp = oBc.RCR.Rp;
+  nBc.RCR.C  = oBc.RCR.C;
+  nBc.RCR.Rd = oBc.RCR.Rd;
+  nBc.RCR.Pd = oBc.RCR.Pd;
+  nBc.RCR.Xo = oBc.RCR.Xo;
+
+  // Copy cap data fields
+  nBc.capName = oBc.capName;
+  nBc.iCapBC  = oBc.iCapBC;
 }
 
 //--------------

@@ -172,6 +172,9 @@ class bcType
     // Pointer to FSILS%bc
     int lsPtr = -1;
 
+    // Index of cap BC associated wtih this BC
+    int iCapNC = 0;
+
     // Undeforming Neu BC master-slave node parameters.
     int masN = 0;
 
@@ -214,6 +217,9 @@ class bcType
 
     // Neu: RCR
     rcrType RCR;
+
+    // Name of face that caps this surface
+    char capName = '';
 };
 
 /// @brief Class storing data for B-Splines.
@@ -527,6 +533,9 @@ class faceType
 
     //faceType& operator=(const faceType& rhs);
 
+    // Flag for virtual face (i.e. face does not lie on volume mesh)
+    bool vrtual = false;
+
     // Parametric direction normal to this face (NURBS)
     int d = 0;
 
@@ -553,6 +562,9 @@ class faceType
 
     // Number of nodes
     int nNo = 0;
+
+    //ID number of (virtual) face that caps this face
+    int capID = 0;
 
     // Global element Ids
     Vector<int> gE;

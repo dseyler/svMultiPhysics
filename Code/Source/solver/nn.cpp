@@ -566,6 +566,17 @@ void gnnb(const ComMod& com_mod, const faceType& lFa, const int e, const int g, 
   dmsg << "cfg: " << cfg;
   #endif
 
+  // Call GNNBv if face is virtual
+  if (lFa.vrtual) {
+    #ifdef debug_gnnb
+    dmsg << "Virtual face detected. Calling gnnbv...";
+    #endif
+    gnnbv(com_mod, lFa, e, g, nsd, insd, eNoNb, Nx, n, cfg);
+    return;
+  }
+
+
+
   int iM = lFa.iM;
   int Ec = lFa.gE(e);
   auto& msh = com_mod.msh[iM];
@@ -662,7 +673,7 @@ void gnnb(const ComMod& com_mod, const faceType& lFa, const int e, const int g, 
   }
 
   // Calculating surface deflation
-  if (msh.lShl) {
+  if (msh.lShl) { // If mesh is a shell
     // Since the face has only one parametric coordinate (edge), find
     // its normal from cross product of mesh normal and interior edge
 
@@ -752,6 +763,102 @@ void gnnb(const ComMod& com_mod, const faceType& lFa, const int e, const int g, 
   if (utils::norm(n,v) < 0.0) {
     n = -n;
   }
+}
+
+/// @brief This routine returns a surface normal vector at element "e" and Gauss point
+/// 'g' of a virtual face 'lFa' weighted by Jac, i.e.
+/// Jac = SQRT(NORM(n)), the Jacobian of the mapping from parent surface element to
+/// reference/old/new configuration.
+///
+/// Since virtual faces do not have an interior element, the direction of the normal vector
+/// is assumed from the nodal ordering.
+///
+/// cfg denotes which configuration (reference/timestep 0, old/timestep n, or new/timestep n+1).
+///
+/// Reproduce Fortran 'GNNBv'.
+//
+void gnnbv(const ComMod& com_mod, const faceType& lFa, const int e, const int g, const int nsd, const int insd,
+  const int eNoNb, const Array<double>& Nx, Vector<double>& n, MechanicalConfigurationType cfg)
+{
+auto& cm = com_mod.cm;
+
+#ifdef debug_gnnbv
+DebugMsg dmsg(__func__, com_mod.cm.idcm());
+dmsg.banner();
+dmsg << "e: " << e + 1;
+dmsg << "g: " << g + 1;
+dmsg << "nsd: " << nsd;
+dmsg << "insd: " << insd;
+dmsg << "eNoNb: " << eNoNb;
+dmsg << "cfg: " << cfg;
+#endif
+
+// Allocate necessary arrays
+Array<double> lX(nsd, eNoNb);
+Vector<double> tmpX(nsd);
+Vector<double> tmpDo(com_mod.tDof);
+Vector<double> tmpDn(com_mod.tDof);
+
+// Determine displacement degrees of freedom
+int is = 1;
+for (const auto& eq : com_mod.eq) {
+if (eq.phys == PhysicsType::structural || eq.phys == PhysicsType::ustructural) {
+   is = eq.s;
+   break;
+}
+}
+int ie = is + nsd - 1;
+
+// Gather nodal positions and correct geometry if needed
+for (int a = 0; a < eNoNb; a++) {
+int Ac = lFa.IEN(a, e);
+
+// Collect node position onto Master. On slaves, set tmpX to zero.
+cm.gatherMasterV(com_mod.x, Ac, tmpX);
+for (int i = 0; i < nsd; i++) {
+   lX(i, a) = tmpX(i);
+}
+
+if (com_mod.mvMsh) {
+   cm.gatherMasterV(com_mod.Do, Ac, tmpDo);
+   for (int i = 0; i < nsd; i++) {
+       lX(i, a) += tmpDo(i + nsd + 1);
+   }
+} else {
+   if (cfg == MechanicalConfigurationType::old_timestep) {
+       cm.gatherMasterV(com_mod.Do, Ac, tmpDo);
+       for (int i = 0; i < nsd; i++) {
+           lX(i, a) += tmpDo(i);
+       }
+   } else if (cfg == MechanicalConfigurationType::new_timestep) {
+       cm.gatherMasterV(com_mod.Dn, Ac, tmpDn);
+       for (int i = 0; i < nsd; i++) {
+           lX(i, a) += tmpDn(i);
+       }
+   }
+}
+}
+
+// Compute normal vector on master and broadcast to all processes
+if (cm.mas()) {
+Array<double> xXi(nsd, insd);
+xXi.setZero();
+
+for (int a = 0; a < eNoNb; a++) {
+   for (int i = 0; i < insd; i++) {
+       for (int j = 0; j < nsd; j++) {
+           xXi(j, i) += Nx(i, a) * lX(j, a);
+       }
+   }
+}
+
+n = utils::cross(xXi);
+} else {
+n.setZero();
+}
+
+// Broadcast normal vector to all processes
+cm.bcast(n);
 }
 
 /// @brief Compute shell kinematics: normal vector, covariant & contravariant basis vectors

@@ -138,6 +138,13 @@ void calc_der_cpl_bc(ComMod& com_mod, const CmMod& cm_mod)
         }
         cplBC.fa[ptr].Qo = all_fun::integ(com_mod, cm_mod, fa, com_mod.Yo, 0, nsd-1, false, cfg_o);
         cplBC.fa[ptr].Qn = all_fun::integ(com_mod, cm_mod, fa, com_mod.Yn, 0, nsd-1, false, cfg_n);
+        // Add velocity flux from cap if face is capped
+        iFaCap = com_mod.msh[iM].fa[iFa].capID;
+        if (iFaCap != 0) {
+          cplBC.fa[ptr].Qo = cplBC.fa[ptr].Qo + all_fun::integ(com_mod, cm_mod, com_mod.msh[iM].fa[iFaCap], Yo, 0, nsd-1, false, cfg_o);
+          cplBC.fa[ptr].Qn = cplBC.fa[ptr].Qn + all_fun::integ(com_mod, cm_mod, com_mod.msh[iM].fa[iFaCap], Yn, 0, nsd-1, false, cfg_n);
+        }
+
         cplBC.fa[ptr].Po = 0.0;
         cplBC.fa[ptr].Pn = 0.0;
         #ifdef debug_calc_der_cpl_bc 
@@ -226,6 +233,13 @@ void calc_der_cpl_bc(ComMod& com_mod, const CmMod& cm_mod)
 
         // Finite difference calculation of the resistance dP/dQ
         bc.r = (cplBC.fa[i].y - orgY[i]) / diff;
+
+        // Set resistance for capping BC if it exists for this BC.
+        // Set it to be the same resistance as the cappeed BC.
+        iCapBC = bc.iCapBC;
+        if (iCapBC != 0) {
+          eq[iEq].bc[iCapBC].r = bc.r;
+        }
 
         // Restore the original pressures and flowrates
         for (size_t j = 0; j < cplBC.fa.size(); j++) {
@@ -328,6 +342,7 @@ void genBC_Integ_X(ComMod& com_mod, const CmMod& cm_mod, const std::string& genF
 {
   using namespace consts;
 
+  // Number of Dirichlet and Neumann coupled surfaces in the 3D domain
   int nDir = 0;
   int nNeu = 0;
   double dt = com_mod.dt;
@@ -739,6 +754,13 @@ void set_bc_cpl(ComMod& com_mod, CmMod& cm_mod)
         
           cplBC.fa[ptr].Qo = all_fun::integ(com_mod, cm_mod, com_mod.msh[iM].fa[iFa], Yo, 0, nsd-1, false, cfg_o);
           cplBC.fa[ptr].Qn = all_fun::integ(com_mod, cm_mod, com_mod.msh[iM].fa[iFa], Yn, 0, nsd-1, false, cfg_n);
+
+          // Add velocity flux from cap if face is capped
+          iFaCap = com_mod.msh[iM].fa[iFa].capID;
+          if (iFaCap != 0) {
+            cplBC.fa[ptr].Qo = cplBC.fa[ptr].Qo + all_fun::integ(com_mod, cm_mod, com_mod.msh[iM].fa[iFaCap], Yo, 0, nsd-1, false, cfg_o);
+            cplBC.fa[ptr].Qn = cplBC.fa[ptr].Qn + all_fun::integ(com_mod, cm_mod, com_mod.msh[iM].fa[iFaCap], Yn, 0, nsd-1, false, cfg_n);
+          }
           cplBC.fa[ptr].Po = 0.0;
           cplBC.fa[ptr].Pn = 0.0;
         } 
@@ -836,6 +858,7 @@ void set_bc_dir(ComMod& com_mod, Array<double>& lA, Array<double>& lY, Array<dou
         }
       } // END bType_CMM
 
+      // Skip if not Dirichlet BC or weak Dirichlet BC
       if (!utils::btest(bc.bType, iBC_Dir)) {
         continue;
       }
@@ -1335,6 +1358,10 @@ void set_bc_neu(ComMod& com_mod, const CmMod& cm_mod, const Array<double>& Yg, c
     dmsg << "----- iBc " << iBc+1;
     #endif
 
+    // Skip if the face is virtual
+    if (com_mod.msh[iM].fa[iFa].vrtual) {
+      continue;
+    }
     if (utils::btest(bc.bType, iBC_Neu)) {
       #ifdef debug_set_bc_neu
       dmsg << "iM: " << iM+1;
