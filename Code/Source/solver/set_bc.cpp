@@ -139,10 +139,10 @@ void calc_der_cpl_bc(ComMod& com_mod, const CmMod& cm_mod)
         cplBC.fa[ptr].Qo = all_fun::integ(com_mod, cm_mod, fa, com_mod.Yo, 0, nsd-1, false, cfg_o);
         cplBC.fa[ptr].Qn = all_fun::integ(com_mod, cm_mod, fa, com_mod.Yn, 0, nsd-1, false, cfg_n);
         // Add velocity flux from cap if face is capped
-        iFaCap = com_mod.msh[iM].fa[iFa].capID;
+        auto& iFaCap = com_mod.msh[iM].fa[iFa].capID;
         if (iFaCap != 0) {
-          cplBC.fa[ptr].Qo = cplBC.fa[ptr].Qo + all_fun::integ(com_mod, cm_mod, com_mod.msh[iM].fa[iFaCap], Yo, 0, nsd-1, false, cfg_o);
-          cplBC.fa[ptr].Qn = cplBC.fa[ptr].Qn + all_fun::integ(com_mod, cm_mod, com_mod.msh[iM].fa[iFaCap], Yn, 0, nsd-1, false, cfg_n);
+          cplBC.fa[ptr].Qo = cplBC.fa[ptr].Qo + all_fun::integ(com_mod, cm_mod, com_mod.msh[iM].fa[iFaCap], com_mod.Yo, 0, nsd-1, false, cfg_o);
+          cplBC.fa[ptr].Qn = cplBC.fa[ptr].Qn + all_fun::integ(com_mod, cm_mod, com_mod.msh[iM].fa[iFaCap], com_mod.Yn, 0, nsd-1, false, cfg_n);
         }
 
         cplBC.fa[ptr].Po = 0.0;
@@ -236,9 +236,9 @@ void calc_der_cpl_bc(ComMod& com_mod, const CmMod& cm_mod)
 
         // Set resistance for capping BC if it exists for this BC.
         // Set it to be the same resistance as the cappeed BC.
-        iCapBC = bc.iCapBC;
+        auto& iCapBC = bc.iCapBC;
         if (iCapBC != 0) {
-          eq[iEq].bc[iCapBC].r = bc.r;
+          eq.bc[iCapBC].r = bc.r;
         }
 
         // Restore the original pressures and flowrates
@@ -678,7 +678,7 @@ void set_bc_cmm_l(ComMod& com_mod, const CmMod& cm_mod, const faceType& lFa, con
     vwp = vwp / 3.0;
 
     // Add CMM BCs contributions to the LHS/RHS
-    cmm::cmm_b(com_mod, lFa, e, al, dl, xl, bfl, pSl, vwp, ptr);
+    cmm::cmm_b(com_mod, cm_mod, lFa, e, al, dl, xl, bfl, pSl, vwp, ptr);
   }
 
 }
@@ -756,7 +756,7 @@ void set_bc_cpl(ComMod& com_mod, CmMod& cm_mod)
           cplBC.fa[ptr].Qn = all_fun::integ(com_mod, cm_mod, com_mod.msh[iM].fa[iFa], Yn, 0, nsd-1, false, cfg_n);
 
           // Add velocity flux from cap if face is capped
-          iFaCap = com_mod.msh[iM].fa[iFa].capID;
+          int iFaCap = com_mod.msh[iM].fa[iFa].capID;
           if (iFaCap != 0) {
             cplBC.fa[ptr].Qo = cplBC.fa[ptr].Qo + all_fun::integ(com_mod, cm_mod, com_mod.msh[iM].fa[iFaCap], Yo, 0, nsd-1, false, cfg_o);
             cplBC.fa[ptr].Qn = cplBC.fa[ptr].Qn + all_fun::integ(com_mod, cm_mod, com_mod.msh[iM].fa[iFaCap], Yn, 0, nsd-1, false, cfg_n);
@@ -1085,7 +1085,7 @@ void set_bc_dir_l(ComMod& com_mod, const bcType& lBc, const faceType& lFa, Array
 
 /// @brief Weak treatment of Dirichlet boundary conditions
 //
-void set_bc_dir_w(ComMod& com_mod, const Array<double>& Yg, const Array<double>& Dg)
+void set_bc_dir_w(ComMod& com_mod, const CmMod& cm_mod, const Array<double>& Yg, const Array<double>& Dg)
 {
   using namespace consts;
 
@@ -1099,13 +1099,13 @@ void set_bc_dir_w(ComMod& com_mod, const Array<double>& Yg, const Array<double>&
     if (!bc.weakDir) {
       continue;
     }
-    set_bc_dir_wl(com_mod, bc, com_mod.msh[iM], com_mod.msh[iM].fa[iFa], Yg, Dg);
+    set_bc_dir_wl(com_mod, cm_mod, bc, com_mod.msh[iM], com_mod.msh[iM].fa[iFa], Yg, Dg);
   }
 }
 
 /// @brief Reproduces Fortran 'SETBCDIRWL'.
 //
-void set_bc_dir_wl(ComMod& com_mod, const bcType& lBc, const mshType& lM, const faceType& lFa, const Array<double>& Yg, const Array<double>& Dg)
+void set_bc_dir_wl(ComMod& com_mod, const CmMod& cm_mod, const bcType& lBc, const mshType& lM, const faceType& lFa, const Array<double>& Yg, const Array<double>& Dg)
 {
   using namespace consts;
 
@@ -1293,7 +1293,7 @@ void set_bc_dir_wl(ComMod& com_mod, const bcType& lBc, const mshType& lM, const 
     for (int g = 0; g < lFa.nG; g++) {
       Vector<double> nV(nsd);
       auto Nx = lFa.Nx.slice(g);
-      nn::gnnb(com_mod, lFa, e, g, nsd, nsd-1, eNoNb, Nx, nV);
+      nn::gnnb(com_mod, cm_mod, lFa, e, g, nsd, nsd-1, eNoNb, Nx, nV);
       double Jac = sqrt(utils::norm(nV));
       nV = nV / Jac;
       double w = lFa.w(g) * Jac;
@@ -1469,10 +1469,10 @@ void set_bc_neu_l(ComMod& com_mod, const CmMod& cm_mod, const bcType& lBc, const
   // Add Neumann BCs contribution to the residual (and tangent if flwP)
   //
   if (lBc.flwP) {
-    eq_assem::b_neu_folw_p(com_mod, lBc, lFa, hg, Dg);
+    eq_assem::b_neu_folw_p(com_mod, cm_mod, lBc, lFa, hg, Dg);
 
   } else {
-    eq_assem::b_assem_neu_bc(com_mod, lFa, hg, Yg);
+    eq_assem::b_assem_neu_bc(com_mod, cm_mod, lFa, hg, Yg);
   }
 
 
@@ -1482,19 +1482,19 @@ void set_bc_neu_l(ComMod& com_mod, const CmMod& cm_mod, const bcType& lBc, const
   // a follower pressure load (struct/ustruct) or a moving mesh (FSI)
   if (utils::btest(lBc.bType, iBC_res)) {
     if (lBc.flwP || com_mod.mvMsh) {
-      eq_assem::fsi_ls_upd(com_mod, lBc, lFa);
+      eq_assem::fsi_ls_upd(com_mod, cm_mod, lBc, lFa);
     }
   }
   // Now treat Robin BC (stiffness and damping) here
   //
   if (utils::btest(lBc.bType,iBC_Robin)) {
-    set_bc_rbnl(com_mod, lFa, lBc.k, lBc.c, lBc.rbnN, Yg, Dg);
+    set_bc_rbnl(com_mod, cm_mod, lFa, lBc.k, lBc.c, lBc.rbnN, Yg, Dg);
   }
 }
 
 /// @brief Set Robin BC contribution to residual and tangent
 //
-void set_bc_rbnl(ComMod& com_mod, const faceType& lFa, const double ks, const double cs, const bool isN, 
+void set_bc_rbnl(ComMod& com_mod, const CmMod& cm_mod, const faceType& lFa, const double ks, const double cs, const bool isN, 
   const Array<double>& Yg, const Array<double>& Dg)
 {
   using namespace consts;
@@ -1544,7 +1544,7 @@ void set_bc_rbnl(ComMod& com_mod, const faceType& lFa, const double ks, const do
     for (int g = 0; g < lFa.nG; g++) {
       Vector<double> nV(nsd);
       auto Nx = lFa.Nx.slice(g);
-      nn::gnnb(com_mod, lFa, e, g, nsd, nsd-1, eNoN, Nx, nV);
+      nn::gnnb(com_mod, cm_mod, lFa, e, g, nsd, nsd-1, eNoN, Nx, nV);
       double Jac = sqrt(utils::norm(nV));
       nV  = nV / Jac;
       double w = lFa.w(g) * Jac; 
@@ -1795,7 +1795,7 @@ void set_bc_trac_l(ComMod& com_mod, const CmMod& cm_mod, const bcType& lBc, cons
     for (int g = 0; g < lFa.nG; g++) {
       Vector<double> nV(nsd);
       auto Nx = lFa.Nx.slice(g);
-      nn::gnnb(com_mod, lFa, e, g, nsd, nsd-1, eNoN, Nx, nV);
+      nn::gnnb(com_mod, cm_mod, lFa, e, g, nsd, nsd-1, eNoN, Nx, nV);
       double Jac = sqrt(utils::norm(nV));
       double w = lFa.w(g)*Jac;
       N = lFa.N.col(g);

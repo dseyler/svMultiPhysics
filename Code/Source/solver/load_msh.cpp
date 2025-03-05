@@ -280,20 +280,21 @@ void read_sv(Simulation* simulation, mshType& mesh, const MeshParameters* mesh_p
                 }
             }
 
-            // Read virtual face lag. A face is virtual if it does not lie
+            // Read virtual face flag. A face is virtual if it does not lie
             // on the computational mesh (default value is false).
             face.vrtual = face_param->virtual_face();
 
             // GlobalElementID is not defined for a virtual face. Allocate
-            // face.gE andd set it to zero.
+            // face.gE and set it to zero.
             if (face.vrtual){
                 face.gnEl = face.nEl;
-                face.gE.resize(face.nEl, 0);
-                face.gebc.resize(face.eNon, face.nEl);
-                face.gebc.row(0).setZero(); // Set the first row to 0
+                face.gE.resize(face.nEl);
+                face.gebc.resize(face.eNoN, face.nEl);
+                // Set the first row to 0
                 for (int e = 0; e < face.nEl; e++){
+                    face.gE(e) = 0;
                     for (int a = 0; a < face.eNoN; a++) {
-                        face.gebc(a, e) = face.IEN(a,e);
+                        face.gebc(a, e) = 0;
                     }
                 }
             }

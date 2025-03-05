@@ -163,6 +163,9 @@ class FSILS_faceType
 
     /// Index of face that caps this face
     int faInCap = 0;
+
+    /// Index of mesh that caps this face
+    int iM = 0;
 };
 
 /// @brief Modified in:

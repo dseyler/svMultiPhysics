@@ -1248,6 +1248,128 @@ void dist_solid_visc_model(const ComMod& com_mod, const CmMod& cm_mod, const cmT
   cm.bcast(cm_mod, &lVis.mu);
 }
 
+// This routine partitions a virtual face. Since a virtual face is
+// not part of a mesh entity, it will be treated separately.
+// It replicates the subroutine 'PARTFACEV' in the Fortran code.
+
+void part_faceV(Simulation* simulation, mshType& lM, faceType& lFa, faceType& gFa, Vector<int>& gmtl) 
+{
+  #ifdef debug_part_face
+  DebugMsg dmsg(__func__, com_mod.cm.idcm());
+  dmsg.banner();
+  dmsg << "lFa.name: " << lFa.name;
+  #endif
+
+  auto& cm_mod = simulation->cm_mod;
+  auto& com_mod = simulation->com_mod;
+  auto& chnl_mod = simulation->chnl_mod;
+  auto& cm = com_mod.cm;
+
+  // Define some useful variables
+  int eNoNb = gFa.eNoN; // number of nodes per element
+  int iM = gFa.iM; // mesh index of this face
+
+  Vector<int> part;
+  Vector<int> ePtr(gFa.nEl);
+
+  int i = gFa.nEl*(2+eNoNb) + gFa.nNo;
+  part.resize(i);
+
+  if (cm.mas(cm_mod)) {
+    for (int e = 0; e < gFa.nEl; e++) {
+        int j = e * eNoNb;
+        for (int k = 0; k < eNoNb; k++) {
+            part[j + k] = gFa.IEN(k, e);
+        }
+    }
+
+    for (int a = 0; a < gFa.nNo; a++) {
+        int j = gFa.nEl * eNoNb + a;
+        part[j] = gFa.gN[a];
+    }
+  }
+  
+  // Broadcast array to all processors
+  cm.bcast(cm_mod, part);
+    
+    if (cm.slv(cm_mod)) {
+        gFa.gE.resize(gFa.nEl);
+        for (int e = 0; e < gFa.nEl; e++) {
+            int j = e * eNoNb;
+            for (int k = 0; k < eNoNb; k++) {
+                gFa.IEN(k, e) = part[j + k];
+            }
+        }
+        
+        for (int a = 0; a < gFa.nNo; a++) {
+            int j = gFa.nEl * eNoNb + a;
+            gFa.gN[a] = part[j];
+        }
+    }
+    
+    part.clear();
+
+    // At this point, gFa is the same across all procs, and contains all
+    // the face information
+
+    // If face is virtual, then we can't partition the face according
+    // to the element partition of the mesh, since the element of the
+    // virtual face do not lie on the mesh. In this case, set lFa%nEl
+    // equal to gFa%nEl for all procs.
+
+    // time to form the local "face" structure in each processor
+    lFa.nEl = gFa.nEl;
+
+    // Allocate local face global element list and IEN array
+    lFa.gE.resize(lFa.nEl);
+    lFa.IEN.resize(eNoNb, lFa.nEl);
+    
+    // Compute the number of nodes on face that belong to this proc
+    lFa.nNo = 0;
+    for (int a = 0; a < gFa.nNo; a++) {
+        int Ac = gmtl[gFa.gN[a]];
+        if (Ac != 0) {
+            lFa.nNo++;
+        }
+    }
+    
+    // Allocate local face global node list
+    lFa.gN.resize(lFa.nNo);
+    
+    // Note that some values of lFa.IEN can be 0 if the node does not
+    // belong to this processor
+    for (int e = 0; e < lFa.nEl; e++) {
+        for (int a = 0; a < eNoNb; a++) {
+            lFa.IEN(a, e) = gmtl[gFa.IEN(a, e)];
+        }
+    }
+    
+    // Analogously copying the nodes which belong to this processor
+    int j = 0;
+    for (int a = 0; a < gFa.nNo; a++) {
+        int Ac = gmtl[gFa.gN[a]];
+        if (Ac != 0) {
+            lFa.gN[j++] = Ac;
+        }
+    }
+    
+    lFa.gnEl = gFa.gnEl;
+    
+    if (com_mod.rmsh.isReqd) {
+        if (cm.mas(cm_mod)) {
+            lFa.gebc.resize(1 + eNoNb, lFa.gnEl);
+            for (int e = 0; e < gFa.gnEl; e++) {
+                lFa.gebc(0, e) = gFa.gebc(0, e);
+                for (int i = 1; i <= eNoNb; i++) {
+                    lFa.gebc(i, e) = gFa.gebc(i, e);
+                }
+            }
+        } else {
+            lFa.gebc.clear();
+        }
+    }
+}
+
 // This function partitions the face based on the already partitioned mesh.
 // It replicates the subroutine PARTFACE in the fortran code.
 void part_face(Simulation* simulation, mshType& lM, faceType& lFa, faceType& gFa, Vector<int>& gmtl)
@@ -2088,129 +2210,4 @@ void part_msh(Simulation* simulation, int iM, mshType& lM, Vector<int>& gmtl, in
     lM.Ys = all_fun::local(com_mod, cm_mod, cm, tmpYs);
     tmpYs.clear();
   }
-}
-
-// This routine partitions a virtual face. Since a virtual face is
-// not part of a mesh entity, it will be treated separately.
-// It replicates the subroutine 'PARTFACEV' in the Fortran code.
-
-void part_faceV(Simulation* simulation, mshType& lM, faceType& lFa, faceType& gFa, Vector<int>& gmtl) 
-{
-  #ifdef debug_part_face
-  DebugMsg dmsg(__func__, com_mod.cm.idcm());
-  dmsg.banner();
-  dmsg << "lFa.name: " << lFa.name;
-  #endif
-
-  auto& cm_mod = simulation->cm_mod;
-  auto& com_mod = simulation->com_mod;
-  auto& chnl_mod = simulation->chnl_mod;
-  auto& cm = com_mod.cm;
-
-  // Define some useful variables
-  int eNonb = gFa.eNoN; // number of nodes per element
-  int iM = gFa.iM; // mesh index of this face
-
-  Vector<int> part;
-  Vector<int> ePtr(gFa.nEl);
-
-  int i = gFa.nEl*(2+eNonb) + gFa.nNo;
-  part.resize(i);
-
-  if (cm.mas(cm_mod)) {
-    for (int e = 0; e < gFa.nEl; e++) {
-        int j = e * eNoNb;
-        for (int k = 0; k < eNoNb; k++) {
-            part[j + k] = gFa.IEN(k, e);
-        }
-    }
-
-    for (int a = 0; a < gFa.nNo; a++) {
-        int j = gFa.nEl * eNoNb + a;
-        part[j] = gFa.gN[a];
-    }
-  }
-  
-  // Broadcast array to all processors
-  cm.bcast(cm_mod, part);
-    
-    if (cm.slv(cm_mod)) {
-        gFa.gE.resize(gFa.nEl, 0);
-        for (int e = 0; e < gFa.nEl; e++) {
-            int j = e * eNoNb;
-            for (int k = 0; k < eNoNb; k++) {
-                gFa.IEN(k, e) = part[j + k];
-            }
-        }
-        
-        for (int a = 0; a < gFa.nNo; a++) {
-            int j = gFa.nEl * eNoNb + a;
-            gFa.gN[a] = part[j];
-        }
-    }
-    
-    part.clear();
-
-    // At this point, gFa is the same across all procs, and contains all
-    // the face information
-
-    // If face is virtual, then we can't partition the face according
-    // to the element partition of the mesh, since the element of the
-    // virtual face do not lie on the mesh. In this case, set lFa%nEl
-    // equal to gFa%nEl for all procs.
-
-    // time to form the local "face" structure in each processor
-    lFa.nEl = gFa.nEl
-
-    // Allocate local face global element list and IEN array
-    lFa.gE.resize(lFa.nEl, 0);
-    lFa.IEN.resize(eNoNb, lFa.nEl);
-    
-    // Compute the number of nodes on face that belong to this proc
-    lFa.nNo = 0;
-    for (int a = 0; a < gFa.nNo; a++) {
-        int Ac = gmtl[gFa.gN[a]];
-        if (Ac != 0) {
-            lFa.nNo++;
-        }
-    }
-    
-    // Allocate local face global node list
-    lFa.gN.resize(lFa.nNo);
-    
-    // Note that some values of lFa.IEN can be 0 if the node does not
-    // belong to this processor
-    for (int e = 0; e < lFa.nEl; e++) {
-        for (int a = 0; a < eNoNb; a++) {
-            lFa.IEN(a, e) = gmtl[gFa.IEN(a, e)];
-        }
-    }
-    
-    // Analogously copying the nodes which belong to this processor
-    int j = 0;
-    for (int a = 0; a < gFa.nNo; a++) {
-        int Ac = gmtl[gFa.gN[a]];
-        if (Ac != 0) {
-            lFa.gN[j++] = Ac;
-        }
-    }
-    
-    lFa.gnEl = gFa.gnEl;
-    
-    if (com_mod.rmsh.isReqd) {
-        if (cm.mas(cm_mod)) {
-            lFa.gebc.resize(1 + eNoNb, lFa.gnEl);
-            for (int e = 0; e < gFa.gnEl; e++) {
-                lFa.gebc(0, e) = gFa.gebc(0, e);
-                for (int i = 1; i <= eNoNb; i++) {
-                    lFa.gebc(i, e) = gFa.gebc(i, e);
-                }
-            }
-        } else {
-            lFa.gebc.clear();
-        }
-    }
-
-  
-  //
 }

@@ -67,7 +67,7 @@ namespace all_fun {
 // At the end of this routine, snode is the vector value at the desired node
 // on the master, and zero on all slaves.
 
-void GatherMasterV(ComMod& com_mod, const Array<double>& s, const int Ac, Vector<double>& snode)
+void GatherMasterV(const ComMod& com_mod, const Array<double>& s, const int Ac, Vector<double>& snode)
 {
 
   // Get rank and size of the communicator
@@ -132,7 +132,7 @@ void GatherMasterV(ComMod& com_mod, const Array<double>& s, const int Ac, Vector
 //
 // At the end of this routine,
 // snode is the scalar value at the desired node on the master, and zero on all slaves.
-void GatherMasterS(ComMod& com_mod, const Vector<double>& s, const int Ac, double& snode)
+void GatherMasterS(const ComMod& com_mod, const Vector<double>& s, const int Ac, double& snode)
 {
   // Get rank and size of the communicator
   int rank, size, ierr;
@@ -448,9 +448,10 @@ double integ(const ComMod& com_mod, const CmMod& cm_mod, int dId, const Array<do
   dmsg << "pFlag: " << pFlag;
   #endif
 
+  auto& cm = com_mod.cm;
   int nNo = s.ncols(); // Number of nodes in the mesh
   int tnNo = com_mod.tnNo; // Total number of nodes on a processor
-  bool ibFlag = com_mod.ibFlag; // Flag for immersed boundary 
+  bool ibFlag = com_mod.ibFlag; // Flag for immersed boundary
 
   if (nNo != tnNo) {
     if (ibFlag) {
@@ -604,16 +605,17 @@ double integ(const ComMod& com_mod, const CmMod& cm_mod, int dId, const Array<do
       // Calculating the function value
           double sHat = 0.0;
             for (int a = 0; a < eNoN; a++) {
+              double snode = 0.0;
               if (!msh.vrtual) {
                 // Get local node number on proc. Ac in [1, tnNo]
                 int Ac = msh.IEN(a,e);
-                double snode = sl(Ac)
+                snode = sl(Ac);
                 sHat = sHat + sl(a)*fs.N(a,g);
               }
               else { // If virtual face, then master may need to get value from another proc
                 int Ac = msh.IEN(a,e);
                 // Gather face node (a,e) value to master node. On follower procs, snode = 0
-                GatherMasterS(cm, sl, Ac, double snode)
+                GatherMasterS(com_mod, sl, Ac, snode);
               }
               sHat = sHat + snode*fs.N(a,g);
             }
@@ -672,7 +674,7 @@ double integ(const ComMod& com_mod, const CmMod& cm_mod, int dId, const Array<do
 
           for (int a = 0; a < eNoN; a++) {
             int Ac = ib.msh[iM].IEN(a,e);
-            double snode = sl(Ac)
+            double snode = sl(Ac);
             sHat += sl(a)*ib.msh[iM].N(a,g);
           }
           result += ib.msh[iM].w(g)*Jac*sHat;
@@ -823,7 +825,7 @@ double integ(const ComMod& com_mod, const CmMod& cm_mod, const faceType& lFa, co
       if (!isIB) {
         // Get normal vector in cfg configuration
         auto Nx = fs.Nx.slice(g);
-        nn::gnnb(com_mod, lFa, e, g, nsd, insd, fs.eNoN, Nx, n, cfg);
+        nn::gnnb(com_mod, cm_mod, lFa, e, g, nsd, insd, fs.eNoN, Nx, n, cfg);
       }
 
       // Calculating the Jacobian (encodes area of face element)
@@ -832,16 +834,17 @@ double integ(const ComMod& com_mod, const CmMod& cm_mod, const faceType& lFa, co
       // Calculating the function value at Gauss point
       double sHat = 0.0;
       for (int a = 0; a < fs.eNoN; a++) {
+        double snode = 0.0;
         if (!lFa.vrtual) {
         // Get local node number on proc.
         int Ac = lFa.IEN(a,e);
         // Get nodal function value to use
-        double snode = s(Ac);
+        snode = s(Ac);
         }
         else { // If virtual face, then master may need to get value from another proc
           int Ac = lFa.IEN(a,e);
           // Gather face node (a,e) value to master snode. On follower procs, snode=0
-          GatherMasterS(cm, s, Ac, double snode);
+          GatherMasterS(com_mod, s, Ac, snode);
         }
         sHat = sHat + snode*fs.N(a,g);
       }
@@ -953,7 +956,7 @@ double integ(const ComMod& com_mod, const CmMod& cm_mod, const faceType& lFa,
       if (!isIB) {
         // Get normal vector in cfg configuration
         auto Nx = lFa.Nx.slice(g);
-        nn::gnnb(com_mod, lFa, e, g, nsd, nsd-1, lFa.eNoN, Nx, n, cfg);
+        nn::gnnb(com_mod, cm_mod, lFa, e, g, nsd, nsd-1, lFa.eNoN, Nx, n, cfg);
         //CALL GNNB(lFa, e, g, nsd-1, lFa.eNoN, lFa.Nx(:,:,g), n)
       } else {
         //CALL GNNIB(lFa, e, g, n)

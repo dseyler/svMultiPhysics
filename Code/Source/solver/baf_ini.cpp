@@ -47,6 +47,27 @@
 #include <set>
 #include <math.h>
 
+// Reproduces MATCH_LHS_FACE subroutine in BAFINIT.f
+// Find lhs.face index faIn corresponding iM and iFa, which
+// index msh.fa and lhs.face respectively.
+void match_lhs_face(const ComMod& com_mod, int iM, int iFa, int& faIn) {
+
+  auto& lhs = com_mod.lhs;
+  // Loop over lhs.faces to find corresponding face
+  faIn = 0;
+  for (int i = 0; i < lhs.nFaces; i++) {
+      // If lhs.face matches mesh and face index
+      if ((lhs.face[i].iFa == iFa) && (lhs.face[i].iM == iM)) {
+          faIn = i;
+          break;
+      }
+  }
+  
+  if (faIn == 0) {
+      throw std::runtime_error("Cannot match LHS face and mesh indices.");
+  }
+}
+
 namespace baf_ini_ns {
 
 /// @brief This routine initializes required structure for boundaries,
@@ -191,19 +212,19 @@ void baf_ini(Simulation* simulation)
       int iM = bc.iM;
       bc.lsPtr = 0;
       fsi_ls_ini(com_mod, cm_mod, bc, com_mod.msh[iM].fa[iFa], lsPtr);
-      // Store mesh and face index in corresponding lhs.face(i). This
+      // Store mesh and face index in corresponding lhs.face[i]. This
       // Explicitly maps mesh and face indices  between lhs object
       // (used in the linear solver for coupled surface) and the
       // msh object. Used in MATCHFACE below.
-      if (eq(iEq).bc(iBc).lsPtr != 0) {
-        com_mod.lhs.face(bc(iBc).lsPtr).iM = iM;
-        com_mod.lhs.face(bc(iBc).lsPtr).iFa = iFa;
+      if (bc.lsPtr != 0) {
+        com_mod.lhs.face[bc.lsPtr].iM = iM;
+        com_mod.lhs.face[bc.lsPtr].iFa = iFa;
       }
     }
   }
 
-  // If any face in msh(:).fa(:) are capped, share information with
-  // lhs.face(:)
+  // If any face in msh.fa are capped, share information with
+  // lhs.face
 
   for (int iEq = 0; iEq < com_mod.nEq; iEq++) {
     auto& eq = com_mod.eq[iEq];
@@ -211,13 +232,16 @@ void baf_ini(Simulation* simulation)
       auto& bc = eq.bc[iBc];
       int iFa = bc.iFa;
       int iM = bc.iM;
-      if (msh(iM).fa(iFa).capID != 0) {
-        // Find lhs.face(i) index of face being capped
-        match_lhs_face(iM, iFa, int faIn);
-        // Find lhs.face(:) index of capping face
-        match_lhs_face(iM, msh(iM).fa(iFa).capID, int faInCap);
-        // Store capping relation in lhs.face(faIn)
-        com_mod.lhs.face(faIn).capID = faInCap;
+      int capID = com_mod.msh[iM].fa[iFa].capID;
+      if (com_mod.msh[iM].fa[iFa].capID != 0) {
+        // Find lhs.face[i] index of face being capped
+        int faIn = 0;
+        match_lhs_face(com_mod, iM, iFa, faIn);
+        // Find lhs.face[i] index of capping face
+        int faInCap = 0;
+        match_lhs_face(com_mod, iM, capID, faInCap);
+        // Store capping relation in lhs.face[faIn]
+        com_mod.lhs.face[faIn].faInCap = faInCap;
       }
     }
   }
@@ -273,27 +297,6 @@ void baf_ini(Simulation* simulation)
 
     lsPtr = com_mod.nFacesLS - 1;
     fsils_bc_create(com_mod.lhs, lsPtr, i, nsd, BcType::BC_TYPE_Dir, gNodes); 
-  }
-}
-
-// Reproduces MATCH_LHS_FACE subroutine in BAFINIT.f
-// Find lhs.face(:) index faIn corresponding iM and iFa, which
-// index msh(:).fa(:) and lhs.face(:) respectively.
-void match_lhs_face(int iM, int iFa, int& faIn) {
-
-  // Loop over lhs.faces to find corresponding face
-  faIn = 0;
-  
-  for (int i = 0; i < lhs.nFaces; i++) {
-      // If lhs.face matches mesh and face index
-      if ((lhs.face[i].iFa == iFa) && (lhs.face[i].iM == iM)) {
-          faIn = i;
-          break;
-      }
-  }
-  
-  if (faIn == 0) {
-      throw std::runtime_error("Cannot match LHS face and mesh indices.");
   }
 }
 
@@ -552,7 +555,7 @@ void face_ini(Simulation* simulation, mshType& lM, faceType& lFa)
 
       for (int g = 0; g < lFa.nG; g++) {
         auto Nx = lFa.Nx.slice(g);
-        nn::gnnb(com_mod, lFa, e, g, nsd, nsd-1, lFa.eNoN, Nx, nV);
+        nn::gnnb(com_mod, cm_mod, lFa, e, g, nsd, nsd-1, lFa.eNoN, Nx, nV);
 
         for (int a = 0; a < lFa.eNoN; a++) { 
           int Ac = lFa.IEN(a,e);
@@ -808,11 +811,11 @@ void fsi_ls_ini(ComMod& com_mod, const CmMod& cm_mod, bcType& lBc, const faceTyp
         for (int g = 0; g < lFa.nG; g++) {
           Vector<double> n(nsd);
           auto Nx = lFa.Nx.slice(g);
-          nn::gnnb(com_mod, lFa, e, g, nsd, nsd-1, lFa.eNoN, Nx, n);
+          nn::gnnb(com_mod, cm_mod, lFa, e, g, nsd, nsd-1, lFa.eNoN, Nx, n);
 
           for (int a = 0; a < lFa.eNoN; a++) {
             int Ac = lFa.IEN(a,e);
-            if (Ac != 0) {}
+            if (Ac != 0) {
               for (int i = 0; i < nsd; i++) {
                 sV(i,Ac) = sV(i,Ac) + lFa.N(a,g)*lFa.w(g)*n(i);
               }
@@ -882,7 +885,7 @@ void fsi_ls_ini(ComMod& com_mod, const CmMod& cm_mod, bcType& lBc, const faceTyp
 
     fsils_bc_create(com_mod.lhs, lsPtr, nNo, nsd, BcType::BC_TYPE_Dir, gNodes, sVl); 
   } else {
-    throw std::runtime_error("Unxpected bType in FSILSINI");
+    throw std::runtime_error("Unexpected bType in FSILSINI");
   }
 }
 
@@ -1080,6 +1083,5 @@ void shl_ini(const ComMod& com_mod, const CmMod& cm_mod, mshType& lM)
     lM.nV.set_col(a, sV.col(Ac) / Jac);
   }
 }
-
 };
 

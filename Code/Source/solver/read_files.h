@@ -97,6 +97,10 @@ namespace read_files_ns {
   void set_equation_properties(Simulation* simulation, EquationParameters* eq_params, eqType& lEq, EquationProps& propL, 
     EquationOutputs& outPuts, EquationNdop& nDOP);
 
+  void copyBC(ComMod& com_mod, const bcType& oBc, bcType& nBc);
+
+  void addCapBC(eqType& lEq, int iBc, mshType& msh, cplBCType& cplBC);
+
 
 };
 
