@@ -54,7 +54,7 @@ void match_lhs_face(const ComMod& com_mod, int iM, int iFa, int& faIn) {
 
   auto& lhs = com_mod.lhs;
   // Loop over lhs.faces to find corresponding face
-  faIn = 0;
+  faIn = -1;
   for (int i = 0; i < lhs.nFaces; i++) {
       // If lhs.face matches mesh and face index
       if ((lhs.face[i].iFa == iFa) && (lhs.face[i].iM == iM)) {
@@ -63,7 +63,7 @@ void match_lhs_face(const ComMod& com_mod, int iM, int iFa, int& faIn) {
       }
   }
   
-  if (faIn == 0) {
+  if (faIn == -1) {
       throw std::runtime_error("Cannot match LHS face and mesh indices.");
   }
 }
@@ -210,13 +210,13 @@ void baf_ini(Simulation* simulation)
       auto& bc = eq.bc[iBc];
       int iFa = bc.iFa;
       int iM = bc.iM;
-      bc.lsPtr = 0;
+      bc.lsPtr = -1;
       fsi_ls_ini(com_mod, cm_mod, bc, com_mod.msh[iM].fa[iFa], lsPtr);
       // Store mesh and face index in corresponding lhs.face[i]. This
       // Explicitly maps mesh and face indices  between lhs object
       // (used in the linear solver for coupled surface) and the
       // msh object. Used in MATCHFACE below.
-      if (bc.lsPtr != 0) {
+      if (bc.lsPtr != -1) {
         com_mod.lhs.face[bc.lsPtr].iM = iM;
         com_mod.lhs.face[bc.lsPtr].iFa = iFa;
       }
@@ -233,12 +233,12 @@ void baf_ini(Simulation* simulation)
       int iFa = bc.iFa;
       int iM = bc.iM;
       int capID = com_mod.msh[iM].fa[iFa].capID;
-      if (com_mod.msh[iM].fa[iFa].capID != 0) {
+      if (capID != -1) {
+        int faIn = -1;
         // Find lhs.face[i] index of face being capped
-        int faIn = 0;
         match_lhs_face(com_mod, iM, iFa, faIn);
         // Find lhs.face[i] index of capping face
-        int faInCap = 0;
+        int faInCap = -1;
         match_lhs_face(com_mod, iM, capID, faInCap);
         // Store capping relation in lhs.face[faIn]
         com_mod.lhs.face[faIn].faInCap = faInCap;
@@ -321,7 +321,7 @@ void bc_ini(const ComMod& com_mod, const CmMod& cm_mod, bcType& lBc, faceType& l
 
   if (btest(lBc.bType, enum_int(BoundaryConditionType::bType_gen))) {
     if (btest(lBc.bType, enum_int(BoundaryConditionType::bType_Neu)) && lBc.gm.dof != 1) {
-      throw std::runtime_error("Only for (int F=1 is accepted for Neu general BCs");
+      throw std::runtime_error("Only DOF=1 is accepted for Neu general BCs");
     }
     return;
   }
@@ -559,8 +559,8 @@ void face_ini(Simulation* simulation, mshType& lM, faceType& lFa)
 
         for (int a = 0; a < lFa.eNoN; a++) { 
           int Ac = lFa.IEN(a,e);
-          // Skip if virtual face, i.e. Ac == 0
-          if (Ac != 0) {
+          // Skip if virtual face, i.e. Ac == -1
+          if (Ac != -1) {
             for (int i = 0; i < sV.nrows(); i++) { 
               sV(i,Ac) = sV(i,Ac) + nV(i)*lFa.N(a,g)*lFa.w(g);
             }
@@ -715,7 +715,7 @@ void face_ini(Simulation* simulation, mshType& lM, faceType& lFa)
   }
 
   all_fun::commu(com_mod, sV);
-  flag = true;
+  flag = false;
 
   for (int a = 0; a < lFa.nNo; a++) {
     int Ac = lFa.gN(a);
@@ -815,7 +815,8 @@ void fsi_ls_ini(ComMod& com_mod, const CmMod& cm_mod, bcType& lBc, const faceTyp
 
           for (int a = 0; a < lFa.eNoN; a++) {
             int Ac = lFa.IEN(a,e);
-            if (Ac != 0) {
+            // For a virtual face, Ac can be -1
+            if (Ac != -1) {
               for (int i = 0; i < nsd; i++) {
                 sV(i,Ac) = sV(i,Ac) + lFa.N(a,g)*lFa.w(g)*n(i);
               }
@@ -835,7 +836,7 @@ void fsi_ls_ini(ComMod& com_mod, const CmMod& cm_mod, bcType& lBc, const faceTyp
       lBc.lsPtr = lsPtr;
       
       // Fills lhs.face(i) variables, including val is sVl exists
-      fsils_bc_create(com_mod.lhs, lsPtr, lFa.nNo, nsd, BcType::BC_TYPE_Neu, gNodes, sVl, lFa.vrtual); 
+      fsils_bc_create(com_mod.lhs, lsPtr, lFa.nNo, nsd, BcType::BC_TYPE_Neu, gNodes, sVl, lFa.vrtual);
     } else {
       lBc.lsPtr = -1;
     }
@@ -883,7 +884,7 @@ void fsi_ls_ini(ComMod& com_mod, const CmMod& cm_mod, bcType& lBc, const faceTyp
       }
     }
 
-    fsils_bc_create(com_mod.lhs, lsPtr, nNo, nsd, BcType::BC_TYPE_Dir, gNodes, sVl); 
+    fsils_bc_create(com_mod.lhs, lsPtr, nNo, nsd, BcType::BC_TYPE_Dir, gNodes, sVl);
   } else {
     throw std::runtime_error("Unexpected bType in FSILSINI");
   }

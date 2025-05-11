@@ -1491,9 +1491,7 @@ void read_eq(Simulation* simulation, EquationParameters* eq_params, eqType& lEq)
       if (lEq.bc[iBc].capName != "") {
         // Add a BC for the cap to the end of lEq.bc and add cap face
         // info to the face being capped (capName and capID fields).
-        auto& msh = com_mod.msh[lEq.bc[iBc].iM];
-        addCapBC(lEq, iBc, msh, cplBC);
-      
+        addCapBC(com_mod, lEq, iBc);
       }
     }
   }
@@ -3043,10 +3041,12 @@ void addCapBC(ComMod& com_mod, eqType& lEq, int iBc) {
 
   // Store old BCs in a temporary container
   std::vector<bcType> oldBCs(lEq.nBc);
+  // Output old BCs
+  for (int jBc = 0; jBc < lEq.nBc; jBc++) {
+  }
   for (int jBc = 0; jBc < lEq.nBc; jBc++) {
     copyBC(com_mod, lEq.bc[jBc], oldBCs[jBc]); // Copy BC information
-    // Destory the old BC
-    lEq.bc[jBc].~bcType();
+    // Destroy old BC
   }
 
   // Increment number of BCs
@@ -3063,24 +3063,29 @@ void addCapBC(ComMod& com_mod, eqType& lEq, int iBc) {
   // Add new BC for capping surface. Copy BC information from the
   // capped surface. This surface corresponds to index iBc - argument
   // passed as input to this function
-  copyBC(com_mod, lEq.bc[iBc], lEq.bc[lEq.nBc]);
+  copyBC(com_mod, lEq.bc[iBc], lEq.bc[lEq.nBc-1]);
 
   // Correct some values in the new capping surface BC
   cplBC.nFa += 1;  // Increment coupled BC face count
-  lEq.bc[lEq.nBc].cplBCptr = cplBC.nFa;
+  lEq.bc[lEq.nBc-1].cplBCptr = cplBC.nFa-1;
 
   // Find the capping face
   all_fun::find_face(msh, lEq.bc[iBc].capName, 
-                     lEq.bc[lEq.nBc].iM, lEq.bc[lEq.nBc].iFa);
-  lEq.bc[lEq.nBc].capName = "";
+                     lEq.bc[lEq.nBc-1].iM, lEq.bc[lEq.nBc-1].iFa);
+  lEq.bc[lEq.nBc-1].capName = "";
 
   // Set capID pointer in the capped face
   int iFa = lEq.bc[iBc].iFa;
   int iM  = lEq.bc[iBc].iM;
-  msh[iM].fa[iFa].capID = lEq.bc[lEq.nBc].iFa; // Copy cap face ID
+  msh[iM].fa[iFa].capID = lEq.bc[lEq.nBc-1].iFa; // Copy cap face ID
 
   // Set a pointer to the capping surface BC in the capped surface BC
-  lEq.bc[iBc].iCapBC = lEq.nBc;
+  lEq.bc[iBc].iCapBC = lEq.nBc-1;
+  //Print new BCs
+  for (int jBc = 0; jBc < lEq.nBc; jBc++) {
+    //std::cout << "New BC " << jBc << std::endl;
+    //std::cout << "New BC r: " << lEq.bc[jBc].r << std::endl;
+  }
 }
 
 //--------------------
@@ -3101,7 +3106,7 @@ void copyBC(ComMod& com_mod, const bcType& oBc, bcType& nBc) {
   nBc.r        = oBc.r;
   nBc.k        = oBc.k;
   nBc.c        = oBc.c;
-  nBc.tauB     = oBc.tauB;
+  
 
   // Set local iFa and iM
   int iFa = nBc.iFa;
@@ -3109,15 +3114,18 @@ void copyBC(ComMod& com_mod, const bcType& oBc, bcType& nBc) {
 
   // Copy fixed-size arrays
   int nsd = com_mod.nsd;
-  auto& msh = com_mod.msh[iM];
-  nBc.eDrn.resize(nsd);
-  nBc.h.resize(nsd);
+  nBc.eDrn.allocate(nsd);
+  nBc.eDrn = oBc.eDrn;
+  nBc.h.allocate(nsd);
   nBc.eDrn = oBc.eDrn;
   nBc.h    = oBc.h;
+  nBc.tauB.allocate(2);
+  nBc.tauB = oBc.tauB;
 
   // Copy spatial profile if allocated
+  auto& msh = com_mod.msh[iM];
   if (oBc.gx.data() != nullptr) {
-      nBc.gx.resize(msh.fa[iFa].nNo);
+      nBc.gx.allocate(msh.fa[iFa].nNo);
       nBc.gx = oBc.gx;
   }
 
@@ -3128,8 +3136,8 @@ void copyBC(ComMod& com_mod, const bcType& oBc, bcType& nBc) {
       nBc.gm.nTP    = oBc.gm.nTP;
       nBc.gm.period = oBc.gm.period;
 
-      nBc.gm.t.resize(nBc.gm.nTP);
-      nBc.gm.d.resize(nBc.gm.dof, msh.fa[iFa].nNo, nBc.gm.nTP);
+      nBc.gm.t.allocate(nBc.gm.nTP);
+      nBc.gm.d.allocate(nBc.gm.dof, msh.fa[iFa].nNo, nBc.gm.nTP);
       nBc.gm.t = oBc.gm.t;
       nBc.gm.d = oBc.gm.d;
   }
@@ -3142,8 +3150,8 @@ void copyBC(ComMod& com_mod, const bcType& oBc, bcType& nBc) {
       nBc.gt.T    = oBc.gt.T;
       nBc.gt.ti   = oBc.gt.ti;
 
-      nBc.gt.qi.resize(nBc.gt.d);
-      nBc.gt.qs.resize(nBc.gt.d);
+      nBc.gt.qi.allocate(nBc.gt.d);
+      nBc.gt.qs.allocate(nBc.gt.d);
       nBc.gt.qi = oBc.gt.qi;
       nBc.gt.qs = oBc.gt.qs;
 

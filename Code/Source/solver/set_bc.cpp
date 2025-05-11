@@ -138,9 +138,10 @@ void calc_der_cpl_bc(ComMod& com_mod, const CmMod& cm_mod)
         }
         cplBC.fa[ptr].Qo = all_fun::integ(com_mod, cm_mod, fa, com_mod.Yo, 0, nsd-1, false, cfg_o);
         cplBC.fa[ptr].Qn = all_fun::integ(com_mod, cm_mod, fa, com_mod.Yn, 0, nsd-1, false, cfg_n);
+
         // Add velocity flux from cap if face is capped
         auto& iFaCap = com_mod.msh[iM].fa[iFa].capID;
-        if (iFaCap != 0) {
+        if (iFaCap != -1) {
           cplBC.fa[ptr].Qo = cplBC.fa[ptr].Qo + all_fun::integ(com_mod, cm_mod, com_mod.msh[iM].fa[iFaCap], com_mod.Yo, 0, nsd-1, false, cfg_o);
           cplBC.fa[ptr].Qn = cplBC.fa[ptr].Qn + all_fun::integ(com_mod, cm_mod, com_mod.msh[iM].fa[iFaCap], com_mod.Yn, 0, nsd-1, false, cfg_n);
         }
@@ -235,9 +236,9 @@ void calc_der_cpl_bc(ComMod& com_mod, const CmMod& cm_mod)
         bc.r = (cplBC.fa[i].y - orgY[i]) / diff;
 
         // Set resistance for capping BC if it exists for this BC.
-        // Set it to be the same resistance as the cappeed BC.
+        // Set it to be the same resistance as the capped BC.
         auto& iCapBC = bc.iCapBC;
-        if (iCapBC != 0) {
+        if (iCapBC != -1) {
           eq.bc[iCapBC].r = bc.r;
         }
 
@@ -245,7 +246,7 @@ void calc_der_cpl_bc(ComMod& com_mod, const CmMod& cm_mod)
         for (size_t j = 0; j < cplBC.fa.size(); j++) {
           cplBC.fa[j].y = orgY[j];
           cplBC.fa[j].Qn = orgQ[j];
-}
+        }
      }
   }
 }
@@ -423,7 +424,7 @@ void genBC_Integ_X(ComMod& com_mod, const CmMod& cm_mod, const std::string& genF
     system(command);
 
     // Read outputs from genBC, which are in the same GenBC.int
-    std::ifstream genBC_reader(cplBC.commuName, std::ios::out | std::ios::binary);
+    std::ifstream genBC_reader(cplBC.commuName, std::ios::in | std::ios::binary);
     if (!genBC_reader.is_open()) {
       throw std::runtime_error("Failed to open the genBC interface file '" + cplBC.commuName + "' to read.");
     }
@@ -708,7 +709,7 @@ void set_bc_cpl(ComMod& com_mod, CmMod& cm_mod)
 
   // If coupling scheme is implicit, calculate updated pressure and flowrate 
   // from 0D, as well as resistance from 0D using finite difference.
-  if (cplBC.schm == CplBCType::cplBC_I) { 
+  if (cplBC.schm == CplBCType::cplBC_I) {
     calc_der_cpl_bc(com_mod, cm_mod);
 
   // If coupling scheme is semi-implicit or explicit, only calculated updated
@@ -757,9 +758,11 @@ void set_bc_cpl(ComMod& com_mod, CmMod& cm_mod)
 
           // Add velocity flux from cap if face is capped
           int iFaCap = com_mod.msh[iM].fa[iFa].capID;
-          if (iFaCap != 0) {
-            cplBC.fa[ptr].Qo = cplBC.fa[ptr].Qo + all_fun::integ(com_mod, cm_mod, com_mod.msh[iM].fa[iFaCap], Yo, 0, nsd-1, false, cfg_o);
-            cplBC.fa[ptr].Qn = cplBC.fa[ptr].Qn + all_fun::integ(com_mod, cm_mod, com_mod.msh[iM].fa[iFaCap], Yn, 0, nsd-1, false, cfg_n);
+          if (iFaCap != -1) {
+            cplBC.fa[ptr].Qo = cplBC.fa[ptr].Qo + 
+              all_fun::integ(com_mod, cm_mod, com_mod.msh[iM].fa[iFaCap], Yo, 0, nsd-1, false, cfg_o);
+            cplBC.fa[ptr].Qn = cplBC.fa[ptr].Qn +
+              all_fun::integ(com_mod, cm_mod, com_mod.msh[iM].fa[iFaCap], Yn, 0, nsd-1, false, cfg_n);
           }
           cplBC.fa[ptr].Po = 0.0;
           cplBC.fa[ptr].Pn = 0.0;
@@ -1359,7 +1362,8 @@ void set_bc_neu(ComMod& com_mod, const CmMod& cm_mod, const Array<double>& Yg, c
     #endif
 
     // Skip if the face is virtual
-    if (com_mod.msh[iM].fa[iFa].vrtual) {
+    if (com_mod.msh[iM].fa[iFa].vrtual && utils::btest(bc.bType, iBC_res) && bc.flwP) {
+      eq_assem::fsi_ls_upd(com_mod, cm_mod, bc, com_mod.msh[iM].fa[iFa]);
       continue;
     }
     if (utils::btest(bc.bType, iBC_Neu)) {

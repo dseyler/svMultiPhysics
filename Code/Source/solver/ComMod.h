@@ -173,7 +173,7 @@ class bcType
     int lsPtr = -1;
 
     // Index of cap BC associated wtih this BC
-    int iCapBC = 0;
+    int iCapBC = -1;
 
     // Name of face that caps this surface
     std::string capName;
@@ -564,7 +564,7 @@ class faceType
     int nNo = 0;
 
     //ID number of (virtual) face that caps this face
-    int capID = 0;
+    int capID = -1;
 
     // Global element Ids
     Vector<int> gE;

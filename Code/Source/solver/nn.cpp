@@ -38,6 +38,7 @@
 //
 
 #include "nn.h"
+#include "all_fun.h"
 
 #include "Array.h"
 #include "Vector.h"
@@ -550,12 +551,14 @@ void gnn(const int eNoN, const int nsd, const int insd, Array<double>& Nxi, Arra
 ///
 /// cfg denotes which configuration (reference/timestep 0, old/timestep n, or new/timestep n+1).
 ///
-/// Reproduce Fortran 'GNNBv'.
+/// Reproduces Fortran 'GNNBv'.
 //
 void gnnbv(const ComMod& com_mod, const CmMod& cm_mod, const faceType& lFa, const int e, const int g, const int nsd, const int insd,
   const int eNoNb, const Array<double>& Nx, Vector<double>& n, MechanicalConfigurationType cfg)
 {
 auto& cm = com_mod.cm;
+auto& nEq = com_mod.nEq;
+
 
 #ifdef debug_gnnbv
 DebugMsg dmsg(__func__, com_mod.cm.idcm());
@@ -574,59 +577,58 @@ Vector<double> tmpX(nsd);
 Vector<double> tmpDo(com_mod.tDof);
 Vector<double> tmpDn(com_mod.tDof);
 
-// Determine displacement degrees of freedom
-int is = 1;
-for (const auto& eq : com_mod.eq) {
-if (eq.phys == EquationType::phys_struct || eq.phys == EquationType::phys_ustruct) {
-   is = eq.s;
-   break;
-}
+// Set displacement degrees of freedom
+int is = 0;
+for (int i = 0; i < nEq; i++) {
+  auto& eq = com_mod.eq[i];
+  if (eq.phys == EquationType::phys_struct || eq.phys == EquationType::phys_ustruct) {
+    is = eq.s;
+    break;
+  }
 }
 int ie = is + nsd - 1;
 
-// Gather nodal positions and correct geometry if needed
+// Communicate and correcting the geometry if mesh is moving or
+// if we want to integrate in a different configuration.
 for (int a = 0; a < eNoNb; a++) {
-int Ac = lFa.IEN(a, e);
-
-// Collect node position onto Master. On slaves, set tmpX to zero.
-GatherMasterV(com_mod, com_mod.x, Ac, tmpX);
-for (int i = 0; i < nsd; i++) {
-   lX(i, a) = tmpX(i);
+  // Collect node position onto Master. On slaves, set tmpX to zero.
+  int Ac = lFa.IEN(a, e);
+  all_fun::GatherMasterV(com_mod, cm_mod, com_mod.x, Ac, tmpX);
+  for (int i = 0; i < nsd; i++) {
+    lX(i, a) = tmpX(i);
+  }
+  // Correct geometry if mesh is moving or if we want to integrate
+  // in a different configuration.
+  if (com_mod.mvMsh) {
+    all_fun::GatherMasterV(com_mod, cm_mod, com_mod.Do, Ac, tmpDo);
+    for (int i = 0; i < nsd; i++) {
+        lX(i, a) += tmpDo(i + nsd + 1);
+    }
+  } else {
+    if (cfg == MechanicalConfigurationType::old_timestep) {
+        all_fun::GatherMasterV(com_mod, cm_mod, com_mod.Do, Ac, tmpDo);
+        for (int i = 0; i < nsd; i++) {
+            lX(i, a) += tmpDo(is + i);
+        }
+    } else if (cfg == MechanicalConfigurationType::new_timestep) {
+        all_fun::GatherMasterV(com_mod, cm_mod, com_mod.Dn, Ac, tmpDn);
+        for (int i = 0; i < nsd; i++) {
+            lX(i, a) += tmpDn(is + i);
+        }
+    }
+  }
 }
-
-if (com_mod.mvMsh) {
-   GatherMasterV(com_mod, com_mod.Do, Ac, tmpDo);
-   for (int i = 0; i < nsd; i++) {
-       lX(i, a) += tmpDo(i + nsd + 1);
-   }
-} else {
-   if (cfg == MechanicalConfigurationType::old_timestep) {
-       GatherMasterV(com_mod, com_mod.Do, Ac, tmpDo);
-       for (int i = 0; i < nsd; i++) {
-           lX(i, a) += tmpDo(i);
-       }
-   } else if (cfg == MechanicalConfigurationType::new_timestep) {
-       GatherMasterV(com_mod, com_mod.Dn, Ac, tmpDn);
-       for (int i = 0; i < nsd; i++) {
-           lX(i, a) += tmpDn(i);
-       }
-   }
-}
-}
-
 // Compute normal vector on master and broadcast to all processes
 if (cm.mas(cm_mod)) {
   Array<double> xXi(nsd, insd);
   xXi = 0.0;
-
   for (int a = 0; a < eNoNb; a++) {
     for (int i = 0; i < insd; i++) {
-        for (int j = 0; j < nsd; j++) {
-            xXi(j, i) += Nx(i, a) * lX(j, a);
-        }
+      for (int j = 0; j < nsd; j++) {
+          xXi(j, i) += Nx(i, a) * lX(j, a);
+      }
     }
   }
-
   n = utils::cross(xXi);
 } 
 else {

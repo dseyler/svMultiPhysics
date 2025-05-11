@@ -99,7 +99,7 @@ namespace read_files_ns {
 
   void copyBC(ComMod& com_mod, const bcType& oBc, bcType& nBc);
 
-  void addCapBC(eqType& lEq, int iBc, mshType& msh, cplBCType& cplBC);
+  void addCapBC(ComMod& com_mod, eqType& lEq, int iBc);
 
 
 };

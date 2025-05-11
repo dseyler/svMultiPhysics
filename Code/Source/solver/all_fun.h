@@ -43,7 +43,9 @@
 
 namespace all_fun {
 
-  void GatherMasterV(const ComMod& com_mod, const Array<double>& s, const int Ac, Vector<double>& snode);
+  void GatherMasterS(const ComMod& com_mod, const CmMod& cm_mod, const Vector<double>& s, const int Ac, double& snode);
+
+  void GatherMasterV(const ComMod& com_mod, const CmMod& cm_mod, const Array<double>& s, const int Ac, Vector<double>& snode);
 
   double aspect_ratio(ComMod& com_mod, const int nDim, const int eNoN, const Array<double>& x);
 

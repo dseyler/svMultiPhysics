@@ -113,14 +113,13 @@ void fsils_bc_create(FSILS_lhsType& lhs, int faIn, int nNo, int dof, BcType BC_t
     if (Ac > 1) {
       lhs.face[faIn].sharedFlag = true;
       Array<double> v(dof,lhs.nNo);
-
+      v = 0.0;
       for (int a = 0; a < nNo; a++) {
         int Ac = lhs.face[faIn].glob(a);
         for (int i = 0; i < dof; i++) {
           v(i,Ac) = lhs.face[faIn].val(i,a);
         }
       }
-
       fsils_commuv(lhs, dof, v); 
 
       for (int a = 0; a < nNo; a++) {
@@ -188,7 +187,7 @@ void fsils_bc_update(FSILS_lhsType& lhs, int faIn, int nNo, int dof, const Array
   }
 
   // Communicate update among procs
-  if (lhs.face[faIn].sharedFlag){
+  if (lhs.face[faIn].sharedFlag && !lhs.face[faIn].vrtual) {
     Array<double> v(dof,lhs.nNo);
     v = 0.0;
 

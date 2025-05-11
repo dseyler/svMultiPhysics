@@ -81,7 +81,6 @@ namespace nn {
 
   void select_eleb(Simulation* simulation,  mshType& mesh, faceType& face);
 
-  void GatherMasterV(const ComMod& com_mod, const Array<double>& s, const int Ac, Vector<double>& snode);
 
 };
 

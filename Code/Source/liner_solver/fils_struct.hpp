@@ -158,14 +158,14 @@ class FSILS_faceType
     /// Flag for virtual face          (USE)
     bool vrtual = false;
 
-    /// Index of mesh associated with this face
-    int iFa = 0;
+    /// Index of mesh in msh associated with this face
+    int iM = -1;
 
-    /// Index of face that caps this face
-    int faInCap = 0;
+    /// Index of face in msh[iM].fa that caps this face
+    int iFa = -1;
 
-    /// Index of mesh that caps this face
-    int iM = 0;
+    /// Index of face in lhs.face that caps this face
+    int faInCap = -1;
 };
 
 /// @brief Modified in:

@@ -1,5 +1,5 @@
 <?xml version="1.0" encoding="UTF-8" ?>
-<svFSIFile version="0.1">
+<svMultiPhysicsFile version="0.1">
 
 <GeneralSimulationParameters>
   <Continue_previous_simulation> 0 </Continue_previous_simulation>
@@ -43,7 +43,7 @@
 
    <Add_face name="cap">
          <Face_file_path> mesh/mesh-surfaces/endo_cap.vtp </Face_file_path>
-         <Virtual> true </Virtual>
+         <Virtual> true </Virtual> <!-- Flag for virtual capping surface -->
    </Add_face>
 
   <Mesh_scale_factor> 100.0 </Mesh_scale_factor>  <!-- Convert from m to cm -->
@@ -64,9 +64,6 @@
    <Constitutive_model type="neoHookean"> 
       </Constitutive_model> 
    <Dilational_penalty_model> ST91 </Dilational_penalty_model>
-   <Viscosity model="Constant" >
-         <Value> 0.0 </Value>
-      </Viscosity>
 
 
     <Output type="Spatial" >
@@ -89,8 +86,10 @@
       <Krylov_space_dimension> 50 </Krylov_space_dimension>
    </LS>
 
-   <Couple_to_svZeroD type="SI">
-   </Couple_to_svZeroD>
+   <Couple_to_genBC type="I">
+      <!-- Pressure returned by genBC is in dyne/cm^2 -->
+      <ZeroD_code_file_path> genBC_regazzoni2022/genBC.exe </ZeroD_code_file_path>
+   </Couple_to_genBC>
 
    <Add_BC name="epi" > 
       <Type> Robin </Type> 
@@ -99,14 +98,18 @@
       <Apply_along_normal_direction> 1 </Apply_along_normal_direction>
    </Add_BC>
 
+   <!-- <Add_BC name="top" > 
+      <Type> Dirichlet </Type> 
+      <Value> 0.0 </Value>
+   </Add_BC> -->
+
    <Add_BC name="endo" > 
       <Type> Neu </Type> 
       <Time_dependence> Coupled </Time_dependence> 
       <Follower_pressure_load> true </Follower_pressure_load>
       <Capping_face> cap </Capping_face>    <!-- Specify capping surface for dVdt calculation on endo surface -->
-   </Add_BC> 
-
+   </Add_BC>
    
 </Add_equation>
 
-</svFSIFile>
+</svMultiPhysicsFile>

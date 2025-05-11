@@ -365,8 +365,10 @@ void fsi_ls_upd(ComMod& com_mod, const CmMod& cm_mod, const bcType& lBc, const f
       // 
       for (int a = 0; a < lFa.eNoN; a++) {
         int Ac = lFa.IEN(a,e);
-        for (int i = 0; i < nsd; i++) {
-          sV(i,Ac) = sV(i,Ac) + lFa.N(a,g)*lFa.w(g)*n(i);
+        if (Ac != -1) {
+          for (int i = 0; i < nsd; i++) {
+            sV(i,Ac) = sV(i,Ac) + lFa.N(a,g)*lFa.w(g)*n(i);
+          }
         }
       }
     }

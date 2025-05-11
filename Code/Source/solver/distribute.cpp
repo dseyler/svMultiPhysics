@@ -1269,11 +1269,8 @@ void part_faceV(Simulation* simulation, mshType& lM, faceType& lFa, faceType& gF
   int eNoNb = gFa.eNoN; // number of nodes per element
   int iM = gFa.iM; // mesh index of this face
 
-  Vector<int> part;
-  Vector<int> ePtr(gFa.nEl);
-
-  int i = gFa.nEl*(2+eNoNb) + gFa.nNo;
-  part.resize(i);
+  int i = gFa.nEl*eNoNb + gFa.nNo;
+  Vector<int> part(i);
 
   if (cm.mas(cm_mod)) {
     for (int e = 0; e < gFa.nEl; e++) {
@@ -1282,7 +1279,6 @@ void part_faceV(Simulation* simulation, mshType& lM, faceType& lFa, faceType& gF
             part[j + k] = gFa.IEN(k, e);
         }
     }
-
     for (int a = 0; a < gFa.nNo; a++) {
         int j = gFa.nEl * eNoNb + a;
         part[j] = gFa.gN[a];
@@ -1291,7 +1287,6 @@ void part_faceV(Simulation* simulation, mshType& lM, faceType& lFa, faceType& gF
   
   // Broadcast array to all processors
   cm.bcast(cm_mod, part);
-    
     if (cm.slv(cm_mod)) {
         gFa.gE.resize(gFa.nEl);
         for (int e = 0; e < gFa.nEl; e++) {
@@ -1307,7 +1302,6 @@ void part_faceV(Simulation* simulation, mshType& lM, faceType& lFa, faceType& gF
         }
     }
     
-    part.clear();
 
     // At this point, gFa is the same across all procs, and contains all
     // the face information
@@ -1323,12 +1317,17 @@ void part_faceV(Simulation* simulation, mshType& lM, faceType& lFa, faceType& gF
     // Allocate local face global element list and IEN array
     lFa.gE.resize(lFa.nEl);
     lFa.IEN.resize(eNoNb, lFa.nEl);
+
+    // Set Lfa.gE = 0 for a virtual face
+    for (int e = 0; e < lFa.nEl; e++) {
+        lFa.gE[e] = 0;
+    }
     
     // Compute the number of nodes on face that belong to this proc
     lFa.nNo = 0;
     for (int a = 0; a < gFa.nNo; a++) {
         int Ac = gmtl[gFa.gN[a]];
-        if (Ac != 0) {
+        if (Ac != -1) {
             lFa.nNo++;
         }
     }
@@ -1343,25 +1342,26 @@ void part_faceV(Simulation* simulation, mshType& lM, faceType& lFa, faceType& gF
             lFa.IEN(a, e) = gmtl[gFa.IEN(a, e)];
         }
     }
-    
+
     // Analogously copying the nodes which belong to this processor
     int j = 0;
     for (int a = 0; a < gFa.nNo; a++) {
         int Ac = gmtl[gFa.gN[a]];
-        if (Ac != 0) {
-            lFa.gN[j++] = Ac;
+        if (Ac != -1) {
+          lFa.gN[j] = Ac;
+          j++;
         }
     }
     
     lFa.gnEl = gFa.gnEl;
-    
+
     if (com_mod.rmsh.isReqd) {
         if (cm.mas(cm_mod)) {
             lFa.gebc.resize(1 + eNoNb, lFa.gnEl);
             for (int e = 0; e < gFa.gnEl; e++) {
                 lFa.gebc(0, e) = gFa.gebc(0, e);
-                for (int i = 1; i <= eNoNb; i++) {
-                    lFa.gebc(i, e) = gFa.gebc(i, e);
+                for (int i = 0; i < eNoNb; i++) {
+                    lFa.gebc(i+1, e) = gFa.gebc(i, e);
                 }
             }
         } else {
