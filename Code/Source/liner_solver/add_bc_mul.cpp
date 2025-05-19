@@ -108,7 +108,7 @@ void add_bc_mul(FSILS_lhsType& lhs, const BcopType op_Type, const int dof, const
         }
         // Computing S = coef * v^T * X
         double S = coef(faIn) * dot::fsils_dot_v(dof, lhs.mynNo, lhs.commu, v, X);
-        //std::cout << "S without cap: " << S << std::endl; \\[REMOVE]
+        
         //If a virtual face caps this face, add its contribution to S
         //
         //Explanation: If the coupled surface is virtually capped to
@@ -135,15 +135,14 @@ void add_bc_mul(FSILS_lhsType& lhs, const BcopType op_Type, const int dof, const
           // Add cap contribution to S
           S = S + coef(faIn) * dot::fsils_dot_v(dof, lhs.mynNo, lhs.commu, vcap, X);
         }
+        
         // Computing Y = Y + v * S
-        //std::cout << "S with cap: " << S << std::endl; //[REMOVE]
         for (int a = 0; a < face.nNo; a++) {
           int Ac = face.glob(a);
           for (int i = 0; i < nsd; i++) {
             Y(i,Ac) = Y(i,Ac) + v(i,Ac)*S;
           }
         }
-
       } 
       // If face is not shared across procs
       else  {
@@ -155,7 +154,7 @@ void add_bc_mul(FSILS_lhsType& lhs, const BcopType op_Type, const int dof, const
             S = S + face.valM(i,a)*X(i,Ac);
           }
         }
-        //std::cout << "S without cap: " << S << std::endl; //[REMOVE]
+        
         // If a virtual face caps this face, add its contribution to S
         if (face.faInCap != -1) {
           int faInCap = face.faInCap;
@@ -177,7 +176,7 @@ void add_bc_mul(FSILS_lhsType& lhs, const BcopType op_Type, const int dof, const
         // Multiply S by the resistance or related quantity if
         // preconditioning
         S = coef(faIn) * S;
-        //std::cout << "S with cap: " << S << std::endl; //[REMOVE]
+
         // Computing Y = Y + v * S
         for (int a = 0; a < face.nNo; a++) {
           int Ac = face.glob(a);
