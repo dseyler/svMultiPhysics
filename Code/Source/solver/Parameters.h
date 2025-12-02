@@ -1,32 +1,5 @@
-/* Copyright (c) Stanford University, The Regents of the University of California, and others.
- *
- * All Rights Reserved.
- *
- * See Copyright-SimVascular.txt for additional details.
- *
- * Permission is hereby granted, free of charge, to any person obtaining
- * a copy of this software and associated documentation files (the
- * "Software"), to deal in the Software without restriction, including
- * without limitation the rights to use, copy, modify, merge, publish,
- * distribute, sublicense, and/or sell copies of the Software, and to
- * permit persons to whom the Software is furnished to do so, subject
- * to the following conditions:
- *
- * The above copyright notice and this permission notice shall be included
- * in all copies or substantial portions of the Software.
- *
- * THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS
- * IS" AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED
- * TO, THE IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A
- * PARTICULAR PURPOSE ARE DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT OWNER
- * OR CONTRIBUTORS BE LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL,
- * EXEMPLARY, OR CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT LIMITED TO,
- * PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR
- * PROFITS; OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF
- * LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING
- * NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE OF THIS
- * SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
- */
+// SPDX-FileCopyrightText: Copyright (c) Stanford University, The Regents of the University of California, and others.
+// SPDX-License-Identifier: BSD-3-Clause
 
 #ifndef PARAMETERS_H 
 #define PARAMETERS_H 
@@ -441,6 +414,21 @@ class ParameterLists
         VectorParameter<std::string>* >> params_map;
 
     std::string xml_element_name = "";
+};
+
+//----------------------
+// IncludeParameterFile
+//----------------------
+// The IncludeParameterFile class is used to read and set the 
+// root element of external XML file.
+//
+class IncludeParametersFile 
+{
+  public:
+    IncludeParametersFile(const char* file_name);
+    tinyxml2::XMLDocument document;
+    tinyxml2::XMLElement* root_element = nullptr;
+    static std::string NAME;
 };
 
 //////////////////////////////////////////////////////////
@@ -1179,7 +1167,7 @@ class DomainParameters : public ParameterLists
     static const std::string xml_element_name_;
 
     void print_parameters();
-    void set_values(tinyxml2::XMLElement* xml_elem);
+    void set_values(tinyxml2::XMLElement* xml_elem, bool from_external_xml = false);
 
     // Parameters for sub-elements under the Domain element.
     ConstitutiveModelParameters constitutive_model;
@@ -1212,6 +1200,7 @@ class DomainParameters : public ParameterLists
     Parameter<double> force_y;
     Parameter<double> force_z;
 
+    Parameter<std::string> include_xml;
     Parameter<double> isotropic_conductivity;
 
     Parameter<double> mass_damping;
@@ -1324,7 +1313,7 @@ class EquationParameters : public ParameterLists
     static const std::string xml_element_name_;
 
     void print_parameters();
-    void set_values(tinyxml2::XMLElement* xml_elem);
+    void set_values(tinyxml2::XMLElement* xml_elem, DomainParameters* default_domain=nullptr);
 
     Parameter<double> backflow_stabilization_coefficient;
 
@@ -1337,6 +1326,7 @@ class EquationParameters : public ParameterLists
 
     Parameter<double> elasticity_modulus;
 
+    Parameter<std::string> include_xml;
     Parameter<std::string> initialize;
     Parameter<bool> initialize_rcr_from_flow;
 
@@ -1353,7 +1343,7 @@ class EquationParameters : public ParameterLists
 
     Parameter<std::string> type;
     Parameter<bool> use_taylor_hood_type_basis;
-    
+
     // Inverse of Darcy permeability. Default value of 0.0 for Navier-Stokes and non-zero for Navier-Stokes-Brinkman
     Parameter<double> inverse_darcy_permeability;
 
@@ -1385,6 +1375,7 @@ class EquationParameters : public ParameterLists
     SolidViscosityParameters solid_viscosity;
 
     ECGLeadsParameters ecg_leads;
+
 };
 
 /// @brief The GeneralSimulationParameters class stores paramaters for the
@@ -1416,7 +1407,7 @@ class GeneralSimulationParameters : public ParameterLists
     GeneralSimulationParameters();
 
     void print_parameters();
-    void set_values(tinyxml2::XMLElement* xml_element);
+    void set_values(tinyxml2::XMLElement* xml_element, bool from_external_xml = false);
 
     std::string xml_element_name;
 
@@ -1435,6 +1426,7 @@ class GeneralSimulationParameters : public ParameterLists
     Parameter<double> spectral_radius_of_infinite_time_step;
     Parameter<double> time_step_size;
 
+    Parameter<std::string> include_xml;
     Parameter<int> increment_in_saving_restart_files;
     Parameter<int> increment_in_saving_vtk_files;
     Parameter<int> number_of_spatial_dimensions;
@@ -1501,7 +1493,7 @@ class MeshParameters : public ParameterLists
     static const std::string xml_element_name_;
 
     void print_parameters();
-    void set_values(tinyxml2::XMLElement* mesh_elem);
+    void set_values(tinyxml2::XMLElement* mesh_elem, bool from_external_xml = false);
     std::string get_name() const { return name.value(); };
     std::string get_path() const { return mesh_file_path.value(); };
 
@@ -1520,6 +1512,7 @@ class MeshParameters : public ParameterLists
     std::vector<VectorParameter<double>> fiber_directions;
     //VectorParameter<double> fiber_direction;
 
+    Parameter<std::string> include_xml;
     Parameter<std::string> initial_displacements_file_path;
     Parameter<std::string> initial_pressures_file_path;
     Parameter<bool> initialize_rcr_from_flow;
