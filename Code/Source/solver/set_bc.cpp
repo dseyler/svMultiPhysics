@@ -1330,10 +1330,14 @@ void set_bc_neu(ComMod& com_mod, const CmMod& cm_mod, const Array<double>& Yg, c
 
   int cEq = com_mod.cEq;
   auto& eq = com_mod.eq[cEq];
+  int nsd = com_mod.nsd;
   #ifdef debug_set_bc_neu
   dmsg << "cEq: " << cEq;
   #endif
 
+  set_bc_energy_balance(com_mod, cm_mod, Yg, Dg);
+
+  // Second pass: Apply all BCs
   for (int iBc = 0; iBc < eq.nBc; iBc++) {
     auto& bc = eq.bc[iBc];
     int iFa = bc.iFa;
@@ -1359,8 +1363,128 @@ void set_bc_neu(ComMod& com_mod, const CmMod& cm_mod, const Array<double>& Yg, c
       set_bc_neu_l(com_mod, cm_mod, bc, com_mod.msh[iM].fa[iFa], Yg, Dg);
 
     } else if (utils::btest(bc.bType,iBC_trac)) { 
-      set_bc_trac_l(com_mod, cm_mod, bc, com_mod.msh[iM].fa[iFa]); 
+      set_bc_trac_l(com_mod, cm_mod, bc, com_mod.msh[iM].fa[iFa], Dg, bc.flwP); 
     } 
+  }
+}
+
+/// @brief Compute and apply energy balance traction for Neumann BCs.
+///
+/// This isolates the energy balance feature from the rest of set_bc_neu().
+///
+void set_bc_energy_balance(ComMod& com_mod, const CmMod& cm_mod, const Array<double>& Yg, const Array<double>& Dg)
+{
+  using namespace consts;
+
+  #define n_debug_set_bc_energy_balance
+  #ifdef debug_set_bc_energy_balance
+  DebugMsg dmsg(__func__, com_mod.cm.idcm());
+  dmsg.banner();
+  #endif
+
+  int cEq = com_mod.cEq;
+  auto& eq = com_mod.eq[cEq];
+  int nsd = com_mod.nsd;
+  auto& Yn = com_mod.Yn;
+
+  // ============================================================================
+  // Energy Balance Feature
+  // ============================================================================
+  // When a Neumann BC has an associated energy balance face, a traction BC is
+  // automatically applied to that face to maintain global force equilibrium.
+  //
+  // ASSUMPTIONS:
+  //   - Mesh faces have OUTWARD-FACING NORMALS (pointing away from the solid)
+  //   - The energy balance face should be on the opposite side of the body
+  //     from the Neumann face (e.g., inlet vs outlet, top vs bottom)
+  //
+  // HOW IT WORKS:
+  //   1. Compute integrated force on Neumann face: F_neu = integral(P * n * dA)
+  //   2. Compute area of energy balance face: A_eb
+  //   3. Apply uniform traction: t = F_neu / A_eb
+  //
+  // The traction is applied in the SAME global direction as F_neu. Since the
+  // energy balance face is on the opposite side of the body (with opposite
+  // outward normal), this creates an opposing force that balances F_neu,
+  // minimizing rigid body translation.
+  //
+  // LIMITATIONS:
+  //   - Not supported for spatially varying (general) Neumann BCs
+  //   - Not recommended for 0D-coupled BCs (genBC, svZeroD) as it can cause
+  //     feedback instability
+  //   - Computed in reference configuration (approximation for large deformations)
+  // ============================================================================
+
+  // First pass: Compute energy balance traction for Neumann BCs with energy balance faces
+  for (int iBc = 0; iBc < eq.nBc; iBc++) {
+    auto& bc = eq.bc[iBc];
+
+    if (utils::btest(bc.bType, iBC_Neu) && bc.hasEnergyBalanceBC) {
+      int iM = bc.iM;
+      int iFa = bc.iFa;
+      auto& neuFa = com_mod.msh[iM].fa[iFa];
+
+      // Get the energy balance BC
+      auto& ebBC = eq.bc[bc.iEnergyBalanceBC];
+      int ebIM = ebBC.iM;
+      int ebIFa = ebBC.iFa;
+      auto& ebFa = com_mod.msh[ebIM].fa[ebIFa];
+
+      // Skip general (spatially varying) BCs - not supported
+      if (utils::btest(bc.bType, iBC_gen)) {
+        if (com_mod.cm.mas(cm_mod)) {
+          std::cout << "[WARNING] Energy balance not supported for spatially varying Neumann BC on face '"
+                    << neuFa.name << "'. Skipping energy balance." << std::endl;
+        }
+        ebBC.hasEnergyBalanceBC = false;
+        continue;
+      }
+
+      // Get pressure value for this Neumann BC
+      double pressure = 0.0;
+      if (utils::btest(bc.bType, iBC_cpl) || utils::btest(bc.bType, iBC_RCR)) {
+        pressure = bc.g;
+      } else if (utils::btest(bc.bType, iBC_res)) {
+        pressure = bc.r * all_fun::integ(com_mod, cm_mod, neuFa, Yn, eq.s, eq.s + nsd - 1);
+      } else if (utils::btest(bc.bType, iBC_std)) {
+        pressure = bc.g;
+      } else if (utils::btest(bc.bType, iBC_ustd)) {
+        Vector<double> h_vec(1), rtmp(1);
+        ifft(com_mod, bc.gt, h_vec, rtmp);
+        pressure = h_vec(0);
+      } else {
+        throw std::runtime_error("[set_bc_energy_balance] Unknown BC time dependence type.");
+      }
+
+      // Compute integrated force on Neumann face: F_neu = integral(P * n * dA)
+      // Use deformed configuration if Neumann BC uses follower pressure
+      bool use_deformed_config = bc.flwP;
+      Vector<double> F_neu = compute_face_force_integral(com_mod, cm_mod, neuFa, pressure, Dg, use_deformed_config);
+
+      // Compute area of energy balance face (same configuration as force integral)
+      double A_eb = compute_face_area(com_mod, cm_mod, ebFa, Dg, use_deformed_config);
+
+      // Compute traction: t = F_neu / A_eb
+      // Applied in same global direction as F_neu to create opposing force
+      // on the opposite side of the body
+      if (ebBC.h.size() != nsd) {
+        ebBC.h.resize(nsd);
+      }
+      for (int i = 0; i < nsd; i++) {
+        ebBC.h(i) = F_neu(i) / A_eb;
+      }
+
+      // Propagate follower flag to energy balance BC for consistent application
+      ebBC.flwP = bc.flwP;
+
+      #ifdef debug_set_bc_neu
+      dmsg << "Energy balance for Neumann face: " << neuFa.name;
+      dmsg << "  Pressure: " << pressure;
+      dmsg << "  F_neu: " << F_neu;
+      dmsg << "  A_eb: " << A_eb;
+      dmsg << "  Traction: " << ebBC.h;
+      #endif
+    }
   }
 }
 
@@ -1730,8 +1854,16 @@ void set_bc_rbnl(ComMod& com_mod, const CmMod& cm_mod, const faceType& lFa, cons
 }
 
 /// @brief Set Traction BC
+///
+/// @param com_mod Common module data
+/// @param cm_mod Communication module data
+/// @param lBc Boundary condition
+/// @param lFa Face for the BC
+/// @param Dg Displacement field (used for follower traction loads)
+/// @param flwP Whether this is a follower traction load (uses deformed configuration)
 //
-void set_bc_trac_l(ComMod& com_mod, const CmMod& cm_mod, const bcType& lBc, const faceType& lFa) 
+void set_bc_trac_l(ComMod& com_mod, const CmMod& cm_mod, const bcType& lBc, const faceType& lFa,
+    const Array<double>& Dg, bool flwP) 
 {
   using namespace consts;
 
@@ -1795,10 +1927,17 @@ void set_bc_trac_l(ComMod& com_mod, const CmMod& cm_mod, const bcType& lBc, cons
   Array<double> hl(nsd,eNoN), lR(dof,eNoN);
   Array3<double> lK(dof*dof,eNoN,eNoN);
 
+  // For follower traction, need volume mesh info
+  const auto& msh = com_mod.msh[iM];
+  const int eNoN_vol = msh.eNoN;  // Volume element nodes
+  int s = eq.s;  // Starting index of displacement DOF
+  double dt = com_mod.dt;
+  double af = eq.af * eq.beta * dt * dt;
+
   // Constructing LHS/RHS contribution and assembiling them
   //
   for (int e = 0; e < lFa.nEl; e++) {
-    cDmn = all_fun::domain(com_mod, com_mod.msh[iM], cEq, lFa.gE(e));
+    cDmn = all_fun::domain(com_mod, msh, cEq, lFa.gE(e));
     auto cPhys = eq.dmn[cDmn].phys;
 
     if (lFa.eType == ElementType::NRB) {
@@ -1814,22 +1953,214 @@ void set_bc_trac_l(ComMod& com_mod, const CmMod& cm_mod, const bcType& lBc, cons
     lK = 0.0;
     lR = 0.0;
 
-    for (int g = 0; g < lFa.nG; g++) {
-      Vector<double> nV(nsd);
-      auto Nx = lFa.Nx.slice(g);
-      nn::gnnb(com_mod, cm_mod, lFa, e, g, nsd, nsd-1, eNoN, Nx, nV);
-      double Jac = sqrt(utils::norm(nV));
-      double w = lFa.w(g)*Jac;
-      N = lFa.N.col(g);
+    if (!flwP) {
+      for (int g = 0; g < lFa.nG; g++) {
+        Vector<double> nV(nsd);
+        auto Nx = lFa.Nx.slice(g);
+        nn::gnnb(com_mod, cm_mod, lFa, e, g, nsd, nsd-1, eNoN, Nx, nV);
+        double Jac = sqrt(utils::norm(nV));
+        double w = lFa.w(g)*Jac;
+        N = lFa.N.col(g);
 
-      Vector<double> h(nsd);
-      for (int a = 0; a < eNoN; a++) {
-        h = h + N(a)*hl.col(a);
+        Vector<double> h(nsd);
+        for (int a = 0; a < eNoN; a++) {
+          h = h + N(a)*hl.col(a);
+        }
+
+        for (int a = 0; a < eNoN; a++) {
+          for (int i = 0; i < nsd; i++) {
+            lR(i,a) = lR(i,a) - w*N(a)*h(i);
+          }
+        }
       }
-
-      for (int a = 0; a < eNoN; a++) {
+    } else {
+      // Follower traction: compute in deformed configuration using volume mesh
+      int Ec = lFa.gE(e);  // Parent volume element
+      
+      // Get volume element node coordinates and displacements
+      Array<double> xl(nsd, eNoN_vol);
+      Array<double> dl(nsd, eNoN_vol);
+      Vector<int> ptr_vol(eNoN_vol);
+      for (int a = 0; a < eNoN_vol; a++) {
+        int Ac = msh.IEN(a, Ec);
+        ptr_vol(a) = Ac;
         for (int i = 0; i < nsd; i++) {
-          lR(i,a) = lR(i,a) - w*N(a)*h(i);
+          xl(i, a) = com_mod.x(i, Ac);
+          dl(i, a) = Dg(s + i, Ac);
+        }
+      }
+      
+      // Initialize parametric coordinate for Newton's iterations
+      Vector<double> xi0(nsd);
+      for (int g = 0; g < msh.nG; g++) {
+        xi0 = xi0 + msh.xi.col(g);
+      }
+      xi0 = xi0 / static_cast<double>(msh.nG);
+      
+      // Loop over face Gauss points
+      for (int g = 0; g < lFa.nG; g++) {
+        // Get physical coordinates of face Gauss point
+        Vector<double> xp(nsd);
+        for (int a = 0; a < eNoN; a++) {
+          int Ac = lFa.IEN(a, e);
+          for (int i = 0; i < nsd; i++) {
+            xp(i) = xp(i) + com_mod.x(i, Ac) * lFa.N(a, g);
+          }
+        }
+        
+        // Find parametric coordinates in volume element using Newton iteration
+        auto xi = xi0;
+        Vector<double> N_vol(eNoN_vol);
+        Array<double> Nxi(nsd, eNoN_vol);
+        
+        try {
+          nn::get_nnx(nsd, msh.eType, eNoN_vol, xl, msh.xib, msh.Nb, xp, xi, N_vol, Nxi);
+        } catch (const std::runtime_error& error) {
+          // Skip this Gauss point if Newton fails - fall back to reference config
+          Vector<double> nV(nsd);
+          auto Nx_face = lFa.Nx.slice(g);
+          nn::gnnb(com_mod, cm_mod, lFa, e, g, nsd, nsd-1, eNoN, Nx_face, nV);
+          double Jac = sqrt(utils::norm(nV));
+          double w = lFa.w(g)*Jac;
+          N = lFa.N.col(g);
+
+          Vector<double> h(nsd);
+          for (int a = 0; a < eNoN; a++) {
+            h = h + N(a)*hl.col(a);
+          }
+
+          for (int a = 0; a < eNoN; a++) {
+            for (int i = 0; i < nsd; i++) {
+              lR(i,a) = lR(i,a) - w*N(a)*h(i);
+            }
+          }
+          continue;
+        }
+        
+        // Compute 3D shape function derivatives in physical space
+        Array<double> Nx_vol(nsd, eNoN_vol);
+        double Jac_vol;
+        Array<double> ksix(nsd, nsd);
+        nn::gnn(eNoN_vol, nsd, nsd, Nxi, xl, Nx_vol, Jac_vol, ksix);
+        
+        // Get reference surface normal and Jacobian (from face)
+        Vector<double> nV(nsd);
+        auto Nx_face = lFa.Nx.slice(g);
+        nn::gnnb(com_mod, cm_mod, lFa, e, g, nsd, nsd-1, eNoN, Nx_face, nV);
+        double Jac_face = sqrt(utils::norm(nV));
+        for (int i = 0; i < nsd; i++) {
+          nV(i) = nV(i) / Jac_face;  // Unit normal in reference config
+        }
+        
+        // Compute deformation gradient F = I + grad(u) using volume Nx
+        Array<double> F(nsd, nsd);
+        for (int i = 0; i < nsd; i++) {
+          F(i, i) = 1.0;
+        }
+        for (int a = 0; a < eNoN_vol; a++) {
+          for (int i = 0; i < nsd; i++) {
+            for (int j = 0; j < nsd; j++) {
+              F(i, j) += Nx_vol(j, a) * dl(i, a);
+            }
+          }
+        }
+        
+        // Compute J and F^{-1}
+        double J = mat_fun::mat_det(F, nsd);
+        auto Fi = mat_fun::mat_inv(F, nsd);
+        
+        // Apply Nanson's formula: n_def * dA_def = J * F^{-T} * n_ref * dA_ref
+        // nFi = F^{-T} * n_ref
+        Vector<double> nFi(nsd);
+        for (int i = 0; i < nsd; i++) {
+          for (int j = 0; j < nsd; j++) {
+            nFi(i) += Fi(j, i) * nV(j);
+          }
+        }
+        double nFi_mag = sqrt(utils::norm(nFi));
+        
+        // Weight includes deformed area: w_def = w_ref * J * |nFi|
+        double w = lFa.w(g) * Jac_face * J * nFi_mag;
+        N = lFa.N.col(g);
+        
+        // Interpolate traction at Gauss point
+        Vector<double> h(nsd);
+        for (int a = 0; a < eNoN; a++) {
+          for (int i = 0; i < nsd; i++) {
+            h(i) = h(i) + N(a)*hl(i,a);
+          }
+        }
+        
+        // Residual contribution: traction * deformed area
+        for (int a = 0; a < eNoN; a++) {
+          for (int i = 0; i < nsd; i++) {
+            lR(i,a) = lR(i,a) - w*N(a)*h(i);
+          }
+        }
+        
+        // Tangent stiffness contribution for follower traction
+        // This accounts for the change in deformed area with displacement
+        // The area scaling J*|nFi| changes with deformation
+        if (nsd == 3) {
+          // Compute Nx * F^{-1} for tangent stiffness
+          Array<double> NxFi(nsd, eNoN_vol);
+          for (int a = 0; a < eNoN_vol; a++) {
+            NxFi(0,a) = Nx_vol(0,a)*Fi(0,0) + Nx_vol(1,a)*Fi(1,0) + Nx_vol(2,a)*Fi(2,0);
+            NxFi(1,a) = Nx_vol(0,a)*Fi(0,1) + Nx_vol(1,a)*Fi(1,1) + Nx_vol(2,a)*Fi(2,1);
+            NxFi(2,a) = Nx_vol(0,a)*Fi(0,2) + Nx_vol(1,a)*Fi(1,2) + Nx_vol(2,a)*Fi(2,2);
+          }
+          
+          // Note: Full tangent stiffness for follower traction with varying area
+          // is complex. For now, we use a simplified contribution based on the
+          // pattern from b_struct_3d. This may affect Newton convergence rate
+          // but should still converge for reasonable problems.
+          double wl = lFa.w(g) * Jac_face * J * af;
+          
+          // Contribution from d(J*nFi)/dU, similar to follower pressure
+          // but scaled by traction magnitude instead of pressure
+          double h_mag = sqrt(h(0)*h(0) + h(1)*h(1) + h(2)*h(2));
+          if (h_mag > 1e-12) {
+            // Map face node indices to volume node indices for stiffness assembly
+            // Note: Only face nodes contribute to surface traction, but area change
+            // depends on volume element deformation
+            for (int a = 0; a < eNoN; a++) {
+              int Ac_face = lFa.IEN(a, e);
+              // Find corresponding volume node
+              int a_vol = -1;
+              for (int av = 0; av < eNoN_vol; av++) {
+                if (msh.IEN(av, Ec) == Ac_face) {
+                  a_vol = av;
+                  break;
+                }
+              }
+              if (a_vol < 0) continue;
+              
+              for (int b = 0; b < eNoN; b++) {
+                int Bc_face = lFa.IEN(b, e);
+                int b_vol = -1;
+                for (int bv = 0; bv < eNoN_vol; bv++) {
+                  if (msh.IEN(bv, Ec) == Bc_face) {
+                    b_vol = bv;
+                    break;
+                  }
+                }
+                if (b_vol < 0) continue;
+                
+                // Simplified tangent contribution based on area change
+                double Ku = wl * N(a) * h_mag * (nFi(1)*NxFi(0,b_vol) - nFi(0)*NxFi(1,b_vol)) / nFi_mag;
+                lK(1,a,b) = lK(1,a,b) + Ku;
+                lK(dof,a,b) = lK(dof,a,b) - Ku;
+
+                Ku = wl * N(a) * h_mag * (nFi(2)*NxFi(0,b_vol) - nFi(0)*NxFi(2,b_vol)) / nFi_mag;
+                lK(2,a,b) = lK(2,a,b) + Ku;
+                lK(2*dof,a,b) = lK(2*dof,a,b) - Ku;
+
+                Ku = wl * N(a) * h_mag * (nFi(2)*NxFi(1,b_vol) - nFi(1)*NxFi(2,b_vol)) / nFi_mag;
+                lK(dof+2,a,b) = lK(dof+2,a,b) + Ku;
+                lK(2*dof+1,a,b) = lK(2*dof+1,a,b) - Ku;
+              }
+            }
+          }
         }
       }
     }
@@ -1937,6 +2268,297 @@ void set_bc_undef_neu_l(ComMod& com_mod, const bcType& lBc, const faceType& lFa)
       }
     }
   }
+}
+
+/// @brief Compute the integral of pressure times the normal vector over a face.
+/// 
+/// This function computes F = integral(p * n * dA) over the face lFa, where
+/// p is the pressure, n is the outward unit normal, and dA is the area element.
+/// For follower pressure loads (struct/ustruct), the integral is computed in
+/// the deformed configuration using Nanson's formula with proper volume mesh
+/// shape function derivatives.
+///
+/// @param com_mod Common module data
+/// @param cm_mod Communication module data
+/// @param lFa Face over which to integrate
+/// @param pressure Uniform pressure value to integrate
+/// @param Dg Displacement field (used for follower pressure loads)
+/// @param flwP Whether this is a follower pressure load (uses deformed configuration)
+/// @return Vector containing the integrated force (nsd components)
+///
+Vector<double> compute_face_force_integral(ComMod& com_mod, const CmMod& cm_mod, 
+    const faceType& lFa, double pressure, const Array<double>& Dg, bool flwP)
+{
+  using namespace consts;
+
+  #define n_debug_compute_face_force_integral
+  #ifdef debug_compute_face_force_integral
+  DebugMsg dmsg(__func__, com_mod.cm.idcm());
+  dmsg.banner();
+  dmsg << "lFa.name: " << lFa.name;
+  dmsg << "pressure: " << pressure;
+  dmsg << "flwP: " << flwP;
+  #endif
+
+  const int nsd = com_mod.nsd;
+  const int cEq = com_mod.cEq;
+  const auto& eq = com_mod.eq[cEq];
+
+  const int iM = lFa.iM;
+  const auto& msh = com_mod.msh[iM];
+  const int eNoN = msh.eNoN;       // Volume element nodes
+  const int eNoNb = lFa.eNoN;      // Face element nodes
+
+  // Initialize force vector
+  Vector<double> force(nsd);
+  force = 0.0;
+
+  // Reference configuration (no follower pressure)
+  if (!flwP) {
+    for (int e = 0; e < lFa.nEl; e++) {
+      for (int g = 0; g < lFa.nG; g++) {
+        Vector<double> nV(nsd);
+        auto Nx = lFa.Nx.slice(g);
+        nn::gnnb(com_mod, cm_mod, lFa, e, g, nsd, nsd-1, eNoNb, Nx, nV);
+        
+        double w = lFa.w(g);
+        for (int i = 0; i < nsd; i++) {
+          force(i) += w * pressure * nV(i);
+        }
+      }
+    }
+  } else {
+    // Follower pressure: compute in deformed configuration using volume mesh
+    int s = eq.s;  // Starting index of displacement DOF
+    
+    for (int e = 0; e < lFa.nEl; e++) {
+      int Ec = lFa.gE(e);  // Parent volume element
+      
+      // Get volume element node coordinates and displacements
+      Array<double> xl(nsd, eNoN);
+      Array<double> dl(nsd, eNoN);
+      for (int a = 0; a < eNoN; a++) {
+        int Ac = msh.IEN(a, Ec);
+        for (int i = 0; i < nsd; i++) {
+          xl(i, a) = com_mod.x(i, Ac);
+          dl(i, a) = Dg(s + i, Ac);
+        }
+      }
+      
+      // Initialize parametric coordinate for Newton's iterations
+      Vector<double> xi0(nsd);
+      for (int g = 0; g < msh.nG; g++) {
+        xi0 = xi0 + msh.xi.col(g);
+      }
+      xi0 = xi0 / static_cast<double>(msh.nG);
+      
+      // Loop over face Gauss points
+      for (int g = 0; g < lFa.nG; g++) {
+        // Get physical coordinates of face Gauss point
+        Vector<double> xp(nsd);
+        for (int a = 0; a < eNoNb; a++) {
+          int Ac = lFa.IEN(a, e);
+          xp = xp + com_mod.x.col(Ac) * lFa.N(a, g);
+        }
+        
+        // Find parametric coordinates in volume element using Newton iteration
+        auto xi = xi0;
+        Vector<double> N(eNoN);
+        Array<double> Nxi(nsd, eNoN);
+        
+        try {
+          nn::get_nnx(nsd, msh.eType, eNoN, xl, msh.xib, msh.Nb, xp, xi, N, Nxi);
+        } catch (const std::runtime_error& error) {
+          // Skip this Gauss point if Newton fails
+          continue;
+        }
+        
+        // Compute 3D shape function derivatives in physical space
+        Array<double> Nx_vol(nsd, eNoN);
+        double Jac_vol;
+        Array<double> ksix(nsd, nsd);
+        nn::gnn(eNoN, nsd, nsd, Nxi, xl, Nx_vol, Jac_vol, ksix);
+        
+        // Get reference surface normal (from face)
+        Vector<double> nV(nsd);
+        auto Nx_face = lFa.Nx.slice(g);
+        nn::gnnb(com_mod, cm_mod, lFa, e, g, nsd, nsd-1, eNoNb, Nx_face, nV);
+        double Jac_face = sqrt(utils::norm(nV));
+        nV = nV / Jac_face;  // Unit normal in reference config
+        
+        // Compute deformation gradient F = I + grad(u) using volume Nx
+        Array<double> F(nsd, nsd);
+        for (int i = 0; i < nsd; i++) {
+          F(i, i) = 1.0;
+        }
+        for (int a = 0; a < eNoN; a++) {
+          for (int i = 0; i < nsd; i++) {
+            for (int j = 0; j < nsd; j++) {
+              F(i, j) += Nx_vol(j, a) * dl(i, a);
+            }
+          }
+        }
+        
+        // Compute J and F^{-1}
+        double J = mat_fun::mat_det(F, nsd);
+        auto Fi = mat_fun::mat_inv(F, nsd);
+        
+        // Apply Nanson's formula: n_def * dA_def = J * F^{-T} * n_ref * dA_ref
+        // nFi = F^{-T} * n_ref
+        Vector<double> nFi(nsd);
+        for (int i = 0; i < nsd; i++) {
+          for (int j = 0; j < nsd; j++) {
+            nFi(i) += Fi(j, i) * nV(j);
+          }
+        }
+        
+        // Force contribution: w * dA_ref * p * J * F^{-T} * n_ref
+        double w = lFa.w(g) * Jac_face;
+        for (int i = 0; i < nsd; i++) {
+          force(i) += w * pressure * J * nFi(i);
+        }
+      }
+    }
+  }
+
+  // Reduce across all processors
+  if (!com_mod.cm.seq()) {
+    for (int i = 0; i < nsd; i++) {
+      force(i) = com_mod.cm.reduce(cm_mod, force(i));
+    }
+  }
+
+  #ifdef debug_compute_face_force_integral
+  dmsg << "force: " << force;
+  #endif
+
+  return force;
+}
+
+/// @brief Compute the area of a face, optionally in the deformed configuration.
+///
+/// For follower pressure loads, uses Nanson's formula with proper volume mesh
+/// shape function derivatives to compute the deformed area.
+///
+/// @param com_mod Common module data
+/// @param cm_mod Communication module data
+/// @param lFa Face over which to compute area
+/// @param Dg Displacement field (used for follower pressure loads)
+/// @param flwP Whether to compute area in deformed configuration
+/// @return Face area
+///
+double compute_face_area(ComMod& com_mod, const CmMod& cm_mod, 
+    const faceType& lFa, const Array<double>& Dg, bool flwP)
+{
+  using namespace consts;
+
+  const int nsd = com_mod.nsd;
+  const int cEq = com_mod.cEq;
+  const auto& eq = com_mod.eq[cEq];
+
+  const int iM = lFa.iM;
+  const auto& msh = com_mod.msh[iM];
+  const int eNoN = msh.eNoN;       // Volume element nodes
+  const int eNoNb = lFa.eNoN;      // Face element nodes
+
+  double area = 0.0;
+
+  // Reference configuration
+  if (!flwP) {
+    for (int e = 0; e < lFa.nEl; e++) {
+      for (int g = 0; g < lFa.nG; g++) {
+        Vector<double> nV(nsd);
+        auto Nx = lFa.Nx.slice(g);
+        nn::gnnb(com_mod, cm_mod, lFa, e, g, nsd, nsd-1, eNoNb, Nx, nV);
+        double Jac = sqrt(utils::norm(nV));
+        area += lFa.w(g) * Jac;
+      }
+    }
+  } else {
+    // Deformed configuration using volume mesh
+    int s = eq.s;
+    
+    for (int e = 0; e < lFa.nEl; e++) {
+      int Ec = lFa.gE(e);
+      
+      Array<double> xl(nsd, eNoN);
+      Array<double> dl(nsd, eNoN);
+      for (int a = 0; a < eNoN; a++) {
+        int Ac = msh.IEN(a, Ec);
+        for (int i = 0; i < nsd; i++) {
+          xl(i, a) = com_mod.x(i, Ac);
+          dl(i, a) = Dg(s + i, Ac);
+        }
+      }
+      
+      Vector<double> xi0(nsd);
+      for (int g = 0; g < msh.nG; g++) {
+        xi0 = xi0 + msh.xi.col(g);
+      }
+      xi0 = xi0 / static_cast<double>(msh.nG);
+      
+      for (int g = 0; g < lFa.nG; g++) {
+        Vector<double> xp(nsd);
+        for (int a = 0; a < eNoNb; a++) {
+          int Ac = lFa.IEN(a, e);
+          xp = xp + com_mod.x.col(Ac) * lFa.N(a, g);
+        }
+        
+        auto xi = xi0;
+        Vector<double> N(eNoN);
+        Array<double> Nxi(nsd, eNoN);
+        
+        try {
+          nn::get_nnx(nsd, msh.eType, eNoN, xl, msh.xib, msh.Nb, xp, xi, N, Nxi);
+        } catch (const std::runtime_error& error) {
+          continue;
+        }
+        
+        Array<double> Nx_vol(nsd, eNoN);
+        double Jac_vol;
+        Array<double> ksix(nsd, nsd);
+        nn::gnn(eNoN, nsd, nsd, Nxi, xl, Nx_vol, Jac_vol, ksix);
+        
+        Vector<double> nV(nsd);
+        auto Nx_face = lFa.Nx.slice(g);
+        nn::gnnb(com_mod, cm_mod, lFa, e, g, nsd, nsd-1, eNoNb, Nx_face, nV);
+        double Jac_face = sqrt(utils::norm(nV));
+        nV = nV / Jac_face;
+        
+        Array<double> F(nsd, nsd);
+        for (int i = 0; i < nsd; i++) {
+          F(i, i) = 1.0;
+        }
+        for (int a = 0; a < eNoN; a++) {
+          for (int i = 0; i < nsd; i++) {
+            for (int j = 0; j < nsd; j++) {
+              F(i, j) += Nx_vol(j, a) * dl(i, a);
+            }
+          }
+        }
+        
+        double J = mat_fun::mat_det(F, nsd);
+        auto Fi = mat_fun::mat_inv(F, nsd);
+        
+        Vector<double> nFi(nsd);
+        for (int i = 0; i < nsd; i++) {
+          for (int j = 0; j < nsd; j++) {
+            nFi(i) += Fi(j, i) * nV(j);
+          }
+        }
+        
+        // Area in deformed config: |J * F^{-T} * n_ref| * dA_ref
+        double nFi_mag = sqrt(utils::norm(nFi));
+        area += lFa.w(g) * Jac_face * J * nFi_mag;
+      }
+    }
+  }
+
+  if (!com_mod.cm.seq()) {
+    area = com_mod.cm.reduce(cm_mod, area);
+  }
+
+  return area;
 }
 
 };

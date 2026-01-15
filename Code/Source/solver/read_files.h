@@ -72,6 +72,7 @@ namespace read_files_ns {
 
   void addCapBC(ComMod& com_mod, eqType& lEq, int iBc);
 
+  void addEnergyBalanceBC(ComMod& com_mod, eqType& lEq, int iBc);
 
 };
 

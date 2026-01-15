@@ -463,6 +463,8 @@ BoundaryConditionParameters::BoundaryConditionParameters()
 
   set_parameter("Capping_face", "", !required, capping_face);
   set_parameter("cap_svZeroDSolver_block", "", !required, cap_svzerod_solver_block);
+
+  set_parameter("Energy_balance_face", "", !required, energy_balance_face);
 }
 
 void BoundaryConditionParameters::print_parameters()

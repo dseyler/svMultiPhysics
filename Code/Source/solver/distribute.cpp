@@ -633,6 +633,9 @@ void dist_bc(ComMod& com_mod, const CmMod& cm_mod, const cmType& cm, bcType& lBc
   cm.bcast(cm_mod, lBc.tauB);
   cm.bcast(cm_mod, &lBc.flwP);
 
+  // Broadcast energy balance BC linkage fields
+  cm.bcast(cm_mod, &lBc.iEnergyBalanceBC);
+  cm.bcast(cm_mod, &lBc.hasEnergyBalanceBC);
 
   if (utils::btest(lBc.bType, static_cast<int>(BoundaryConditionType::bType_RCR))) {
     cm.bcast(cm_mod, &lBc.RCR.Rp);

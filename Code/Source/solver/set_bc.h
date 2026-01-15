@@ -34,15 +34,23 @@ void set_bc_dir_wl(ComMod& com_mod, const CmMod& cm_mod, const bcType& lBc, cons
 
 void set_bc_neu(ComMod& com_mod, const CmMod& cm_mod, const Array<double>& Yg, const Array<double>& Dg);
 void set_bc_neu_l(ComMod& com_mod, const CmMod& cm_mod, const bcType& lBc, const faceType& lFa, const Array<double>& Yg, const Array<double>& Dg);
+void set_bc_energy_balance(ComMod& com_mod, const CmMod& cm_mod, const Array<double>& Yg, const Array<double>& Dg);
 
 void set_bc_rbnl(ComMod& com_mod, const CmMod& cm_mod, const faceType& lFa, const RobinBoundaryCondition& robin_bc,
   const Array<double>& Yg, const Array<double>& Dg);
 
-void set_bc_trac_l(ComMod& com_mod, const CmMod& cm_mod, const bcType& lBc, const faceType& lFa);
+void set_bc_trac_l(ComMod& com_mod, const CmMod& cm_mod, const bcType& lBc, const faceType& lFa, 
+    const Array<double>& Dg, bool flwP = false);
 
 void set_bc_undef_neu(ComMod& com_mod);
 
 void set_bc_undef_neu_l(ComMod& com_mod, const bcType& lBc, const faceType& lFa);
+
+Vector<double> compute_face_force_integral(ComMod& com_mod, const CmMod& cm_mod, 
+    const faceType& lFa, double pressure, const Array<double>& Dg, bool flwP);
+
+double compute_face_area(ComMod& com_mod, const CmMod& cm_mod, 
+    const faceType& lFa, const Array<double>& Dg, bool flwP);
 
 };
 

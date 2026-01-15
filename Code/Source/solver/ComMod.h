@@ -162,6 +162,15 @@ class bcType
     // Name of face that caps this surface
     std::string capName;
 
+    // Index of energy balance BC associated with this BC
+    int iEnergyBalanceBC = -1;
+
+    // Flag indicating if this BC has an energy balance BC
+    bool hasEnergyBalanceBC = false;
+
+    // Name of face for energy balance
+    std::string energyBalanceFaceName;
+
     // Undeforming Neu BC master-slave node parameters.
     int masN = 0;
 

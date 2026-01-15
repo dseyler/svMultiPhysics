@@ -506,6 +506,13 @@ void read_bc(Simulation* simulation, EquationParameters* eq_params, eqType& lEq,
     }
   }
 
+  // For Neumann BC, read energy balance face name if specified
+  //
+  lBc.energyBalanceFaceName = "";
+  if (utils::btest(lBc.bType, enum_int(BoundaryConditionType::bType_Neu))) {
+    lBc.energyBalanceFaceName = bc_params->energy_balance_face.value();
+  }
+
   // If a Neumann BC face is undeforming
   //
   lBc.masN = 0;
@@ -1521,6 +1528,16 @@ void read_eq(Simulation* simulation, EquationParameters* eq_params, eqType& lEq)
     if (utils::btest(lEq.bc[iBc].bType, enum_int(BoundaryConditionType::bType_cpl))) {
       if (lEq.bc[iBc].capName != "") {
         addCapBC(com_mod, lEq, iBc);
+      }
+    }
+  }
+
+  // If a Neumann BC has an energy balance face, create a traction BC for it
+  int nOriginalBCs = lEq.nBc;  // Store original count to avoid infinite loop
+  for (int iBc = 0; iBc < nOriginalBCs; iBc++) {
+    if (utils::btest(lEq.bc[iBc].bType, enum_int(BoundaryConditionType::bType_Neu))) {
+      if (lEq.bc[iBc].energyBalanceFaceName != "") {
+        addEnergyBalanceBC(com_mod, lEq, iBc);
       }
     }
   }
@@ -3122,6 +3139,11 @@ void addCapBC(ComMod& com_mod, eqType& lEq, int iBc) {
                      lEq.bc[lEq.nBc-1].iM, lEq.bc[lEq.nBc-1].iFa);
   lEq.bc[lEq.nBc-1].capName = "";
 
+  // Clear energy balance fields (don't inherit from parent BC)
+  lEq.bc[lEq.nBc-1].energyBalanceFaceName = "";
+  lEq.bc[lEq.nBc-1].iEnergyBalanceBC = -1;
+  lEq.bc[lEq.nBc-1].hasEnergyBalanceBC = false;
+
   // Set capID pointer in the capped face
   int iFa = lEq.bc[iBc].iFa;
   int iM  = lEq.bc[iBc].iM;
@@ -3130,6 +3152,73 @@ void addCapBC(ComMod& com_mod, eqType& lEq, int iBc) {
   // Set a pointer to the capping surface BC in the capped surface BC
   lEq.bc[iBc].iCapBC = lEq.nBc-1;
   lEq.bc[iBc].hasCapBC = true;
+}
+
+//---------------------
+// addEnergyBalanceBC
+//---------------------
+// Adds a BC to lEq.bc at the end for an energy balance face. Creates a 
+// traction BC that will receive a counteracting force to balance the 
+// Neumann BC pressure load.
+//
+void addEnergyBalanceBC(ComMod& com_mod, eqType& lEq, int iBc) {
+  using namespace consts;
+  
+  auto& msh = com_mod.msh;
+
+  // Store old BCs in a temporary container
+  std::vector<bcType> oldBCs(lEq.nBc);
+  for (int jBc = 0; jBc < lEq.nBc; jBc++) {
+    oldBCs[jBc] = lEq.bc[jBc];
+  }
+
+  lEq.nBc += 1;
+
+  // Resize lEq.bc to hold an extra energy balance BC
+  lEq.bc.resize(lEq.nBc);
+
+  // Copy back old BCs
+  for (int jBc = 0; jBc < lEq.nBc - 1; jBc++) {
+    lEq.bc[jBc] = oldBCs[jBc];
+  }
+
+  // Create a new traction BC for the energy balance face
+  bcType& ebBC = lEq.bc[lEq.nBc-1];
+  
+  // Find the energy balance face
+  all_fun::find_face(msh, lEq.bc[iBc].energyBalanceFaceName, 
+                     ebBC.iM, ebBC.iFa);
+
+  // Set BC type to traction (this will be applied as a uniform traction)
+  ebBC.bType = 0;
+  ebBC.bType = utils::ibset(ebBC.bType, enum_int(BoundaryConditionType::bType_trac));
+  ebBC.bType = utils::ibset(ebBC.bType, enum_int(BoundaryConditionType::bType_std));
+  
+  // Initialize traction vector and direction (will be computed at runtime in set_bc)
+  int nsd = com_mod.nsd;
+  ebBC.h.resize(nsd);
+  ebBC.h = 0.0;
+  ebBC.eDrn.resize(nsd);
+  ebBC.eDrn = 0.0;
+  
+  // Clear coupling-related pointers (this is not a coupled BC)
+  ebBC.cplBCptr = -1;
+  ebBC.lsPtr = -1;
+  
+  // Clear cap and energy balance info for the new BC
+  ebBC.capName = "";
+  ebBC.energyBalanceFaceName = "";
+  ebBC.iCapBC = -1;
+  ebBC.hasCapBC = false;
+  ebBC.iEnergyBalanceBC = -1;
+  ebBC.hasEnergyBalanceBC = false;
+  
+  // Copy follower pressure flag from parent BC (for struct/ustruct)
+  ebBC.flwP = lEq.bc[iBc].flwP;
+
+  // Set a pointer to the energy balance BC in the Neumann BC
+  lEq.bc[iBc].iEnergyBalanceBC = lEq.nBc-1;
+  lEq.bc[iBc].hasEnergyBalanceBC = true;
 }
 
 

@@ -812,6 +812,20 @@ class BoundaryConditionParameters : public ParameterLists
 
     Parameter<std::string> capping_face;
     Parameter<std::string> cap_svzerod_solver_block;
+
+    /// Name of face to receive counteracting traction for force equilibrium.
+    /// When specified for a Neumann BC, a traction BC is automatically applied
+    /// to the named face such that the net force on the body is zero.
+    ///
+    /// Example:
+    /// \code{.xml}
+    /// <Add_BC name="inlet">
+    ///    <Type> Neu </Type>
+    ///    <Value> 1000.0 </Value>
+    ///    <Energy_balance_face> outlet </Energy_balance_face>
+    /// </Add_BC>
+    /// \endcode
+    Parameter<std::string> energy_balance_face;
 };
 
 /// @brief The OutputParameters class stores parameters for the
