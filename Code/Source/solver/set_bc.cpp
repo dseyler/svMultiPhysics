@@ -1337,7 +1337,6 @@ void set_bc_neu(ComMod& com_mod, const CmMod& cm_mod, const Array<double>& Yg, c
 
   set_bc_energy_balance(com_mod, cm_mod, Yg, Dg);
 
-  // Second pass: Apply all BCs
   for (int iBc = 0; iBc < eq.nBc; iBc++) {
     auto& bc = eq.bc[iBc];
     int iFa = bc.iFa;
