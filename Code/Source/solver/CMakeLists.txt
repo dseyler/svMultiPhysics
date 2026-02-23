@@ -165,6 +165,7 @@ set(CSRCS
   VtkData.h VtkData.cpp
 
   all_fun.h all_fun.cpp
+  active_stress.h active_stress.cpp
   baf_ini.h baf_ini.cpp
   bf.h bf.cpp
   cep.h cep.cpp

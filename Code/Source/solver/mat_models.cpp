@@ -4,6 +4,7 @@
 // Reproduces subroutines defined in MATMODELS.f.
 
 #include "mat_models.h"
+#include "active_stress.h"
 
 #include "fft.h"
 #include "mat_fun.h"
@@ -328,7 +329,7 @@ Eigen::Matrix<double, nsd, 1> compute_sheet_normal(const Eigen::Matrix<double, n
  */
 template<size_t nsd>
 void compute_pk2cc(const ComMod& com_mod, const CepMod& cep_mod, const dmnType& lDmn, const Matrix<nsd>& F, const int nfd,
-    const Eigen::Matrix<double, nsd, Eigen::Dynamic> fl, const double ya, Matrix<nsd>& S, Matrix<2*nsd>& Dm, double& Ja)
+    const Eigen::Matrix<double, nsd, Eigen::Dynamic> fl, const double ya, Matrix<nsd>& S, Matrix<2*nsd>& Dm, double& Ja, const int elem_id)
 {
   using namespace consts;
   using namespace mat_fun;
@@ -360,10 +361,25 @@ void compute_pk2cc(const ComMod& com_mod, const CepMod& cep_mod, const dmnType& 
   double Ta = 0.0;
   compute_fib_stress(com_mod, cep_mod, stM.Tf, Ta);
 
-  // Distribute total active stress among fiber directions
-  double Tfa = stM.Tf.eta_f * Ta;  // Fiber direction
-  double Tsa = stM.Tf.eta_s * Ta;  // Sheet direction
-  double Tna = stM.Tf.eta_n * Ta;  // Sheet-normal direction
+  active_stress::ElementActiveStressParams eta_defaults;
+  eta_defaults.eta_f = stM.Tf.eta_f;
+  eta_defaults.eta_s = stM.Tf.eta_s;
+  eta_defaults.eta_n = stM.Tf.eta_n;
+
+  std::unique_ptr<active_stress::ActiveStressSpatialField> spatial_field;
+  if (stM.Tf.has_elemental_distribution) {
+    spatial_field = std::make_unique<active_stress::ElementalDirectionalSpatialField>(stM.Tf.elemental_distribution, eta_defaults);
+  } else {
+    spatial_field = std::make_unique<active_stress::UniformSpatialField>(eta_defaults);
+  }
+
+  active_stress::PrescribedActiveStressModel prescribed_stress(std::move(spatial_field));
+
+  // Distribute total prescribed active stress among fiber directions.
+  double Tfa = 0.0;
+  double Tsa = 0.0;
+  double Tna = 0.0;
+  prescribed_stress.directional_stress(Ta, elem_id, Tfa, Tsa, Tna);
 
   // Validate directional distribution is supported for this constitutive model
   // Only Guccione, HO, and HO-ma models support sheet and sheet-normal stress contributions
@@ -371,7 +387,7 @@ void compute_pk2cc(const ComMod& com_mod, const CepMod& cep_mod, const dmnType& 
                                             stM.isoType == ConstitutiveModelType::stIso_HO ||
                                             stM.isoType == ConstitutiveModelType::stIso_HO_ma);
   
-  if (!supports_directional_distribution && (stM.Tf.eta_s > 0.0 || stM.Tf.eta_n > 0.0)) {
+  if (!supports_directional_distribution && (Tsa > 0.0 || Tna > 0.0)) {
     throw std::runtime_error("Directional distribution of active stress (eta_s > 0 or eta_n > 0) "
       "is only supported for Guccione, Holzapfel-Ogden (HO), and Holzapfel-Ogden Modified Anisotropy (HO-ma) models. "
       "Current model does not support sheet or sheet-normal stress contributions. "
@@ -867,7 +883,7 @@ void compute_pk2cc(const ComMod& com_mod, const CepMod& cep_mod, const dmnType& 
  * 
  */
 void compute_pk2cc(const ComMod& com_mod, const CepMod& cep_mod, const dmnType& lDmn, const Array<double>& F, const int nfd,
-    const Array<double>& fl, const double ya, Array<double>& S, Array<double>& Dm, double& Ja)
+    const Array<double>& fl, const double ya, Array<double>& S, Array<double>& Dm, double& Ja, const int elem_id)
 {
     // Number of spatial dimensions
     int nsd = com_mod.nsd;
@@ -888,7 +904,7 @@ void compute_pk2cc(const ComMod& com_mod, const CepMod& cep_mod, const dmnType& 
         Eigen::Matrix4d Dm_2D = Eigen::Matrix4d::Zero();
 
         // Call templated function
-        compute_pk2cc<2>(com_mod, cep_mod, lDmn, F_2D, nfd, fl_2D, ya, S_2D, Dm_2D, Ja);
+        compute_pk2cc<2>(com_mod, cep_mod, lDmn, F_2D, nfd, fl_2D, ya, S_2D, Dm_2D, Ja, elem_id);
 
         // Copy results back
         mat_fun::convert_to_array(S_2D, S);
@@ -912,7 +928,7 @@ void compute_pk2cc(const ComMod& com_mod, const CepMod& cep_mod, const dmnType& 
         Dm_3D.setZero();
 
         // Call templated function
-        compute_pk2cc<3>(com_mod, cep_mod, lDmn, F_3D, nfd, fl_3D, ya, S_3D, Dm_3D, Ja);
+        compute_pk2cc<3>(com_mod, cep_mod, lDmn, F_3D, nfd, fl_3D, ya, S_3D, Dm_3D, Ja, elem_id);
 
         // Copy results back
         mat_fun::convert_to_array(S_3D, S);

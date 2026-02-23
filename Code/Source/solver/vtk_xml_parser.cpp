@@ -683,6 +683,111 @@ void load_fiber_direction_vtu(const std::string& file_name, const std::string& d
   }
 }
 
+/// @brief Load per-element active-stress directional distributions from VTU CellData.
+///
+/// Required VTU arrays (when present):
+/// - Int32 `GlobalElementID` in CellData (1-based IDs)
+/// - Double scalar arrays `eta_f`, `eta_s`, `eta_n` in CellData
+///
+/// Output:
+/// - elemental_distribution shape = (3, nElem), indexed by global element id - 1
+/// Returns:
+/// - true if all three eta arrays are found and loaded
+/// - false if no eta arrays are present (caller can skip spatial override)
+bool load_active_stress_directional_distribution_vtu(const std::string& file_name,
+    Array<double>& elemental_distribution)
+{
+  if (FILE *file = fopen(file_name.c_str(), "r")) {
+      fclose(file);
+  } else {
+    throw std::runtime_error("The active stress directional distribution VTK file '" + file_name + "' can't be read.");
+  }
+
+  auto reader = vtkSmartPointer<vtkXMLUnstructuredGridReader>::New();
+  reader->SetFileName(file_name.c_str());
+  reader->Update();
+  vtkSmartPointer<vtkUnstructuredGrid> vtk_ugrid = reader->GetOutput();
+
+  vtkIdType num_elems = vtk_ugrid->GetNumberOfCells();
+  if (num_elems <= 0) {
+    throw std::runtime_error("Failed reading active stress directional distribution VTK file '" + file_name + "'.");
+  }
+
+  auto cell_data = vtk_ugrid->GetCellData();
+  auto eta_f_arr = cell_data->GetArray("eta_f");
+  auto eta_s_arr = cell_data->GetArray("eta_s");
+  auto eta_n_arr = cell_data->GetArray("eta_n");
+
+  bool has_eta_f = (eta_f_arr != nullptr);
+  bool has_eta_s = (eta_s_arr != nullptr);
+  bool has_eta_n = (eta_n_arr != nullptr);
+
+  if (!has_eta_f && !has_eta_s && !has_eta_n) {
+    elemental_distribution.clear();
+    return false;
+  }
+
+  if (!(has_eta_f && has_eta_s && has_eta_n)) {
+    throw std::runtime_error("Active stress directional distribution file '" + file_name +
+        "' must either provide all three CellData arrays (eta_f, eta_s, eta_n) or none of them.");
+  }
+
+  auto elem_ids = vtkIntArray::SafeDownCast(cell_data->GetArray(ELEMENT_IDS_NAME.c_str()));
+  if (elem_ids == nullptr) {
+    throw std::runtime_error("Active stress directional distribution file '" + file_name +
+        "' does not contain required CellData Int32 array 'GlobalElementID'.");
+  }
+
+  auto eta_f_data = vtkDoubleArray::SafeDownCast(eta_f_arr);
+  auto eta_s_data = vtkDoubleArray::SafeDownCast(eta_s_arr);
+  auto eta_n_data = vtkDoubleArray::SafeDownCast(eta_n_arr);
+  if (eta_f_data == nullptr || eta_s_data == nullptr || eta_n_data == nullptr) {
+    throw std::runtime_error("Active stress directional distribution file '" + file_name +
+        "' has eta arrays with unsupported type; expected Float64 for eta_f, eta_s, eta_n.");
+  }
+
+  if (elem_ids->GetNumberOfTuples() != num_elems ||
+      eta_f_data->GetNumberOfTuples() != num_elems ||
+      eta_s_data->GetNumberOfTuples() != num_elems ||
+      eta_n_data->GetNumberOfTuples() != num_elems) {
+    throw std::runtime_error("Active stress directional distribution file '" + file_name +
+        "' has inconsistent CellData tuple counts.");
+  }
+
+  elemental_distribution.resize(3, num_elems);
+  elemental_distribution = 0.0;
+  std::vector<bool> seen(num_elems, false);
+
+  for (int cell_id = 0; cell_id < num_elems; cell_id++) {
+    int global_elem_id = elem_ids->GetValue(cell_id);
+    if (global_elem_id <= 0 || global_elem_id > num_elems) {
+      throw std::runtime_error("GlobalElementID value '" + std::to_string(global_elem_id) +
+          "' in active stress directional distribution file '" + file_name +
+          "' is out of valid range [1, " + std::to_string(num_elems) + "].");
+    }
+
+    int idx = global_elem_id - 1;
+    if (seen[idx]) {
+      throw std::runtime_error("Duplicate GlobalElementID value '" + std::to_string(global_elem_id) +
+          "' in active stress directional distribution file '" + file_name + "'.");
+    }
+    seen[idx] = true;
+
+    elemental_distribution(0, idx) = eta_f_data->GetValue(cell_id);
+    elemental_distribution(1, idx) = eta_s_data->GetValue(cell_id);
+    elemental_distribution(2, idx) = eta_n_data->GetValue(cell_id);
+  }
+
+  for (int i = 0; i < num_elems; i++) {
+    if (!seen[i]) {
+      throw std::runtime_error("Missing GlobalElementID '" + std::to_string(i+1) +
+          "' in active stress directional distribution file '" + file_name + "'.");
+    }
+  }
+
+  return true;
+}
+
 /// @brief Store a surface mesh read from a VTK .vtp file into a Face object.
 //
 void load_vtp(const std::string& file_name, faceType& face)

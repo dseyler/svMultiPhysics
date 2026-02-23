@@ -1738,6 +1738,17 @@ void dist_mat_consts(const ComMod& com_mod, const CmMod& cm_mod, const cmType& c
   cm.bcast(cm_mod, &lStM.Tf.eta_f);
   cm.bcast(cm_mod, &lStM.Tf.eta_s);
   cm.bcast(cm_mod, &lStM.Tf.eta_n);
+  cm.bcast(cm_mod, &lStM.Tf.has_elemental_distribution);
+  if (lStM.Tf.has_elemental_distribution) {
+    int num_elem = lStM.Tf.elemental_distribution.ncols();
+    cm.bcast(cm_mod, &num_elem);
+    if (cm.slv(cm_mod)) {
+      lStM.Tf.elemental_distribution.resize(3, num_elem);
+    }
+    cm.bcast(cm_mod, lStM.Tf.elemental_distribution, "lStM.Tf.elemental_distribution");
+  } else {
+    lStM.Tf.elemental_distribution.clear();
+  }
 
   // Distribute CANN parameter table
   if (lStM.isoType == ConstitutiveModelType::stArtificialNeuralNet) {

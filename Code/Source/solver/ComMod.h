@@ -329,6 +329,11 @@ class fibStrsType
 
     // Unsteady time-dependent values
     fcType gt;
+
+    // Optional per-element directional distributions (3 x nElem):
+    // row 0 -> eta_f, row 1 -> eta_s, row 2 -> eta_n.
+    bool has_elemental_distribution = false;
+    Array<double> elemental_distribution;
 };
 
 /// @brief Structural domain type

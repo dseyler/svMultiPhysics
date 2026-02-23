@@ -10,6 +10,7 @@
 #include "read_msh.h"
 #include "fft.h"
 #include "vtk_xml.h"
+#include "vtk_xml_parser.h"
 
 #include "Array.h"
 #include "CepMod.h"
@@ -1626,6 +1627,43 @@ void read_fiber_temporal_values_file(FiberReinforcementStressParameters& fiber_p
   fft(i, temporal_values, lDmn.stM.Tf.gt);
 }
 
+//---------------------------------------------
+// read_directional_distribution_vtu_file
+//---------------------------------------------
+// Read per-element active stress directional fractions from a VTU file.
+//
+void read_directional_distribution_vtu_file(const std::string& file_path, dmnType& lDmn)
+{
+  auto& tf = lDmn.stM.Tf;
+  bool has_distribution = vtk_xml_parser::load_active_stress_directional_distribution_vtu(
+      file_path,
+      tf.elemental_distribution);
+
+  tf.has_elemental_distribution = has_distribution;
+  if (!has_distribution) {
+    tf.elemental_distribution.clear();
+    return;
+  }
+
+  const double tol = 1.0e-10;
+  for (int e = 0; e < tf.elemental_distribution.ncols(); e++) {
+    double eta_f = tf.elemental_distribution(0, e);
+    double eta_s = tf.elemental_distribution(1, e);
+    double eta_n = tf.elemental_distribution(2, e);
+
+    if (eta_f < 0.0 || eta_s < 0.0 || eta_n < 0.0) {
+      throw std::runtime_error("Elemental directional distribution contains negative eta values at element index " +
+          std::to_string(e+1) + ".");
+    }
+
+    double eta_sum = eta_f + eta_s + eta_n;
+    if (std::abs(eta_sum - 1.0) > tol) {
+      throw std::runtime_error("Elemental directional distribution fractions must sum to 1.0 at element index " +
+          std::to_string(e+1) + ". Sum is " + std::to_string(eta_sum) + ".");
+    }
+  }
+}
+
 //------------
 // read_files
 //------------
@@ -2236,6 +2274,19 @@ void read_mat_model(Simulation* simulation, EquationParameters* eq_params, Domai
       lDmn.stM.Tf.eta_n = fiber_params.directional_distribution.sheet_normal_direction.value();
     }
     // Otherwise (no block at all), defaults (eta_f=1.0, eta_s=0.0, eta_n=0.0) from ComMod.h are used
+
+    // Optionally override directional fractions per element from a VTU file.
+    // Preferred syntax:
+    //   <Spatial_values_file_path> filename.vtu </Spatial_values_file_path>
+    if (fiber_params.spatial_values_file_path.defined() && !fiber_params.spatial_values_file_path.value().empty()) {
+      read_directional_distribution_vtu_file(fiber_params.spatial_values_file_path.value(), lDmn);
+
+    // Backward-compatible syntax:
+    //   <Directional_distribution_vtu><File_path>...</File_path></Directional_distribution_vtu>
+    } else if (fiber_params.directional_distribution_vtu.defined()) {
+      fiber_params.directional_distribution_vtu.validate();
+      read_directional_distribution_vtu_file(fiber_params.directional_distribution_vtu.file_path.value(), lDmn);
+    }
   }
 
   // Check for shell model
