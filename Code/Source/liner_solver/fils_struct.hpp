@@ -127,6 +127,21 @@ class FSILS_faceType
 
     /// Neu W*Sai                      (TMP)
     Array<double> valM;
+
+    /// Flag for cap face          (USE)
+    bool isCap = false;
+
+    /// Index of mesh in msh associated with this face
+    int iM = -1;
+
+    /// Index of face in msh[iM].fa that caps this face
+    int iFa = -1;
+
+    /// Index of face in lhs.face that caps this face
+    int faInCap = -1;
+
+    /// Flag indicating if this face is capped by another face
+    bool isCapped = false;
 };
 
 /// @brief Modified in:

@@ -245,6 +245,9 @@ void read_bc(Simulation* simulation, EquationParameters* eq_params, eqType& lEq,
     lBc.cplBCptr = com_mod.cplBC.nFa - 1;
     auto& face_name = com_mod.msh[lBc.iM].fa[lBc.iFa].name;
 
+    // Read cap face name for this coupled BC
+    lBc.capName = bc_params->capping_face.value();
+
     // The svZeroDSolver_interface parameter is defined.
     //
     if (com_mod.cplBC.svzerod_solver_interface.has_data) { 
@@ -255,6 +258,11 @@ void read_bc(Simulation* simulation, EquationParameters* eq_params, eqType& lEq,
       }
       auto block_name = bc_params->svzerod_solver_block();
       com_mod.cplBC.svzerod_solver_interface.add_block_face(block_name, face_name);
+
+      if (lBc.capName != "") {
+        auto cap_block_name = bc_params->cap_svzerod_solver_block();
+        com_mod.cplBC.svzerod_solver_interface.add_block_face(cap_block_name, lBc.capName);
+      }
 
     // Assume coupling with GenBC.
     //
@@ -270,6 +278,8 @@ void read_bc(Simulation* simulation, EquationParameters* eq_params, eqType& lEq,
             std::string(" boundary condition parameter for face '") + face_name + "'.";
       throw std::runtime_error(error_msg);
     }
+
+
 
   } else if (ctmp == "Resistance") { 
     lBc.bType = utils::ibset(lBc.bType, enum_int(BoundaryConditionType::bType_res)); 
@@ -488,7 +498,7 @@ void read_bc(Simulation* simulation, EquationParameters* eq_params, eqType& lEq,
     }
   }
 
-  //  For Neumann BC, is load vector changing with deformation (follower pressure)
+  //  For Neumann BC, if the load vector changes with deformation (follower pressure)
   //
   lBc.flwP = false;
   if (utils::btest(lBc.bType, enum_int(BoundaryConditionType::bType_Neu))) {
@@ -1512,6 +1522,16 @@ void read_eq(Simulation* simulation, EquationParameters* eq_params, eqType& lEq)
     lEq.bc[iBc].iFa = iFa;
 
     read_bc(simulation, eq_params, lEq, bc_params, lEq.bc[iBc]);
+  }
+
+  // If an LPN-coupled face has a cap, automatically create a coupled
+  // BC for the cap face.
+  for (int iBc = 0; iBc < lEq.nBc; iBc++) {
+    if (utils::btest(lEq.bc[iBc].bType, enum_int(BoundaryConditionType::bType_cpl))) {
+      if (lEq.bc[iBc].capName != "") {
+        addCapBC(com_mod, lEq, iBc);
+      }
+    }
   }
 
   // Initialize cplBC for RCR-type BC
@@ -3049,6 +3069,8 @@ void read_solid_visc_model(Simulation* simulation, EquationParameters* eq_params
 //--------------------
 // read_wall_props_ff
 //--------------------
+// Reproduces 'SUBROUTINE READWALLPROPSFF(fname, iM, iFa)' defined in READFILES.f.
+//
 // Read CMM variable wall properties from a file.
 //
 // Modifies:
@@ -3135,6 +3157,54 @@ void read_wall_props_ff(ComMod& com_mod, const std::string& file_name, const int
     }
   }
 }
+
+//--------------------
+// Adds a BC to lEq.bc at the end for a cap. Copies most of the BC
+// info from lEq.bc[iBc], which corresponds to the capped surface.
+// Also, sets info about capping face in capped face (capName and
+// capID fields).
+//
+void addCapBC(ComMod& com_mod, eqType& lEq, int iBc) {
+
+  auto& msh = com_mod.msh;
+  auto& cplBC = com_mod.cplBC;
+
+  // Store old BCs in a temporary container
+  std::vector<bcType> oldBCs(lEq.nBc);
+  for (int jBc = 0; jBc < lEq.nBc; jBc++) {
+    oldBCs[jBc] = lEq.bc[jBc];
+  }
+
+  lEq.nBc += 1;
+
+  // Resize lEq.bc to hold an extra cap BC
+  lEq.bc.resize(lEq.nBc);
+
+  // Copy back old BCs
+  for (int jBc = 0; jBc < lEq.nBc - 1; jBc++) {
+    lEq.bc[jBc] = oldBCs[jBc];
+  }
+
+  lEq.bc[lEq.nBc-1] = lEq.bc[iBc];
+
+  cplBC.nFa += 1;
+  lEq.bc[lEq.nBc-1].cplBCptr = cplBC.nFa-1;
+
+  // Find the capping face
+  all_fun::find_face(msh, lEq.bc[iBc].capName, 
+                     lEq.bc[lEq.nBc-1].iM, lEq.bc[lEq.nBc-1].iFa);
+  lEq.bc[lEq.nBc-1].capName = "";
+
+  // Set capID pointer in the capped face
+  int iFa = lEq.bc[iBc].iFa;
+  int iM  = lEq.bc[iBc].iM;
+  msh[iM].fa[iFa].capID = lEq.bc[lEq.nBc-1].iFa;
+
+  // Set a pointer to the capping surface BC in the capped surface BC
+  lEq.bc[iBc].iCapBC = lEq.nBc-1;
+  lEq.bc[iBc].hasCapBC = true;
+}
+
 
 //--------------
 // set_cmm_bdry

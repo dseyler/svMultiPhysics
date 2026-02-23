@@ -7,6 +7,7 @@
 #include "Simulation.h"
 #include "ComMod.h"
 #include "consts.h"
+#include "all_fun.h"
 
 namespace nn {
 
@@ -37,8 +38,11 @@ namespace nn {
   void gnn(const int eNoN, const int nsd, const int insd, Array<double>& Nxi, Array<double>& x, Array<double>& Nx, 
       double& Jac, Array<double>& ks);
 
-  void gnnb(const ComMod& com_mod, const faceType& lFa, const int e, const int g, const int nsd, const int insd,
+  void gnnb(const ComMod& com_mod, const CmMod& cm_mod, const faceType& lFa, const int e, const int g, const int nsd, const int insd,
       const int eNoNb, const Array<double>& Nx, Vector<double>& n, consts::MechanicalConfigurationType cfg=consts::MechanicalConfigurationType::reference);
+
+  void gnnbv(const ComMod& com_mod, const CmMod& cm_mod, const faceType& lFa, const int e, const int g, const int nsd, const int insd,
+    const int eNoNb, const Array<double>& Nx, Vector<double>& n, consts::MechanicalConfigurationType cfg=consts::MechanicalConfigurationType::reference);
 
   void gnns(const int nsd, const int eNoN, const Array<double>& Nxi, Array<double>& xl, Vector<double>& nV, 
       Array<double>& gCov, Array<double>& gCnv);
@@ -49,6 +53,7 @@ namespace nn {
   void select_ele(const ComMod& com_mod, mshType& mesh);
 
   void select_eleb(Simulation* simulation,  mshType& mesh, faceType& face);
+
 
 };
 

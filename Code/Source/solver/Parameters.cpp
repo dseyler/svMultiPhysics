@@ -460,6 +460,9 @@ BoundaryConditionParameters::BoundaryConditionParameters()
   set_parameter("Zero_out_perimeter", false, !required, zero_out_perimeter);
 
   set_parameter("Resistance", 1.e5, !required, resistance);
+
+  set_parameter("Capping_face", "", !required, capping_face);
+  set_parameter("cap_svZeroDSolver_block", "", !required, cap_svzerod_solver_block);
 }
 
 void BoundaryConditionParameters::print_parameters()
@@ -2506,6 +2509,7 @@ FaceParameters::FaceParameters()
 
   set_parameter("End_nodes_face_file_path", "", !required, end_nodes_face_file_path);
   set_parameter("Face_file_path", "", !required, face_file_path);
+  set_parameter("Cap", false, !required, cap_face);
 
   set_parameter("Quadrature_modifier_TRI3", (2.0/3.0), !required, quadrature_modifier_TRI3);
 }
