@@ -1142,30 +1142,6 @@ class DirectionalDistributionParameters : public ParameterLists
     bool value_set = false;
 };
 
-/// @brief Optional VTU-backed per-element directional distribution parameters.
-///
-/// \code {.xml}
-/// <Directional_distribution_vtu>
-///   <File_path> mesh/eta.vtu </File_path>
-/// </Directional_distribution_vtu>
-/// \endcode
-class DirectionalDistributionVTUParameters : public ParameterLists
-{
-  public:
-    DirectionalDistributionVTUParameters();
-
-    static const std::string xml_element_name_;
-
-    bool defined() const { return value_set; };
-    void print_parameters();
-    void set_values(tinyxml2::XMLElement* xml_elem);
-    void validate() const;
-
-    Parameter<std::string> file_path;
-
-    bool value_set = false;
-};
-
 /// @brief The FiberReinforcementStressParameters class stores fiber
 /// reinforcement stress parameters for the 'Fiber_reinforcement_stress` 
 /// XML element.
@@ -1202,7 +1178,6 @@ class FiberReinforcementStressParameters : public ParameterLists
 
     // Directional stress distribution parameters
     DirectionalDistributionParameters directional_distribution;
-    DirectionalDistributionVTUParameters directional_distribution_vtu;
 
     bool value_set = false;
 };

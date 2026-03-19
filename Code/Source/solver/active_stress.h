@@ -13,7 +13,7 @@ struct ElementActiveStressParams
   double eta_s = 0.0;
   double eta_n = 0.0;
 
-  // Stage-2 placeholders.
+  // Will add later
   double scale = 1.0;
   double delay = 0.0;
 };

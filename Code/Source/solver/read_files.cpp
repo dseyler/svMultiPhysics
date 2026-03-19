@@ -2285,16 +2285,9 @@ void read_mat_model(Simulation* simulation, EquationParameters* eq_params, Domai
     // Otherwise (no block at all), defaults (eta_f=1.0, eta_s=0.0, eta_n=0.0) from ComMod.h are used
 
     // Optionally override directional fractions per element from a VTU file.
-    // Preferred syntax:
     //   <Spatial_values_file_path> filename.vtu </Spatial_values_file_path>
     if (fiber_params.spatial_values_file_path.defined() && !fiber_params.spatial_values_file_path.value().empty()) {
       read_directional_distribution_vtu_file(fiber_params.spatial_values_file_path.value(), lDmn);
-
-    // Backward-compatible syntax:
-    //   <Directional_distribution_vtu><File_path>...</File_path></Directional_distribution_vtu>
-    } else if (fiber_params.directional_distribution_vtu.defined()) {
-      fiber_params.directional_distribution_vtu.validate();
-      read_directional_distribution_vtu_file(fiber_params.directional_distribution_vtu.file_path.value(), lDmn);
     }
   }
 

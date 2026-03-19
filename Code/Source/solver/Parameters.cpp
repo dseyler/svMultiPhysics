@@ -1861,55 +1861,6 @@ void DirectionalDistributionParameters::print_parameters()
 }
 
 //////////////////////////////////////////////////////////
-//      DirectionalDistributionVTUParameters            //
-//////////////////////////////////////////////////////////
-
-/// @brief Define the XML element name for VTU directional distribution parameters.
-const std::string DirectionalDistributionVTUParameters::xml_element_name_ = "Directional_distribution_vtu";
-
-DirectionalDistributionVTUParameters::DirectionalDistributionVTUParameters()
-{
-  bool required = false;
-  set_parameter("File_path", "", required, file_path);
-}
-
-void DirectionalDistributionVTUParameters::set_values(tinyxml2::XMLElement* xml_elem)
-{
-  using namespace tinyxml2;
-  std::string error_msg = "Unknown " + xml_element_name_ + " XML element '";
-
-  using std::placeholders::_1;
-  using std::placeholders::_2;
-
-  std::function<void(const std::string&, const std::string&)> ftpr =
-      std::bind(&DirectionalDistributionVTUParameters::set_parameter_value, *this, _1, _2);
-
-  xml_util_set_parameters(ftpr, xml_elem, error_msg);
-  value_set = true;
-}
-
-void DirectionalDistributionVTUParameters::validate() const
-{
-  if (!value_set) {
-    return;
-  }
-
-  if (!file_path.defined() || file_path.value().empty()) {
-    throw std::runtime_error("Directional_distribution_vtu requires a non-empty File_path.");
-  }
-}
-
-void DirectionalDistributionVTUParameters::print_parameters()
-{
-  if (!value_set) {
-    return;
-  }
-
-  std::cout << "  Directional Distribution VTU:" << std::endl;
-  std::cout << "    File_path: " << file_path.value() << std::endl;
-}
-
-//////////////////////////////////////////////////////////
 //            FiberReinforcementStressParameters        //
 //////////////////////////////////////////////////////////
 
@@ -1952,8 +1903,6 @@ void FiberReinforcementStressParameters::set_values(tinyxml2::XMLElement* xml_el
     
     if (name == DirectionalDistributionParameters::xml_element_name_) {
       directional_distribution.set_values(item);
-    } else if (name == DirectionalDistributionVTUParameters::xml_element_name_) {
-      directional_distribution_vtu.set_values(item);
       
     } else if (item->GetText() != nullptr) {
       auto value = item->GetText();
@@ -1990,7 +1939,6 @@ void FiberReinforcementStressParameters::print_parameters()
   
   // Print directional distribution if defined
   directional_distribution.print_parameters();
-  directional_distribution_vtu.print_parameters();
 }
 
 //////////////////////////////////////////////////////////
