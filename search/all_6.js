@@ -13,7 +13,7 @@ var searchData=
   ['diagnostics_10',['Debugging and Diagnostics',['../md_solver_2_r_e_a_d_m_e-trilinos.html#autotoc_md35',1,'']]],
   ['directionaldistributionparameters_11',['DirectionalDistributionParameters',['../class_directional_distribution_parameters.html',1,'']]],
   ['diso_12',['Diso',['../classcep_model_type.html#a08c91758afdcb42bc8350f18d1943cdb',1,'cepModelType']]],
-  ['distribute_13',['distribute',['../class_boundary_condition.html#a7859d5d785d1411542d6d3137c823c37',1,'BoundaryCondition']]],
+  ['distribute_13',['distribute',['../class_boundary_condition.html#a7859d5d785d1411542d6d3137c823c37',1,'BoundaryCondition::distribute()'],['../class_coupled_boundary_condition.html#a95f637f4794b73e914ef5a87467ff874',1,'CoupledBoundaryCondition::distribute()']]],
   ['dmn_14',['dmn',['../classeq_type.html#a8444f77be8c6f85297aca3c3ce9eb1ec',1,'eqType']]],
   ['dmnib_15',['dmnIB',['../classeq_type.html#ac9596dcfa3a9f0e7505758df1783bcb0',1,'eqType']]],
   ['dmnid_16',['dmnid',['../classib_type.html#aa9af017514727ca16716c5860dae9755',1,'ibType::dmnID'],['../class_com_mod.html#af4c58496f29910587451362895704511',1,'ComMod::dmnId']]],
