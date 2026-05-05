@@ -178,8 +178,16 @@ private:
    *
    * Updates solution at n+1 time level and checks convergence of Newton
    * iterations. Also handles equation switching for coupled problems.
+   *
+   * @param alpha Optional damping factor for the linear-solver step
+   *              (used by the line-search backtracking loop in step()).
+   *              When alpha != 1.0, com_mod.R (and com_mod.Rd for ustruct)
+   *              are scaled in place before the equation-specific update.
+   *              All update paths in corrector() are linear in R/Rd, so the
+   *              scaling propagates to An / Yn / Dn / Ad without per-equation
+   *              branching. Default 1.0 = bit-exact baseline behavior.
    */
-  void corrector();
+  void corrector(double alpha = 1.0);
 
   /**
    * @brief Pressure correction for Taylor-Hood elements (corrector_taylor_hood)

@@ -643,7 +643,7 @@ void Integrator::initiator(SolutionStates& solutions)
 ///   eq.pNorm
 /// \endcode
 //
-void Integrator::corrector()
+void Integrator::corrector(double alpha)
 {
   using namespace consts;
 
@@ -659,6 +659,17 @@ void Integrator::corrector()
   const int nsd = com_mod.nsd;
   const int tnNo = com_mod.tnNo;
   const double dt = com_mod.dt;
+
+  // Line-search damping: every update path below is linear in R (and Rd for
+  // ustruct), so scaling them once here applies the alpha factor to every
+  // resulting An / Yn / Dn / Ad increment. Gated on alpha != 1.0 so the
+  // baseline path is bit-exact.
+  if (alpha != 1.0) {
+    com_mod.R = alpha * com_mod.R;
+    if (com_mod.Rd.size() != 0) {
+      com_mod.Rd = alpha * com_mod.Rd;
+    }
+  }
 
   const auto& R = com_mod.R;
   const auto& Rd = com_mod.Rd;
