@@ -1219,7 +1219,17 @@ void Integrator::reassemble_for_residual()
     set_bc::set_bc_dir(com_mod, solutions_);
   }
 
+  // initiator_step() increments eq.itr as a side effect (Integrator.cpp's
+  // initiator() at the `eq.itr = eq.itr + 1` line). During a line-search
+  // trial we must NOT bump that counter — otherwise corrector()'s
+  // `if (eq.itr == 1)` branch (where eq.pNorm gets initialized) misses
+  // its first-iter window for every real Newton iter, which leaves
+  // eq.pNorm = 0 and corrupts every subsequent Ri/R0 = tmp/pNorm
+  // ratio in output_result (visible as huge-negative dB and 1e-309 norm
+  // values in histor.dat). Snapshot eq.itr before, restore after.
+  const int saved_itr = eq.itr;
   initiator_step();
+  eq.itr = saved_itr;
 
   if (com_mod.Rd.size() != 0) {
     com_mod.Rd = 0.0;
