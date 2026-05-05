@@ -1291,6 +1291,12 @@ double Integrator::backtrack_search(double r_initial)
   double alpha_accepted = 1.0;
   bool   accepted = false;
 
+  // Reuse the dP/dQ resistance computed by the most recent (non-cached)
+  // calc_der_cpl_bc() call across all backtrack trials. Avoids 2*nCoupledBC
+  // extra svZeroD calls per backtrack. Cleared at the bottom so the next
+  // Newton iter's set_bc_cpl re-FD-probes from the post-corrector state.
+  com_mod.cpl_bc_use_cache = true;
+
   for (int bt = 0; bt <= max_bt; ++bt) {
     // Restore baseline state for this trial.
     solutions_.current.get_acceleration() = An_save;
@@ -1350,6 +1356,9 @@ double Integrator::backtrack_search(double r_initial)
   com_mod.Ad = Ad_save;
   com_mod.R  = R_save;
   com_mod.Rd = Rd_save;
+
+  // Re-enable FD-probe for the next non-line-search caller.
+  com_mod.cpl_bc_use_cache = false;
 
   return alpha_accepted;
 }

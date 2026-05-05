@@ -177,6 +177,18 @@ void calc_der_cpl_bc(ComMod& com_mod, const CmMod& cm_mod, const SolutionStates&
      set_bc::cplBC_Integ_X(com_mod, cm_mod, RCRflag);
   }
 
+  // Cache short-circuit: during line-search backtracking the residual
+  // evaluation only needs an updated pressure y (computed by the single
+  // svZeroD call above using the trial-state Qn). The dP/dQ resistance
+  // bc.r is locally smooth in the cardiac LPN, so we reuse the values
+  // populated by the previous non-cached call rather than re-running the
+  // expensive FD perturbation loop below. The flag is set/cleared by
+  // Integrator::backtrack_search() and is false in all non-line-search
+  // code paths, preserving baseline behavior bit-exact.
+  if (com_mod.cpl_bc_use_cache) {
+    return;
+  }
+
   // Compute the epsilon parameter (diff) for the finite difference calculation
   // of the resistance matrix M ~ dP/dQ. Slightly different from Eq. 30 in Moghadam et al. 2013
   int j = 0;

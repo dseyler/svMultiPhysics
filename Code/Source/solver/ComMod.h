@@ -1818,6 +1818,17 @@ class ComMod {
     /// @brief Coupled BCs structures used for multidomain simulations
     cplBCType cplBC;
 
+    /// @brief Set true by the line-search backtracking loop in
+    /// Integrator::step() to short-circuit calc_der_cpl_bc()'s expensive
+    /// finite-difference dP/dQ probe of the 0D solver. When true, the
+    /// pressure y is updated from current Qn (one cheap svZeroD call) but
+    /// the bc.r resistance values are reused from the most-recent
+    /// non-cached call. dP/dQ is locally smooth in cardiac LPN models so
+    /// the cached value remains a valid approximation for the residual
+    /// evaluations done during line-search trials. Cleared back to false
+    /// before the next Newton iter commits.
+    bool cpl_bc_use_cache = false;
+
     /// @brief All data related to equations are stored in this container
     std::vector<eqType> eq;
 
