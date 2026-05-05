@@ -23,6 +23,7 @@ LPNSolverInterface::LPNSolverInterface()
   lpn_return_ydot_name_ = "return_ydot";
   lpn_return_y_name_ = "return_y";
   lpn_set_external_step_size_name_ = "set_external_step_size";
+  lpn_get_coupling_jacobian_name_ = "get_coupling_jacobian";
 }
 
 LPNSolverInterface::~LPNSolverInterface()
@@ -123,6 +124,17 @@ void LPNSolverInterface::load_library(const std::string& interface_lib)
     dlclose(library_handle_);
     return;
   }
+
+  // Get a pointer to the svzero 'get_coupling_jacobian' function. Optional:
+  // older svZeroDSolver builds (pre-analytical-Jacobian) won't expose it.
+  // Leaving the pointer null is allowed; the caller must check before use
+  // (only the cplBC_I_analytical coupling path needs this symbol).
+  *(void**)(&lpn_get_coupling_jacobian_) = dlsym(library_handle_, "get_coupling_jacobian");
+  if (!lpn_get_coupling_jacobian_) {
+    std::cerr << "Note: 'get_coupling_jacobian' not found in svZeroD interface "
+              << "(needed only for Coupling_type=implicit_analytical). Error: "
+              << dlerror() << std::endl;
+  }
 }
 
 // Initialze the LPN solver.
@@ -149,6 +161,30 @@ void LPNSolverInterface::initialize(std::string file_name)
 void LPNSolverInterface::set_external_step_size(double step_size)
 {
   lpn_set_external_step_size_(problem_id_, step_size);
+}
+
+// Read the analytical coupling Jacobian dP/dQ for an
+// external_solver_coupling_block. Mirrors what the FD probe in
+// set_bc.cpp:calc_der_cpl_bc computes via Q perturbation, but reads it
+// directly from svZeroD's persistent SparseLU factorization (one back-
+// substitution, no extra 0D Newton solve). Must be called after a
+// converged run_simulation/increment_time so the factorization is current.
+//
+// Parameters:
+//
+//   block_name: Name of the external_solver_coupling_block (e.g. "LV_3D").
+//
+//   dP_dQ: Output scalar dP/dQ at the coupled face.
+//
+void LPNSolverInterface::get_coupling_jacobian(std::string block_name, double& dP_dQ)
+{
+  if (!lpn_get_coupling_jacobian_) {
+    throw std::runtime_error(
+        "get_coupling_jacobian symbol not loaded from svZeroD .so; rebuild "
+        "svZeroDSolver against a version that exposes it (or switch "
+        "Coupling_type back to 'implicit' to use FD).");
+  }
+  lpn_get_coupling_jacobian_(problem_id_, block_name, dP_dQ);
 }
 
 // Increment the LPN solution in time.

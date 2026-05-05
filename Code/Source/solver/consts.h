@@ -218,12 +218,16 @@ extern const std::map<std::string,ContactModelType> contact_model_name_to_type;
 /// INTEGER(KIND=IKIND), PARAMETER :: cplBC_Dir = 66112, cplBC_Neu = 66113
 /// \endcode
 //
-enum class CplBCType 
+enum class CplBCType
 {
   cplBC_NA = 400,
   cplBC_Dir = 66112,   // Dirichlet type coupling
   cplBC_E = 403,       // explicit
-  cplBC_I = 401,       // implicit
+  cplBC_I = 401,       // implicit (FD-probe coupling Jacobian)
+  cplBC_I_analytical = 404,  // implicit, analytical dP/dQ from svZeroD's
+                             // Jacobian factorization (skips FD probe;
+                             // requires libsvzero_interface.so to expose
+                             // get_coupling_jacobian)
   cplBC_Neu = 66113,   // Neumann type coupling
   cplBC_SI = 402,      // semi-implicit
   cplBC_Coupled = 66114,   // Coupled
