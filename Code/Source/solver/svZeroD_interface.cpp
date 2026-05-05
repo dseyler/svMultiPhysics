@@ -372,6 +372,12 @@ void init_svZeroD(ComMod& com_mod, const CmMod& cm_mod)
 }
 
 
+LPNSolverInterface* get_interface()
+{
+  auto it = interfaces.find(model_id);
+  return (it == interfaces.end()) ? nullptr : it->second;
+}
+
 void calc_svZeroD(ComMod& com_mod, const CmMod& cm_mod, char BCFlag)
 {
   using namespace consts;

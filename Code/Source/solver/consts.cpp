@@ -188,6 +188,7 @@ const std::map<std::string,CplBCType> cplbc_name_to_type = {
     {"explicit", CplBCType::cplBC_E},
     {"I", CplBCType::cplBC_I},
     {"implicit", CplBCType::cplBC_I},
+    {"implicit_analytical", CplBCType::cplBC_I_analytical},
     {"SI", CplBCType::cplBC_SI},
     {"semi-implicit", CplBCType::cplBC_SI}
   };

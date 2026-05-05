@@ -177,15 +177,71 @@ void calc_der_cpl_bc(ComMod& com_mod, const CmMod& cm_mod, const SolutionStates&
      set_bc::cplBC_Integ_X(com_mod, cm_mod, RCRflag);
   }
 
-  // Cache short-circuit: during line-search backtracking the residual
-  // evaluation only needs an updated pressure y (computed by the single
-  // svZeroD call above using the trial-state Qn). The dP/dQ resistance
-  // bc.r is locally smooth in the cardiac LPN, so we reuse the values
-  // populated by the previous non-cached call rather than re-running the
-  // expensive FD perturbation loop below. The flag is set/cleared by
-  // Integrator::backtrack_search() and is false in all non-line-search
-  // code paths, preserving baseline behavior bit-exact.
+  // Cache short-circuit (line-search backtracking): during a line-search
+  // residual evaluation we only need the updated pressure y from the single
+  // svZeroD call above using the trial-state Qn. The dP/dQ resistance bc.r
+  // is locally smooth in the cardiac LPN, so we reuse the values populated
+  // by the previous non-cached call rather than re-running the expensive
+  // FD perturbation (or analytical back-solve) below. The flag is set and
+  // cleared by Integrator::backtrack_search() and is false in all non-
+  // line-search code paths, preserving baseline behavior bit-exact.
   if (com_mod.cpl_bc_use_cache) {
+    return;
+  }
+
+  // Analytical-Jacobian path: skip the FD-probe loop below. Reads dP/dQ
+  // for each Coupled BC directly from svZeroD's persistent SparseLU
+  // factorization (one back-solve per face, no extra 0D Newton solve).
+  // Only valid when useSvZeroD is true; the older bc.cplBCptr-style Neu
+  // branch is not needed here because the pipelines that use
+  // cplBC_I_analytical exclusively use the newer iBC_Coupled path.
+  if (cplBC.schm == CplBCType::cplBC_I_analytical) {
+    if (!cplBC.useSvZeroD) {
+      throw std::runtime_error(
+          "[calc_der_cpl_bc] Coupling_type=implicit_analytical requires "
+          "<svZeroDSolver_interface>; use 'implicit' for genBC/RCR.");
+    }
+    auto& cm = com_mod.cm;
+    // Master rank holds the LPNSolverInterface (init_svZeroD only
+    // populates interfaces[model_id] on cm.mas). Compute dP/dQ there,
+    // then bcast each bc.r to follower ranks so the assembled tangent
+    // is consistent across MPI processes. Mirrors the FD path: that
+    // route relies on calc_svZeroD's master-only invocation followed
+    // by bcast_coupled_neumann_pressure (svZeroD_interface.cpp:484-499)
+    // to make cplBC.fa[i].y / coupled_bc.get_pressure() identical on
+    // all ranks before each rank computes bc.r locally.
+    if (cm.mas(cm_mod)) {
+      auto* lpn = svZeroD::get_interface();
+      if (lpn == nullptr) {
+        throw std::runtime_error(
+            "[calc_der_cpl_bc] svZeroD interface not initialized on master.");
+      }
+      for (int iBc = 0; iBc < eq.nBc; iBc++) {
+        auto& bc = eq.bc[iBc];
+        if (utils::btest(bc.bType, iBC_Coupled)) {
+          double dPdQ_svzerod = 0.0;
+          lpn->get_coupling_jacobian(bc.coupled_bc.get_block_name(),
+                                     dPdQ_svzerod);
+          // FD path stores bc.r = (P_after - P_before) / diff where
+          // perturb_flowrate(diff) bumps Qn_ by +diff in svMP's sign
+          // convention. svMP then sends `sign * Qn_` to svZeroD, so
+          // ΔQ_svzerod = sign * diff and FD recovers bc.r =
+          // sign * (dP/dQ)_svzerod. The analytical entry point returns
+          // raw (dP/dQ)_svzerod, so we multiply by in_out_sign here to
+          // match. (Local pipe_RCR_sv0D test confirmed byte-identical
+          // residuals to FD path after this sign was applied.)
+          bc.r = bc.coupled_bc.get_in_out_sign() * dPdQ_svzerod;
+        }
+      }
+    }
+    if (!cm.seq()) {
+      for (int iBc = 0; iBc < eq.nBc; iBc++) {
+        auto& bc = eq.bc[iBc];
+        if (utils::btest(bc.bType, iBC_Coupled)) {
+          cm.bcast(cm_mod, &bc.r);
+        }
+      }
+    }
     return;
   }
 
@@ -725,9 +781,13 @@ void set_bc_cpl(ComMod& com_mod, CmMod& cm_mod, const SolutionStates& solutions)
   auto cfg_o = MechanicalConfigurationType::reference;
   auto cfg_n = MechanicalConfigurationType::reference;
 
-  // If coupling scheme is implicit, calculate updated pressure and flowrate 
-  // from 0D, as well as resistance from 0D using finite difference.
-  if (cplBC.schm == CplBCType::cplBC_I) { 
+  // If coupling scheme is implicit (FD-probe or analytical), calculate
+  // updated pressure and flowrate from 0D, as well as the coupling
+  // tangent dP/dQ. The cplBC_I_analytical branch reads dP/dQ from
+  // svZeroD's persistent factorization (one back-solve, no extra 0D
+  // Newton solve); cplBC_I uses (N_neu+1) FD-probe 0D solves.
+  if (cplBC.schm == CplBCType::cplBC_I ||
+      cplBC.schm == CplBCType::cplBC_I_analytical) {
     calc_der_cpl_bc(com_mod, cm_mod, solutions);
 
   // If coupling scheme is semi-implicit or explicit, only calculated updated

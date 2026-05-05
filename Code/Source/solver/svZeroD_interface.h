@@ -21,6 +21,12 @@ void init_svZeroD(ComMod& com_mod, const CmMod& cm_mod);
 
 void calc_svZeroD(ComMod& com_mod, const CmMod& cm_mod, char BCFlag);
 
+/// Accessor for the active LPNSolverInterface; used by the
+/// cplBC_I_analytical branch in set_bc.cpp::calc_der_cpl_bc to call
+/// get_coupling_jacobian directly. Returns nullptr if no interface has
+/// been initialized.
+LPNSolverInterface* get_interface();
+
 };
 
 #endif
