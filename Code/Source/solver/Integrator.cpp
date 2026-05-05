@@ -1166,19 +1166,32 @@ void Integrator::apply_update_only(double alpha)
 // compute_residual_norm
 //------------------------
 // L2 norm of com_mod.R restricted to the equation's DOF slice [eq.s, eq.e],
-// MPI-reduced across processes. Used by the line-search backtracking loop
-// to compare ||R(u + alpha*du)|| against the pre-step ||R(u)|| from
-// fsils_solve. Mirrors the norm convention used in eq.FSILS.RI.iNorm so
-// the comparison is on the same scale.
+// MPI-reduced across processes. Mirrors the norm convention used in
+// eq.FSILS.RI.iNorm (set by ls_solve via fsi_ls_normv in
+// linear_solver/norm.cpp) so the line-search residual decrease check
+// uses the same scale as svMP's own convergence test (output_result's
+// Ri/R1 ratio in histor.dat).
+//
+// Critical: loop over OWNED nodes only via lhs.mynNo, NOT tnNo. tnNo
+// includes ghost (halo) nodes from the MPI partition; summing those
+// nodes on every rank that owns OR shadows them and then MPI-reducing
+// double-counts the shared boundary residuals. This inflates the norm
+// by a residual-distribution-dependent factor (~1.5x for a typical
+// 6-proc partition), which in practice both produces spurious "step
+// decreased" reports during line-search trials AND lets actual
+// divergent steps (e.g., Newton 2-cycle limit cycles) slip through
+// the Armijo check undamped. fsi_ls_normv in the linear solver uses
+// mynNo for exactly this reason — see e.g.
+// linear_solver/gmres.cpp:126 where lhs.mynNo is passed in.
 double Integrator::compute_residual_norm(eqType& eq)
 {
   auto& com_mod = simulation_->com_mod;
-  const int tnNo = com_mod.tnNo;
+  const int mynNo = com_mod.lhs.mynNo;
   const int s = eq.s;
   const int e = eq.e;
 
   double local = 0.0;
-  for (int a = 0; a < tnNo; a++) {
+  for (int a = 0; a < mynNo; a++) {
     for (int i = 0; i < e-s+1; i++) {
       const double v = com_mod.R(i,a);
       local += v * v;
@@ -1283,6 +1296,24 @@ double Integrator::backtrack_search(double r_initial)
 {
   auto& com_mod = simulation_->com_mod;
   auto& eq = com_mod.eq[com_mod.cEq];
+
+  // Robustness guard: if the pre-solve residual is already non-finite
+  // (NaN / Inf appeared in the linear solver's view of the assembled R),
+  // every alpha we try will compute r_trial as also non-finite, so the
+  // strict-decrease check (r_trial < r_initial) is false everywhere.
+  // Without this guard we'd thrash through max_backtracks attempts and
+  // emit a misleading "no alpha found that decreased residual" warning.
+  // Bail with alpha=1.0 and let the existing NaN-watchdog catch the
+  // divergence on the next outer Newton iter.
+  if (!std::isfinite(r_initial)) {
+    if (com_mod.cm.mas(simulation_->cm_mod)) {
+      std::cout << "  [Line_search] WARNING: r_initial=" << r_initial
+                << " is non-finite at iter " << newton_count_
+                << "; skipping backtrack and accepting alpha=1.0"
+                << std::endl;
+    }
+    return 1.0;
+  }
 
   // Snapshot state. Array's copy assignment (operator=(const Array&)) does
   // a deep copy of the underlying buffer, so these are independent backups.
