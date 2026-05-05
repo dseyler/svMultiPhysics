@@ -2343,6 +2343,8 @@ void EquationParameters::print_parameters()
 
   linear_solver.print_parameters();
 
+  line_search.print_parameters();
+
   for (auto& bc : boundary_conditions) {
     bc->print_parameters();
   }
@@ -2411,6 +2413,9 @@ void EquationParameters::set_values(tinyxml2::XMLElement* eq_elem, DomainParamet
 
     } else if (name == LinearSolverParameters::xml_element_name_) {
       linear_solver.set_values(item);
+
+    } else if (name == LineSearchParameters::xml_element_name_) {
+      line_search.set_values(item);
 
     } else if (name == OutputParameters::xml_element_name_) {
       auto output_params = new OutputParameters();
@@ -3287,4 +3292,49 @@ void LinearSolverParameters::set_values(tinyxml2::XMLElement* xml_elem)
     item = item->NextSiblingElement();
   }
 
+}
+
+//////////////////////////////////////////////////////////
+//                LineSearchParameters                  //
+//////////////////////////////////////////////////////////
+//
+// Parses the <Line_search> XML element nested under an equation block.
+// All fields optional; missing block keeps line-search disabled (default).
+
+const std::string LineSearchParameters::xml_element_name_ = "Line_search";
+
+LineSearchParameters::LineSearchParameters()
+{
+  bool required = true;
+  set_parameter("Enable",            false,    !required, enable);
+  set_parameter("Backtrack_factor",  0.5,      !required, backtrack_factor);
+  set_parameter("Min_alpha",         0.0625,   !required, min_alpha);
+  set_parameter("Max_backtracks",    4,        !required, max_backtracks);
+}
+
+void LineSearchParameters::print_parameters()
+{
+  if (!enable.value()) {
+    return;
+  }
+  std::cout << std::endl;
+  std::cout << "----------------------" << std::endl;
+  std::cout << "Line Search Parameters" << std::endl;
+  std::cout << "----------------------" << std::endl;
+  auto params_name_value = get_parameter_list();
+  for (auto& [ key, value ] : params_name_value) {
+    std::cout << key << ": " << value << std::endl;
+  }
+}
+
+void LineSearchParameters::set_values(tinyxml2::XMLElement* xml_elem)
+{
+  std::string error_msg = "Unknown " + xml_element_name_ + " XML element '";
+
+  using std::placeholders::_1;
+  using std::placeholders::_2;
+  std::function<void(const std::string&, const std::string&)> ftpr =
+      std::bind( &LineSearchParameters::set_parameter_value, *this, _1, _2);
+
+  xml_util_set_parameters(ftpr, xml_elem, error_msg);
 }

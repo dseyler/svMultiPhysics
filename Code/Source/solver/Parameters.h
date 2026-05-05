@@ -1062,8 +1062,41 @@ class LinearSolverParameters : public ParameterLists
     LinearAlgebraParameters linear_algebra;
 };
 
-/// @brief The StimulusParameters class stores parameters for 
-/// 'Stimulus' XML element used to parameters for 
+/// @brief The LineSearchParameters class stores parameters for the
+/// 'Line_search' XML element nested under an equation block.
+///
+/// When enabled, the Newton iteration in Integrator::step() backtracks the
+/// solver-supplied displacement increment by `backtrack_factor` until the
+/// residual norm decreases (Armijo-style sufficient-decrease check) or
+/// until alpha falls below `min_alpha`. Default disabled — existing test
+/// XMLs that omit this block get bit-exact baseline behavior.
+///
+/// \code {.xml}
+/// <Line_search>
+///   <Enable> true </Enable>
+///   <Backtrack_factor> 0.5 </Backtrack_factor>
+///   <Min_alpha> 0.0625 </Min_alpha>
+///   <Max_backtracks> 4 </Max_backtracks>
+/// </Line_search>
+/// \endcode
+class LineSearchParameters : public ParameterLists
+{
+  public:
+    LineSearchParameters();
+
+    static const std::string xml_element_name_;
+
+    void print_parameters();
+    void set_values(tinyxml2::XMLElement* xml_elem);
+
+    Parameter<bool>   enable;
+    Parameter<double> backtrack_factor;
+    Parameter<double> min_alpha;
+    Parameter<int>    max_backtracks;
+};
+
+/// @brief The StimulusParameters class stores parameters for
+/// 'Stimulus' XML element used to parameters for
 /// pacemaker cells.
 ///
 /// \code {.xml}
@@ -1477,6 +1510,8 @@ class EquationParameters : public ParameterLists
     std::vector<DomainParameters*> domains;
 
     LinearSolverParameters linear_solver;
+
+    LineSearchParameters line_search;
 
     std::vector<OutputParameters*> outputs;
 
