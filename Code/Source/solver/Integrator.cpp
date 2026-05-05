@@ -154,8 +154,18 @@ bool Integrator::step() {
     // Solve equation
     solve_linear_system();
 
+    // Optional backtracking line search on the solver step.
+    // When enabled, halves the Newton increment until the re-assembled
+    // residual norm decreases (Armijo) or alpha falls below min_alpha.
+    // No-op (alpha=1) when <Line_search><Enable>false</Enable></Line_search>
+    // (the default).
+    double alpha = 1.0;
+    if (eq.line_search_enable) {
+      alpha = backtrack_search(eq.FSILS.RI.iNorm);
+    }
+
     // Solution is obtained, now updating (Corrector) and check for convergence
-    bool all_converged = corrector_and_check_convergence();
+    bool all_converged = corrector_and_check_convergence(alpha);
 
     // Check if all equations converged
     if (all_converged) {
@@ -313,7 +323,7 @@ void Integrator::solve_linear_system() {
 //------------------------
 // corrector_and_check_convergence
 //------------------------
-bool Integrator::corrector_and_check_convergence() {
+bool Integrator::corrector_and_check_convergence(double alpha) {
   auto& com_mod = simulation_->com_mod;
 
   #ifdef debug_integrator_step
@@ -321,7 +331,7 @@ bool Integrator::corrector_and_check_convergence() {
   dmsg << "Update corrector ..." << std::endl;
   #endif
 
-  corrector();
+  corrector(alpha);
 
   #ifdef debug_integrator_step
   solutions_.current.get_velocity().write("solutions_.current.Ycorrector" + istr_);
@@ -1081,4 +1091,265 @@ void Integrator::corrector_taylor_hood()
       Yn(s+nsd,a) = sF(a) / sA(a);
     }
   }
+}
+
+//------------------------
+// apply_update_only
+//------------------------
+// Apply the An / Yn / Dn (and Ad for ustruct/FSI) update from com_mod.R,
+// scaled by alpha. Equivalent to the equation-specific update inside
+// corrector() but skips Taylor-Hood / FSI fixup / CEP / prestress / CMM /
+// convergence-check side effects so it can be called repeatedly during
+// a line-search trial loop without over-accumulating.
+void Integrator::apply_update_only(double alpha)
+{
+  using namespace consts;
+
+  auto& com_mod = simulation_->com_mod;
+
+  const int tnNo = com_mod.tnNo;
+
+  auto& cEq = com_mod.cEq;
+  auto& eq = com_mod.eq[cEq];
+
+  auto& An = solutions_.current.get_acceleration();
+  auto& Ad = com_mod.Ad;
+  auto& Dn = solutions_.current.get_displacement();
+  auto& Yn = solutions_.current.get_velocity();
+
+  const double dt = com_mod.dt;
+  std::array<double,4> coef;
+  coef[0] = eq.gam * dt;
+  coef[1] = eq.beta * dt * dt;
+  coef[2] = 1.0 / eq.am;
+  coef[3] = eq.af * coef[0] * coef[2];
+
+  const int s = eq.s;
+  const int e = eq.e;
+  const int nsd = com_mod.nsd;
+
+  if (com_mod.sstEq) {
+    if (eq.phys == EquationType::phys_ustruct || eq.phys == EquationType::phys_FSI) {
+      Vector<double> dUl(nsd);
+      for (int a = 0; a < tnNo; a++) {
+        for (int i = 0; i < e-s+1; i++) {
+          An(i+s,a) -= alpha * com_mod.R(i,a);
+          Yn(i+s,a) -= alpha * com_mod.R(i,a) * coef[0];
+        }
+        for (int i = 0; i < e-s; i++) {
+          dUl(i) = alpha * (com_mod.Rd(i,a)*coef[2] + com_mod.R(i,a)*coef[3]);
+          Ad(i,a)   -= dUl(i);
+          Dn(i+s,a) -= dUl(i) * coef[0];
+        }
+      }
+    } else if (eq.phys == EquationType::phys_mesh) {
+      for (int a = 0; a < tnNo; a++) {
+        for (int i = 0; i < e-s+1; i++) {
+          An(i+s,a) -= alpha * com_mod.R(i,a);
+          Yn(i+s,a) -= alpha * com_mod.R(i,a) * coef[0];
+          Dn(i+s,a) -= alpha * com_mod.R(i,a) * coef[1];
+        }
+      }
+    }
+  } else {
+    for (int a = 0; a < tnNo; a++) {
+      for (int i = 0; i < e-s+1; i++) {
+        An(i+s,a) -= alpha * com_mod.R(i,a);
+        Yn(i+s,a) -= alpha * com_mod.R(i,a) * coef[0];
+        Dn(i+s,a) -= alpha * com_mod.R(i,a) * coef[1];
+      }
+    }
+  }
+}
+
+//------------------------
+// compute_residual_norm
+//------------------------
+// L2 norm of com_mod.R restricted to the equation's DOF slice [eq.s, eq.e],
+// MPI-reduced across processes. Used by the line-search backtracking loop
+// to compare ||R(u + alpha*du)|| against the pre-step ||R(u)|| from
+// fsils_solve. Mirrors the norm convention used in eq.FSILS.RI.iNorm so
+// the comparison is on the same scale.
+double Integrator::compute_residual_norm(eqType& eq)
+{
+  auto& com_mod = simulation_->com_mod;
+  const int tnNo = com_mod.tnNo;
+  const int s = eq.s;
+  const int e = eq.e;
+
+  double local = 0.0;
+  for (int a = 0; a < tnNo; a++) {
+    for (int i = 0; i < e-s+1; i++) {
+      const double v = com_mod.R(i,a);
+      local += v * v;
+    }
+  }
+
+  // MPI-reduce across processes; mirrors all_fun::global_sum behavior used
+  // throughout the solver. com_mod.cm.reduce returns the global sum.
+  double global = com_mod.cm.reduce(simulation_->cm_mod, local);
+  return std::sqrt(global);
+}
+
+//------------------------
+// reassemble_for_residual
+//------------------------
+// Rebuild com_mod.R for the residual at the current (post-update) state.
+// Mirrors the body of step() between set_bc_cpl/initiator_step and
+// update_residual_arrays, minus the linear solve. Called once per
+// backtrack attempt by backtrack_search() so the line-search residual-
+// decrease check operates on R(u + alpha*du), not the cached R(u) from
+// the previous solve.
+//
+// Implicit 3D-0D coupling re-runs set_bc_cpl which by default re-FD-probes
+// dP/dQ on every call. Phase C.4 caches that resistance to avoid redundant
+// svZeroD calls during backtracking; this function is unchanged by that
+// optimization since the cache flag is read inside set_bc_cpl itself.
+void Integrator::reassemble_for_residual()
+{
+  using namespace consts;
+
+  auto& com_mod = simulation_->com_mod;
+  auto& cm_mod  = simulation_->cm_mod;
+  auto& cEq = com_mod.cEq;
+  auto& eq  = com_mod.eq[cEq];
+
+  if (com_mod.cplBC.coupled && cEq == 0) {
+    set_bc::set_bc_cpl(com_mod, cm_mod, solutions_);
+    set_bc::set_bc_dir(com_mod, solutions_);
+  }
+
+  initiator_step();
+
+  if (com_mod.Rd.size() != 0) {
+    com_mod.Rd = 0.0;
+    com_mod.Kd = 0.0;
+  }
+
+  allocate_linear_system(eq);
+
+  set_body_forces();
+
+  assemble_equations();
+
+  apply_boundary_conditions();
+
+  if (!eq.assmTLS) {
+    all_fun::commu(com_mod, com_mod.R);
+  }
+
+  if (com_mod.sstEq) {
+    ustruct::ustruct_r(com_mod, solutions_);
+  }
+
+  if (std::set<EquationType>{Equation_stokes, Equation_fluid, Equation_ustruct, Equation_FSI}.count(eq.phys) != 0) {
+    fs::thood_val_rc(com_mod);
+  }
+
+  set_bc::set_bc_undef_neu(com_mod);
+}
+
+//------------------------
+// backtrack_search
+//------------------------
+// Backtracking line search on the most recent linear-solver step.
+//
+// On entry: com_mod.R holds the Newton increment from solve_linear_system()
+// and the solution state (An, Yn, Dn, Ad) is pre-update.
+//
+// Loop: for alpha in {1.0, factor, factor^2, ...}, tentatively apply the
+// alpha-scaled update via apply_update_only, re-assemble the residual via
+// reassemble_for_residual, and check whether ||R(u + alpha*du)|| is finite
+// AND strictly less than r_initial. Accept the first alpha that satisfies
+// both, or the smallest alpha tried (alpha <= min_alpha) if none do — in
+// which case we log a warning and proceed; the upstream NaN-watchdog will
+// catch a truly diverging trial on the next solve.
+//
+// On exit: state and com_mod.R are RESTORED to entry values so the caller
+// can apply the full corrector(alpha_accepted) with all of corrector's
+// equation-specific side effects (Taylor-Hood, FSI fixup, CEP, prestress
+// accumulation, CMM filtering, eq.ok update).
+double Integrator::backtrack_search(double r_initial)
+{
+  auto& com_mod = simulation_->com_mod;
+  auto& eq = com_mod.eq[com_mod.cEq];
+
+  // Snapshot state. Array's copy assignment (operator=(const Array&)) does
+  // a deep copy of the underlying buffer, so these are independent backups.
+  Array<double> An_save = solutions_.current.get_acceleration();
+  Array<double> Yn_save = solutions_.current.get_velocity();
+  Array<double> Dn_save = solutions_.current.get_displacement();
+  Array<double> Ad_save = com_mod.Ad;
+  Array<double> R_save  = com_mod.R;
+  Array<double> Rd_save = com_mod.Rd;
+
+  const double bt_factor = eq.line_search_backtrack_factor;
+  const double min_alpha = eq.line_search_min_alpha;
+  const int    max_bt    = eq.line_search_max_backtracks;
+
+  double alpha = 1.0;
+  double alpha_accepted = 1.0;
+  bool   accepted = false;
+
+  for (int bt = 0; bt <= max_bt; ++bt) {
+    // Restore baseline state for this trial.
+    solutions_.current.get_acceleration() = An_save;
+    solutions_.current.get_velocity()     = Yn_save;
+    solutions_.current.get_displacement() = Dn_save;
+    com_mod.Ad = Ad_save;
+    com_mod.R  = R_save;
+    com_mod.Rd = Rd_save;
+
+    // Tentatively apply alpha-scaled update.
+    apply_update_only(alpha);
+
+    // Re-assemble at the trial state to get R(u + alpha*du).
+    reassemble_for_residual();
+
+    const double r_trial = compute_residual_norm(eq);
+
+    const bool finite   = std::isfinite(r_trial);
+    const bool decrease = finite && (r_trial < r_initial);
+
+    if (com_mod.cm.mas(simulation_->cm_mod)) {
+      std::cout << "  [Line_search] iter " << newton_count_
+                << " bt=" << bt
+                << " alpha=" << alpha
+                << " r_trial=" << r_trial
+                << " r_initial=" << r_initial
+                << " accepted=" << (decrease ? "YES" : "NO")
+                << std::endl;
+    }
+
+    if (decrease) {
+      alpha_accepted = alpha;
+      accepted = true;
+      break;
+    }
+
+    if (alpha <= min_alpha) {
+      // Out of backtrack budget. Accept the smallest alpha tried; let the
+      // NaN-watchdog catch genuinely-diverging trials.
+      alpha_accepted = alpha;
+      if (com_mod.cm.mas(simulation_->cm_mod)) {
+        std::cout << "  [Line_search] WARNING: no alpha found that decreased "
+                  << "residual; accepting alpha=" << alpha << std::endl;
+      }
+      break;
+    }
+
+    alpha *= bt_factor;
+  }
+  (void)accepted;  // unused except in the WARNING branch above
+
+  // Restore state so the caller's corrector(alpha_accepted) call applies
+  // the full update (with side effects) starting from the pre-search state.
+  solutions_.current.get_acceleration() = An_save;
+  solutions_.current.get_velocity()     = Yn_save;
+  solutions_.current.get_displacement() = Dn_save;
+  com_mod.Ad = Ad_save;
+  com_mod.R  = R_save;
+  com_mod.Rd = Rd_save;
+
+  return alpha_accepted;
 }

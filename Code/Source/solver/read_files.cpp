@@ -1433,6 +1433,12 @@ void read_eq(Simulation* simulation, EquationParameters* eq_params, eqType& lEq)
   lEq.tol = eq_params->tolerance.value();
   lEq.expl_geom_cpl = eq_params->explicit_geometric_coupling.value();
 
+  // Line-search settings (default disabled if <Line_search> block absent).
+  lEq.line_search_enable           = eq_params->line_search.enable.value();
+  lEq.line_search_backtrack_factor = eq_params->line_search.backtrack_factor.value();
+  lEq.line_search_min_alpha        = eq_params->line_search.min_alpha.value();
+  lEq.line_search_max_backtracks   = eq_params->line_search.max_backtracks.value();
+
   // Initialize coupled BC.
   //
   auto& chnl_mod = simulation->chnl_mod;

@@ -1116,6 +1116,15 @@ class eqType
     /// @brief Minimum iteration for this eq.
     int minItr = 1;
 
+    // -- Backtracking line-search settings (parsed from <Line_search> in
+    //    EquationParameters; default values mirror LineSearchParameters
+    //    constructor in Parameters.cpp). When line_search_enable is false
+    //    the Newton step is applied at alpha=1 (bit-exact baseline).
+    bool   line_search_enable           = false;
+    double line_search_backtrack_factor = 0.5;
+    double line_search_min_alpha        = 0.0625;
+    int    line_search_max_backtracks   = 4;
+
     /// @brief Number of possible outputs
     int nOutput = 0;
 

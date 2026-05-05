@@ -1480,6 +1480,12 @@ void dist_eq(ComMod& com_mod, const CmMod& cm_mod, const cmType& cm, const std::
   cm.bcast(cm_mod, &lEq.assmTLS);
   cm.bcast(cm_mod, &lEq.expl_geom_cpl);
 
+  // Line-search settings (broadcast to all ranks).
+  cm.bcast(cm_mod, &lEq.line_search_enable);
+  cm.bcast(cm_mod, &lEq.line_search_backtrack_factor);
+  cm.bcast(cm_mod, &lEq.line_search_min_alpha);
+  cm.bcast(cm_mod, &lEq.line_search_max_backtracks);
+
   #ifdef dist_eq
   dmsg << "lEq.nOutput: " << lEq.nOutput;
   dmsg << "lEq.nDmn: " << lEq.nDmn;

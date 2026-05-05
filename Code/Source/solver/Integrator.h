@@ -150,9 +150,63 @@ private:
   /**
    * @brief Perform corrector step and check convergence of all equations
    *
+   * @param alpha Optional line-search damping factor (forwarded to corrector).
+   *              Default 1.0 = bit-exact baseline behavior.
+   *
    * @return True if all equations converged, false otherwise
    */
-  bool corrector_and_check_convergence();
+  bool corrector_and_check_convergence(double alpha = 1.0);
+
+  /**
+   * @brief Apply ONLY the An / Yn / Dn (and Ad for ustruct) update from R,
+   *        without the full set of corrector side effects (CEP / prestress
+   *        accumulation / CMM filtering / eq.ok update / Taylor-Hood).
+   *
+   * Used by backtrack_search() during line-search trial evaluations where
+   * those side effects would over-accumulate across attempted alphas.
+   *
+   * @param alpha Damping factor on R/Rd before applying.
+   */
+  void apply_update_only(double alpha);
+
+  /**
+   * @brief Compute the L2 norm of com_mod.R restricted to the current
+   *        equation's DOF slice [eq.s, eq.e], MPI-reduced across procs.
+   *        Mirrors what fsils_solve() internally writes into
+   *        eq.FSILS.RI.iNorm but without re-invoking the linear solver.
+   *
+   * @param eq The current equation.
+   * @return   ||R||_2 over the equation's DOFs.
+   */
+  double compute_residual_norm(eqType& eq);
+
+  /**
+   * @brief Re-run the pre-solve assembly + boundary-condition pipeline after
+   *        a tentative state update. Equivalent to the body of step()
+   *        between set_bc_cpl/initiator_step and update_residual_arrays,
+   *        minus the linear solve.
+   *
+   * Used by backtrack_search() to recompute com_mod.R = R(u + alpha * du)
+   * for the line-search residual-decrease check.
+   */
+  void reassemble_for_residual();
+
+  /**
+   * @brief Backtracking line search on the most recent linear-solver step.
+   *
+   * On entry: com_mod.R holds the Newton increment from solve_linear_system()
+   * and the solution state (An, Yn, Dn, Ad) is pre-update. Tries alpha in
+   * {1, factor, factor^2, ...} until either (a) the re-assembled residual
+   * norm is finite and < r_initial, or (b) alpha falls below min_alpha.
+   *
+   * On exit: state and com_mod.R are RESTORED to their entry values so the
+   * caller can apply the full corrector(alpha) with all side effects intact.
+   *
+   * @param r_initial Residual norm at the start of the current Newton iter
+   *                  (typically eq.FSILS.RI.iNorm just after solve).
+   * @return The accepted alpha (1.0 if the full step was satisfactory).
+   */
+  double backtrack_search(double r_initial);
 
   /**
    * @brief Update residual and increment arrays for linear solver
