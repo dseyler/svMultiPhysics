@@ -17,6 +17,8 @@
 #include "ustruct.h"
 #include "utils.h"
 #include <math.h>
+#include <cstdlib>
+#include <iostream>
 #include "svZeroD_interface.h"
 
 namespace set_bc {
@@ -177,6 +179,18 @@ void calc_der_cpl_bc(ComMod& com_mod, const CmMod& cm_mod, const SolutionStates&
      set_bc::cplBC_Integ_X(com_mod, cm_mod, RCRflag);
   }
 
+  // Cache short-circuit (line-search backtracking): during a residual
+  // evaluation for a trial step we only need the updated pressure y from
+  // the single svZeroD/genBC call above, not a fresh dP/dQ. bc.r is
+  // locally smooth in the cardiac LPN, so reuse the values populated by
+  // the previous non-cached call rather than re-running the expensive
+  // (rank-0 serial) FD perturbation N+1 times. Set/cleared by
+  // Integrator::backtrack_search; false in all non-line-search paths so
+  // baseline behavior is bit-exact.
+  if (com_mod.cpl_bc_use_cache) {
+    return;
+  }
+
   // Analytical-Jacobian path: skip the FD-probe loop below. Reads dP/dQ
   // for each Coupled BC directly from svZeroD's persistent SparseLU
   // factorization (one back-solve per face, no extra 0D Newton solve).
@@ -216,8 +230,7 @@ void calc_der_cpl_bc(ComMod& com_mod, const CmMod& cm_mod, const SolutionStates&
           // ΔQ_svzerod = sign * diff and FD recovers bc.r =
           // sign * (dP/dQ)_svzerod. The analytical entry point returns
           // raw (dP/dQ)_svzerod, so we multiply by in_out_sign here to
-          // match. (Local pipe_RCR_sv0D test confirmed byte-identical
-          // residuals to FD path after this sign was applied.)
+          // match.
           bc.r = bc.coupled_bc.get_in_out_sign() * dPdQ_svzerod;
         }
       }
@@ -230,6 +243,101 @@ void calc_der_cpl_bc(ComMod& com_mod, const CmMod& cm_mod, const SolutionStates&
         }
       }
     }
+
+    // === DIAGNOSTIC: implicit_analytical bc.r logging =========================
+    // Always log per-Coupled-BC analytical bc.r, Qn, P (master-only printf).
+    // If env SVMP_DIAG_ANALYTICAL is set (any value), ALSO run the FD probe per
+    // BC and log analytical-vs-FD ratio (expensive: ~1 extra LPN solve per
+    // Coupled BC per Newton iter). bc.r is restored to analytical values so
+    // the 3D solver uses the analytical Jacobian as intended. The dual-eval
+    // block must run on ALL ranks because calc_svZeroD is a collective —
+    // wrapping it in cm.mas() desyncs followers (MPI_ERR_TRUNCATE). Only the
+    // printf is master-only. Used to validate the multi-step sensitivity
+    // recursion in svZeroD's Integrator::get_dP_dQ.
+    static const char* diag_env_anal = std::getenv("SVMP_DIAG_ANALYTICAL");
+    static const bool diag_dual_eval = (diag_env_anal != nullptr);
+    static int diag_call_counter = 0;
+    diag_call_counter++;
+
+    if (cm.mas(cm_mod)) {
+      std::cout << "[DIAG_ANAL] cTS=" << com_mod.cTS
+                << " call=" << diag_call_counter
+                << " itr=" << eq.itr << std::endl;
+      for (int iBc = 0; iBc < eq.nBc; iBc++) {
+        auto& bc = eq.bc[iBc];
+        if (utils::btest(bc.bType, iBC_Coupled)) {
+          std::cout << "[DIAG_ANAL]   bc=" << bc.coupled_bc.get_block_name()
+                    << " analytical_bc.r=" << bc.r
+                    << " Qn=" << bc.coupled_bc.get_Qn()
+                    << " P=" << bc.coupled_bc.get_pressure() << std::endl;
+        }
+      }
+    }
+
+    if (diag_dual_eval) {
+      // Snapshot analytical bc.r and CoupledBC state for restoration after FD.
+      // Runs on ALL ranks (calc_svZeroD is collective).
+      std::vector<double> bcr_anal_save(eq.nBc, 0.0);
+      std::vector<std::pair<int, CoupledBoundaryCondition::State>> coupled_states_save;
+      std::vector<double> orgY_diag(cplBC.fa.size());
+      std::vector<double> orgQ_diag(cplBC.fa.size());
+      for (int iBc = 0; iBc < eq.nBc; iBc++) {
+        bcr_anal_save[iBc] = eq.bc[iBc].r;
+        if (utils::btest(eq.bc[iBc].bType, iBC_Coupled)) {
+          coupled_states_save.emplace_back(iBc, eq.bc[iBc].coupled_bc.save_state());
+        }
+      }
+      for (size_t i = 0; i < cplBC.fa.size(); i++) {
+        orgY_diag[i] = cplBC.fa[i].y;
+        orgQ_diag[i] = cplBC.fa[i].Qn;
+      }
+
+      // Compute FD perturbation size (mirrors the production FD path below).
+      double diff_sq = 0.0;
+      int n_q = 0;
+      for (auto& [iBc, _state] : coupled_states_save) {
+        double Qn = eq.bc[iBc].coupled_bc.get_Qn();
+        diff_sq += Qn * Qn;
+        n_q++;
+      }
+      double diff_diag = (n_q > 0) ? std::sqrt(diff_sq / n_q) : 0.0;
+      diff_diag = (diff_diag * relTol < absTol) ? absTol : diff_diag * relTol;
+
+      if (cm.mas(cm_mod)) {
+        std::cout << "[DIAG_ANAL]   dual-eval (diff=" << diff_diag << ")" << std::endl;
+      }
+      for (auto& [iBc, orig_state] : coupled_states_save) {
+        auto& bc = eq.bc[iBc];
+        bc.coupled_bc.perturb_flowrate(diff_diag);
+        svZeroD::calc_svZeroD(com_mod, cm_mod, 'D');
+        double bcr_fd = (bc.coupled_bc.get_pressure() - orig_state.pressure) / diff_diag;
+
+        // Restore between BC perturbations.
+        for (auto& [jBc, saved_state] : coupled_states_save) {
+          eq.bc[jBc].coupled_bc.restore_state(saved_state);
+        }
+        for (size_t jj = 0; jj < cplBC.fa.size(); jj++) {
+          cplBC.fa[jj].y = orgY_diag[jj];
+          cplBC.fa[jj].Qn = orgQ_diag[jj];
+        }
+
+        double bcr_anal = bcr_anal_save[iBc];
+        double ratio = (bcr_fd != 0.0) ? bcr_anal / bcr_fd : 0.0;
+        if (cm.mas(cm_mod)) {
+          std::cout << "[DIAG_ANAL]     bc=" << bc.coupled_bc.get_block_name()
+                    << " analytical=" << bcr_anal
+                    << " FD=" << bcr_fd
+                    << " ratio=" << ratio << std::endl;
+        }
+      }
+
+      // Restore final bc.r to analytical values (so 3D solver uses analytical).
+      for (int iBc = 0; iBc < eq.nBc; iBc++) {
+        eq.bc[iBc].r = bcr_anal_save[iBc];
+      }
+    }
+    // === END DIAGNOSTIC ======================================================
+
     return;
   }
 

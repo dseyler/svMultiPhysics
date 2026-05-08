@@ -1208,29 +1208,64 @@ double Integrator::compute_residual_norm(eqType& eq)
 {
   auto& com_mod = simulation_->com_mod;
   auto& lhs = com_mod.lhs;
-  const int dof   = eq.e - eq.s + 1;
-  const int nNo   = lhs.nNo;
-  const int mynNo = lhs.mynNo;
+  const int dof = eq.e - eq.s + 1;
 
-  // Copy the equation's DOF slice into a (dof, nNo) buffer using the
-  // FSILS-internal node ordering (lhs.map), matching what fsils_solve
-  // does at solve.cpp:91. precond_diag will mutate this buffer in place
-  // (R := W*R), which is fine — it's a local copy.
-  Array<double> R(dof, nNo);
-  for (int a = 0; a < nNo; a++) {
-    for (int i = 0; i < dof; i++) {
-      R(i, lhs.map(a)) = com_mod.R(eq.s + i, a);
+  // FSILS-assembly path: mirror gmres.cpp's preprocessing exactly so r_trial
+  // is on the same scale as eq.FSILS.RI.iNorm (the FSILS convergence metric).
+  // Apply Jacobi (1/sqrt|diag K|) preconditioning via precond_diag, then
+  // reduce via fsi_ls_normv over lhs.mynNo.
+  //
+  // Gate on the *assembly* type, not the LS interface type: when Trilinos is
+  // configured with <Assembly>fsils</Assembly>, FSILS still does element
+  // assembly so lhs.{rowPtr,colPtr,diagPtr,mynNo,map}, com_mod.Val, and
+  // com_mod.R are all populated as on the pure-FSILS path. Only when Trilinos
+  // owns assembly are those structures absent (and we fall through to the
+  // raw-norm path).
+  const bool fsils_assembly =
+      (eq.linear_algebra != nullptr) &&
+      (eq.linear_algebra->assembly_type == consts::LinearAlgebraType::fsils);
+
+  if (fsils_assembly) {
+    const int nNo   = lhs.nNo;
+    const int mynNo = lhs.mynNo;
+
+    Array<double> R(dof, nNo);
+    for (int a = 0; a < nNo; a++) {
+      for (int i = 0; i < dof; i++) {
+        R(i, lhs.map(a)) = com_mod.R(eq.s + i, a);
+      }
     }
+
+    Array<double> Val_copy = com_mod.Val;
+    Array<double> Wc(dof, nNo);
+    precond::precond_diag(lhs, lhs.rowPtr, lhs.colPtr, lhs.diagPtr, dof,
+                          Val_copy, R, Wc);
+
+    return norm::fsi_ls_normv(dof, mynNo, lhs.commu, R);
   }
 
-  // Deep-copy Val so precond_diag's K := W*K mutation doesn't corrupt
-  // com_mod.Val (which the upcoming ls_solve still needs).
-  Array<double> Val_copy = com_mod.Val;
-  Array<double> Wc(dof, nNo);
-  precond::precond_diag(lhs, lhs.rowPtr, lhs.colPtr, lhs.diagPtr, dof,
-                        Val_copy, R, Wc);
-
-  return norm::fsi_ls_normv(dof, mynNo, lhs.commu, R);
+  // Non-FSILS path (Trilinos, PETSc): the FSILS lhs is not populated on
+  // these backends — lhs.nNo, lhs.mynNo, lhs.commu, lhs.map are all
+  // default-zero. Using them sizes the buffer to 0 and silently returns a
+  // bogus 0.0 norm, which makes the line-search Armijo check accept every
+  // step (caught empirically: trial-3 ts 35 diverging despite line search ON).
+  //
+  // Compute a plain L2 norm directly from com_mod.R over com_mod.tnNo with
+  // an MPI all-reduce via com_mod.cm. This double-counts shared (ghost)
+  // boundary nodes — but that overcounting is identical across consecutive
+  // residual evaluations within a Newton iter, so the line-search Armijo
+  // ratio (r_trial / r_initial) is unaffected. Norm magnitude no longer
+  // matches the FSILS metric, but as long as it monotonically tracks the
+  // true residual, the Armijo check works.
+  double local = 0.0;
+  for (int a = 0; a < com_mod.tnNo; ++a) {
+    for (int i = 0; i < dof; ++i) {
+      const double v = com_mod.R(eq.s + i, a);
+      local += v * v;
+    }
+  }
+  const double global = com_mod.cm.reduce(simulation_->cm_mod, local);
+  return std::sqrt(global);
 }
 
 //------------------------
@@ -1361,6 +1396,16 @@ double Integrator::backtrack_search(double r_initial)
   double alpha_accepted = 1.0;
   bool   accepted = false;
 
+  // Reuse the dP/dQ resistance cached by the most recent (non-cached)
+  // calc_der_cpl_bc() across all backtrack trials AND the post-acceptance
+  // outer reassemble. The FD probe is rank-0 serial (3 svZeroD calls for
+  // 2 coupled BCs) and was being re-run on every reassemble_for_residual
+  // call here, leaving ranks 1..N-1 idle ~80% of the time. dP/dQ varies
+  // smoothly in the cardiac LPN so a one-step-old cache is fine; the next
+  // outer Newton iter's set_bc_cpl will refresh it from the
+  // post-corrector state. Cleared at the bottom of this function.
+  com_mod.cpl_bc_use_cache = true;
+
   for (int bt = 0; bt <= max_bt; ++bt) {
     // Restore baseline state for this trial.
     solutions_.current.get_acceleration() = An_save;
@@ -1420,6 +1465,10 @@ double Integrator::backtrack_search(double r_initial)
   com_mod.Ad = Ad_save;
   com_mod.R  = R_save;
   com_mod.Rd = Rd_save;
+
+  // Re-enable the FD-probe so the next outer Newton iter's set_bc_cpl
+  // refreshes dP/dQ from the post-corrector state.
+  com_mod.cpl_bc_use_cache = false;
 
   return alpha_accepted;
 }
