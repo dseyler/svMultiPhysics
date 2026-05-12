@@ -764,7 +764,7 @@ void setMueLuPreconditioner(Teuchos::RCP<MueLu_Preconditioner> &MueLuPrec,
 
   // Problem type
   mueluParams.set("problem: type", "unknown"); // FSI is generally nonsymmetric
-  mueluParams.set("number of equations", 4);   // dof
+  mueluParams.set("number of equations", dof);   // file-scope dof: 3 for struct, 4 for fluid/FSI
 
   // Aggregation
   mueluParams.set("aggregation: type", "uncoupled");
