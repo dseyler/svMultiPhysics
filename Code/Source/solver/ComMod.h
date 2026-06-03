@@ -1033,6 +1033,15 @@ class mshType
     /// electrophysiology and solid mechanics
     Array<double> fN;
 
+    /// @brief Per-element active-stress directional parameters, reordered and
+    /// scattered to LOCAL element order alongside fN during partitioning.
+    /// Shape: (active_stress::N_ACTIVE_STRESS_PARAMS x nEl), indexed by local
+    /// element index. Row layout: row 0 -> eta_f, row 1 -> eta_s, row 2 -> eta_n
+    /// (rows 3/4 reserved for scale/delay). On the master prior to partitioning
+    /// it transiently holds the global (N x gnEl) array.
+    bool has_active_stress_params = false;
+    Array<double> active_stress_params;
+
     /// @brief Parent shape functions gradient
     /// double Nx(:,:,:)
     Array3<double> Nx;

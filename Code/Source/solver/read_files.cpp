@@ -2286,6 +2286,32 @@ void read_mat_model(Simulation* simulation, EquationParameters* eq_params, Domai
     if (fiber_params.spatial_values_file_path.defined() && !fiber_params.spatial_values_file_path.value().empty()) {
       read_directional_distribution_vtu_file(fiber_params.spatial_values_file_path.value(), lDmn);
     }
+
+    // Validate (at setup time) that the constitutive model supports sheet and
+    // sheet-normal active stress whenever any eta_s/eta_n fraction is non-zero.
+    // Only Guccione, HO, and HO-ma support these contributions. This is checked
+    // against the configured fractions (uniform and per-element), not the runtime
+    // stress products, so a misconfiguration fails immediately and deterministically.
+    bool supports_directional_distribution = (lDmn.stM.isoType == ConstitutiveModelType::stIso_Gucci ||
+                                              lDmn.stM.isoType == ConstitutiveModelType::stIso_HO ||
+                                              lDmn.stM.isoType == ConstitutiveModelType::stIso_HO_ma);
+    if (!supports_directional_distribution) {
+      double max_eta_s = lDmn.stM.Tf.eta_s;
+      double max_eta_n = lDmn.stM.Tf.eta_n;
+      if (lDmn.stM.Tf.has_elemental_distribution) {
+        auto& ed = lDmn.stM.Tf.elemental_distribution;
+        for (int e = 0; e < ed.ncols(); e++) {
+          max_eta_s = std::max(max_eta_s, ed(1, e));
+          max_eta_n = std::max(max_eta_n, ed(2, e));
+        }
+      }
+      if (max_eta_s > 0.0 || max_eta_n > 0.0) {
+        throw std::runtime_error("Directional distribution of active stress (eta_s > 0 or eta_n > 0) "
+          "is only supported for Guccione, Holzapfel-Ogden (HO), and Holzapfel-Ogden Modified Anisotropy (HO-ma) models. "
+          "Current model does not support sheet or sheet-normal stress contributions. "
+          "Set Fiber_direction=1.0, Sheet_direction=0.0, Sheet_normal_direction=0.0.");
+      }
+    }
   }
 
   // Check for shell model

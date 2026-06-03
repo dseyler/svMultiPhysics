@@ -59,6 +59,14 @@ def test_directionally_distributed_active_stress(n_proc):
     test_folder = "directionally_distributed_active_stress"
     run_with_reference(base_folder, test_folder, fields, n_proc)
 
+def test_directionally_distributed_active_stress_heterogeneous(n_proc):
+    # Spatially-heterogeneous per-element active-stress directional fractions
+    # read from a VTU. The eta field varies sharply across the mesh, so a wrong
+    # per-element mapping in parallel diverges from the serial reference. Run at
+    # 1/3/4 procs against a single serial reference to catch mis-mapping.
+    test_folder = "directionally_distributed_active_stress_heterogeneous"
+    run_with_reference(base_folder, test_folder, fields, n_proc)
+
 def test_robin(n_proc):
     test_folder = "robin"
     run_with_reference(base_folder, test_folder, fields, n_proc)

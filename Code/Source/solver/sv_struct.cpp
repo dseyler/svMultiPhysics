@@ -301,12 +301,10 @@ void construct_dsolid(ComMod& com_mod, CepMod& cep_mod, const mshType& lM, const
       N = lM.N.col(g);
       pSl = 0.0;
 
+      const Array<double>* as_params = lM.has_active_stress_params ? &lM.active_stress_params : nullptr;
+
       if (nsd == 3) {
-        int elem_id = e;
-        if (lM.eDist.size() != 0) {
-          elem_id = lM.eDist(com_mod.cm.taskId) + e;
-        }
-        struct_3d(com_mod, cep_mod, eNoN, nFn, w, N, Nx, al, yl, dl, bfl, fN, pS0l, pSl, ya_l, lR, lK, elem_id);
+        struct_3d(com_mod, cep_mod, eNoN, nFn, w, N, Nx, al, yl, dl, bfl, fN, pS0l, pSl, ya_l, lR, lK, e, as_params);
 
 #if 0
         if (e == 0 && g == 0) {
@@ -319,11 +317,7 @@ void construct_dsolid(ComMod& com_mod, CepMod& cep_mod, const mshType& lM, const
 #endif
 
       } else if (nsd == 2) {
-        int elem_id = e;
-        if (lM.eDist.size() != 0) {
-          elem_id = lM.eDist(com_mod.cm.taskId) + e;
-        }
-        struct_2d(com_mod, cep_mod, eNoN, nFn, w, N, Nx, al, yl, dl, bfl, fN, pS0l, pSl, ya_l, lR, lK, elem_id);
+        struct_2d(com_mod, cep_mod, eNoN, nFn, w, N, Nx, al, yl, dl, bfl, fN, pS0l, pSl, ya_l, lR, lK, e, as_params);
       }
 
       // Prestress
@@ -344,10 +338,11 @@ void construct_dsolid(ComMod& com_mod, CepMod& cep_mod, const mshType& lM, const
 
 /// @brief Reproduces Fortran 'STRUCT2D' subroutine.
 //
-void struct_2d(ComMod& com_mod, CepMod& cep_mod, const int eNoN, const int nFn, const double w, 
-    const Vector<double>& N, const Array<double>& Nx, const Array<double>& al, const Array<double>& yl, 
-    const Array<double>& dl, const Array<double>& bfl, const Array<double>& fN, const Array<double>& pS0l, 
-    Vector<double>& pSl, const Vector<double>& ya_l, Array<double>& lR, Array3<double>& lK, const int elem_id) 
+void struct_2d(ComMod& com_mod, CepMod& cep_mod, const int eNoN, const int nFn, const double w,
+    const Vector<double>& N, const Array<double>& Nx, const Array<double>& al, const Array<double>& yl,
+    const Array<double>& dl, const Array<double>& bfl, const Array<double>& fN, const Array<double>& pS0l,
+    Vector<double>& pSl, const Vector<double>& ya_l, Array<double>& lR, Array3<double>& lK, const int elem_id,
+    const Array<double>* as_params)
 {
   using namespace consts;
   using namespace mat_fun;
@@ -428,7 +423,7 @@ void struct_2d(ComMod& com_mod, CepMod& cep_mod, const int eNoN, const int nFn, 
   // 2nd Piola-Kirchhoff stress (S) and material stiffness tensor in Voight notation (Dm)
   Array<double> S(2,2), Dm(3,3);
   double Ja;
-  mat_models::compute_pk2cc(com_mod, cep_mod, dmn, F, nFn, fN, ya_g, S, Dm, Ja, elem_id);
+  mat_models::compute_pk2cc(com_mod, cep_mod, dmn, F, nFn, fN, ya_g, S, Dm, Ja, elem_id, as_params);
 
   // Viscous 2nd Piola-Kirchhoff stress and tangent contributions
   Array<double> Svis(2,2);
@@ -530,10 +525,11 @@ void struct_2d(ComMod& com_mod, CepMod& cep_mod, const int eNoN, const int nFn, 
 }
 
 /// @brief Reproduces Fortran 'STRUCT3D' subroutine.
-void struct_3d(ComMod& com_mod, CepMod& cep_mod, const int eNoN, const int nFn, const double w, 
-    const Vector<double>& N, const Array<double>& Nx, const Array<double>& al, const Array<double>& yl, 
-    const Array<double>& dl, const Array<double>& bfl, const Array<double>& fN, const Array<double>& pS0l, 
-    Vector<double>& pSl, const Vector<double>& ya_l, Array<double>& lR, Array3<double>& lK, const int elem_id)
+void struct_3d(ComMod& com_mod, CepMod& cep_mod, const int eNoN, const int nFn, const double w,
+    const Vector<double>& N, const Array<double>& Nx, const Array<double>& al, const Array<double>& yl,
+    const Array<double>& dl, const Array<double>& bfl, const Array<double>& fN, const Array<double>& pS0l,
+    Vector<double>& pSl, const Vector<double>& ya_l, Array<double>& lR, Array3<double>& lK, const int elem_id,
+    const Array<double>* as_params)
 {
   using namespace consts;
   using namespace mat_fun;
@@ -638,9 +634,9 @@ void struct_3d(ComMod& com_mod, CepMod& cep_mod, const int eNoN, const int nFn, 
   // 2nd Piola-Kirchhoff tensor (S) and material stiffness tensor in
   // Voigt notationa (Dm)
   //
-  Array<double> S(3,3), Dm(6,6); 
+  Array<double> S(3,3), Dm(6,6);
   double Ja;
-  mat_models::compute_pk2cc(com_mod, cep_mod, dmn, F, nFn, fN, ya_g, S, Dm, Ja, elem_id);
+  mat_models::compute_pk2cc(com_mod, cep_mod, dmn, F, nFn, fN, ya_g, S, Dm, Ja, elem_id, as_params);
 
   // Viscous 2nd Piola-Kirchhoff stress and tangent contributions
   Array<double> Svis(3,3);

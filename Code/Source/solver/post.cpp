@@ -1898,8 +1898,9 @@ void tpost(Simulation* simulation, const mshType& lM, const int m, Array<double>
 
             Array<double> Dm(nsymd,nsymd);
             double Ja;
-            
-            mat_models::compute_pk2cc(com_mod, cep_mod, eq.dmn[cDmn], F, nFn, fN, ya, S, Dm, Ja, e);
+            const Array<double>* as_params = lM.has_active_stress_params ? &lM.active_stress_params : nullptr;
+
+            mat_models::compute_pk2cc(com_mod, cep_mod, eq.dmn[cDmn], F, nFn, fN, ya, S, Dm, Ja, e, as_params);
 
             // TODO: Add viscous stress
 
@@ -1917,7 +1918,8 @@ void tpost(Simulation* simulation, const mshType& lM, const int m, Array<double>
           } else if (cPhys == EquationType::phys_struct) {
             Array<double> Dm(nsymd,nsymd);
             double Ja;
-            mat_models::compute_pk2cc(com_mod, cep_mod, eq.dmn[cDmn], F, nFn, fN, ya, S, Dm, Ja, e);
+            const Array<double>* as_params = lM.has_active_stress_params ? &lM.active_stress_params : nullptr;
+            mat_models::compute_pk2cc(com_mod, cep_mod, eq.dmn[cDmn], F, nFn, fN, ya, S, Dm, Ja, e, as_params);
 
             // TODO: Add viscous stress
 
