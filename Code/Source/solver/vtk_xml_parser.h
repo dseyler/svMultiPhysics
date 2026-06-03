@@ -19,10 +19,17 @@ class VtkFileExtentions {
     const static std::string VTK_VTP_EXTENSION;
 };
 
-void load_fiber_direction_vtu(const std::string& file_name, const std::string& data_name, const int idx, 
+void load_fiber_direction_vtu(const std::string& file_name, const std::string& data_name, const int idx,
     const int nsd, mshType& mesh);
 
-bool load_active_stress_directional_distribution_vtu(const std::string& file_name,
+/// @brief Which optional groups of per-element active-stress params a spatial VTU supplied.
+struct ActiveStressDistInfo {
+  bool has_eta = false;     // all three of eta_f/eta_s/eta_n present
+  bool has_delay = false;   // delay present
+  bool any() const { return has_eta || has_delay; }
+};
+
+ActiveStressDistInfo load_active_stress_directional_distribution_vtu(const std::string& file_name,
     Array<double>& elemental_distribution);
 
 void load_vtp(const std::string& file_name, faceType& face);

@@ -7,10 +7,14 @@
 #include "ComMod.h"
 
 #include <vector>
+#include <limits>
 
 void fft(const int np, const std::vector<std::vector<double>>& temporal_values, fcType& gt);
 
-void ifft(const ComMod& com_mod, const fcType& gt, Vector<double>& Y, Vector<double>& dY);
+// time_override (default NaN -> use com_mod.time) evaluates the curve at a shifted
+// time, e.g. com_mod.time - delay for per-element active-stress activation delay.
+void ifft(const ComMod& com_mod, const fcType& gt, Vector<double>& Y, Vector<double>& dY,
+    double time_override = std::numeric_limits<double>::quiet_NaN());
 
 void igbc(const ComMod& com_mod, const MBType& gm, Array<double>& Y, Array<double>& dY);
 

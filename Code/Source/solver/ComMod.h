@@ -336,8 +336,10 @@ class fibStrsType
     // Unsteady time-dependent values
     fcType gt;
 
-    // Optional per-element directional distributions (3 x nElem):
-    // row 0 -> eta_f, row 1 -> eta_s, row 2 -> eta_n.
+    // Optional per-element active-stress params, read from a VTU before
+    // partitioning (original global element order). Shape
+    // (active_stress::N_ACTIVE_STRESS_PARAMS x nElem); see active_stress.h
+    // (AS_IDX_*) for the row layout: eta_f, eta_s, eta_n, delay.
     bool has_elemental_distribution = false;
     Array<double> elemental_distribution;
 };
@@ -1033,12 +1035,12 @@ class mshType
     /// electrophysiology and solid mechanics
     Array<double> fN;
 
-    /// @brief Per-element active-stress directional parameters, reordered and
-    /// scattered to LOCAL element order alongside fN during partitioning.
-    /// Shape: (active_stress::N_ACTIVE_STRESS_PARAMS x nEl), indexed by local
-    /// element index. Row layout: row 0 -> eta_f, row 1 -> eta_s, row 2 -> eta_n
-    /// (rows 3/4 reserved for scale/delay). On the master prior to partitioning
-    /// it transiently holds the global (N x gnEl) array.
+    /// @brief Per-element active-stress parameters, reordered and scattered to
+    /// LOCAL element order alongside fN during partitioning. Shape:
+    /// (active_stress::N_ACTIVE_STRESS_PARAMS x nEl), indexed by local element
+    /// index. See active_stress.h (AS_IDX_*) for the row layout: eta_f, eta_s,
+    /// eta_n, delay. On the master prior to partitioning it transiently holds the
+    /// global (N x gnEl) array.
     bool has_active_stress_params = false;
     Array<double> active_stress_params;
 

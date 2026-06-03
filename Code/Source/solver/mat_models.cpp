@@ -209,7 +209,8 @@ void voigt_to_cc(const int nsd, const Array<double>& Dm, Tensor4<double>& CC)
 ///
 /// Reproduces Fortran 'GETFIBSTRESS' subroutine.
 //
-void compute_fib_stress(const ComMod& com_mod, const CepMod& cep_mod, const fibStrsType& Tfl, double& g)
+void compute_fib_stress(const ComMod& com_mod, const CepMod& cep_mod, const fibStrsType& Tfl, double& g,
+    double delay)
 {
   using namespace consts;
 
@@ -217,10 +218,18 @@ void compute_fib_stress(const ComMod& com_mod, const CepMod& cep_mod, const fibS
 
   if (utils::btest(Tfl.fType, iBC_std)) {
     g = Tfl.g;
-  } else if (utils::btest(Tfl.fType, iBC_ustd)) { 
-    Vector<double> gv(1), tv(1);
-    ifft(com_mod, Tfl.gt, gv, tv);
-    g = gv[0];
+  } else if (utils::btest(Tfl.fType, iBC_ustd)) {
+    // Per-element activation delay: evaluate the curve at the shifted time, and
+    // produce zero before this element's activation (overrides ifft's pre-start
+    // ramp/periodic behavior). delay==0 reduces to the original com_mod.time path.
+    double eff_time = com_mod.time - delay;
+    if (eff_time < Tfl.gt.ti) {
+      g = 0.0;
+    } else {
+      Vector<double> gv(1), tv(1);
+      ifft(com_mod, Tfl.gt, gv, tv, eff_time);
+      g = gv[0];
+    }
   }
 }
 
@@ -358,19 +367,24 @@ void compute_pk2cc(const ComMod& com_mod, const CepMod& cep_mod, const dmnType& 
   double nd = static_cast<double>(nsd);
   double Kp = stM.Kpen;
 
-  // Fiber-reinforced stress - compute total active stress
-  double Ta = 0.0;
-  compute_fib_stress(com_mod, cep_mod, stM.Tf, Ta);
+  // Resolve the per-element active-stress parameters (directional fractions and
+  // activation delay), falling back to the uniform domain values. Model-support
+  // validation (eta_s/eta_n only for Guccione/HO/HO-ma) and delay validation are
+  // done at setup time in read_mat_model, so there is no per-Gauss-point check here.
+  active_stress::ElementActiveStressParams defaults;
+  defaults.eta_f = stM.Tf.eta_f;
+  defaults.eta_s = stM.Tf.eta_s;
+  defaults.eta_n = stM.Tf.eta_n;
+  auto ep = active_stress::resolve_active_stress_params(as_params, elem_id, defaults);
 
-  // Resolve the per-element directional fractions (or uniform domain defaults)
-  // and distribute the total prescribed active stress among fiber directions.
-  // Model-support validation (eta_s/eta_n only for Guccione/HO/HO-ma) is done at
-  // setup time in read_mat_model, so there is no per-Gauss-point check here.
-  auto eta = active_stress::resolve_active_stress_params(as_params, elem_id,
-      stM.Tf.eta_f, stM.Tf.eta_s, stM.Tf.eta_n);
-  double Tfa = eta.eta_f * Ta;  // Fiber direction
-  double Tsa = eta.eta_s * Ta;  // Sheet direction
-  double Tna = eta.eta_n * Ta;  // Sheet-normal direction
+  // Fiber-reinforced stress - compute total active stress at this element's
+  // (delayed) activation time, then distribute among fiber directions.
+  double Ta = 0.0;
+  compute_fib_stress(com_mod, cep_mod, stM.Tf, Ta, ep.delay);
+
+  double Tfa = ep.eta_f * Ta;  // Fiber direction
+  double Tsa = ep.eta_s * Ta;  // Sheet direction
+  double Tna = ep.eta_n * Ta;  // Sheet-normal direction
 
   // Aliases for fiber directions
   const auto& fib_dir1 = fl.col(0);

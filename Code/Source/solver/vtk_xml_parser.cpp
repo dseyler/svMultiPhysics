@@ -6,8 +6,9 @@
 // Volume mesh and face data is read using VTK readers to read VTU and VTP files. Data 
 // read in is stored directly into mshType and faceType objects.
 
-#include "vtk_xml_parser.h" 
-#include "Array.h" 
+#include "vtk_xml_parser.h"
+#include "active_stress.h"
+#include "Array.h"
 #include "Array3.h"
 
 #include <vtkDoubleArray.h>
@@ -683,20 +684,24 @@ void load_fiber_direction_vtu(const std::string& file_name, const std::string& d
   }
 }
 
-/// @brief Load per-element active-stress directional distributions from VTU CellData.
+/// @brief Load per-element active-stress parameters from VTU CellData.
 ///
-/// Required VTU arrays (when present):
-/// - Int32 `GlobalElementID` in CellData (1-based IDs)
-/// - Double scalar arrays `eta_f`, `eta_s`, `eta_n` in CellData
+/// VTU arrays (keyed by Int32 `GlobalElementID` in CellData, 1-based IDs):
+/// - Float64 `eta_f`, `eta_s`, `eta_n` (directional fractions) -- all three or none.
+/// - Float64 `delay` (per-element activation time delay) -- optional, independent.
 ///
 /// Output:
-/// - elemental_distribution shape = (3, nElem), indexed by global element id - 1
+/// - elemental_distribution shape = (N_ACTIVE_STRESS_PARAMS, nElem), indexed by
+///   (global element id - 1). Supplied rows are filled from the VTU; the delay row
+///   is always written (0.0 where no delay array); unsupplied eta rows are left at a
+///   sentinel of -1.0 for the caller (read_files) to fill with the uniform domain eta.
 /// Returns:
-/// - true if all three eta arrays are found and loaded
-/// - false if no eta arrays are present (caller can skip spatial override)
-bool load_active_stress_directional_distribution_vtu(const std::string& file_name,
+/// - which groups (eta, delay) were supplied (see ActiveStressDistInfo).
+ActiveStressDistInfo load_active_stress_directional_distribution_vtu(const std::string& file_name,
     Array<double>& elemental_distribution)
 {
+  using namespace active_stress;
+
   if (FILE *file = fopen(file_name.c_str(), "r")) {
       fclose(file);
   } else {
@@ -717,19 +722,23 @@ bool load_active_stress_directional_distribution_vtu(const std::string& file_nam
   auto eta_f_arr = cell_data->GetArray("eta_f");
   auto eta_s_arr = cell_data->GetArray("eta_s");
   auto eta_n_arr = cell_data->GetArray("eta_n");
+  auto delay_arr = cell_data->GetArray("delay");
 
   bool has_eta_f = (eta_f_arr != nullptr);
   bool has_eta_s = (eta_s_arr != nullptr);
   bool has_eta_n = (eta_n_arr != nullptr);
+  bool any_eta = has_eta_f || has_eta_s || has_eta_n;
+  bool has_eta = has_eta_f && has_eta_s && has_eta_n;
+  bool has_delay = (delay_arr != nullptr);
 
-  if (!has_eta_f && !has_eta_s && !has_eta_n) {
-    elemental_distribution.clear();
-    return false;
-  }
-
-  if (!(has_eta_f && has_eta_s && has_eta_n)) {
+  if (any_eta && !has_eta) {
     throw std::runtime_error("Active stress directional distribution file '" + file_name +
         "' must either provide all three CellData arrays (eta_f, eta_s, eta_n) or none of them.");
+  }
+
+  if (!has_eta && !has_delay) {
+    elemental_distribution.clear();
+    return {false, false};
   }
 
   auto elem_ids = vtkIntArray::SafeDownCast(cell_data->GetArray(ELEMENT_IDS_NAME.c_str()));
@@ -738,24 +747,33 @@ bool load_active_stress_directional_distribution_vtu(const std::string& file_nam
         "' does not contain required CellData Int32 array 'GlobalElementID'.");
   }
 
-  auto eta_f_data = vtkDoubleArray::SafeDownCast(eta_f_arr);
-  auto eta_s_data = vtkDoubleArray::SafeDownCast(eta_s_arr);
-  auto eta_n_data = vtkDoubleArray::SafeDownCast(eta_n_arr);
-  if (eta_f_data == nullptr || eta_s_data == nullptr || eta_n_data == nullptr) {
+  auto eta_f_data = has_eta ? vtkDoubleArray::SafeDownCast(eta_f_arr) : nullptr;
+  auto eta_s_data = has_eta ? vtkDoubleArray::SafeDownCast(eta_s_arr) : nullptr;
+  auto eta_n_data = has_eta ? vtkDoubleArray::SafeDownCast(eta_n_arr) : nullptr;
+  if (has_eta && (eta_f_data == nullptr || eta_s_data == nullptr || eta_n_data == nullptr)) {
     throw std::runtime_error("Active stress directional distribution file '" + file_name +
         "' has eta arrays with unsupported type; expected Float64 for eta_f, eta_s, eta_n.");
   }
 
+  auto delay_data = has_delay ? vtkDoubleArray::SafeDownCast(delay_arr) : nullptr;
+  if (has_delay && delay_data == nullptr) {
+    throw std::runtime_error("Active stress directional distribution file '" + file_name +
+        "' has a 'delay' array with unsupported type; expected Float64.");
+  }
+
   if (elem_ids->GetNumberOfTuples() != num_elems ||
-      eta_f_data->GetNumberOfTuples() != num_elems ||
-      eta_s_data->GetNumberOfTuples() != num_elems ||
-      eta_n_data->GetNumberOfTuples() != num_elems) {
+      (has_eta && (eta_f_data->GetNumberOfTuples() != num_elems ||
+                   eta_s_data->GetNumberOfTuples() != num_elems ||
+                   eta_n_data->GetNumberOfTuples() != num_elems)) ||
+      (has_delay && delay_data->GetNumberOfTuples() != num_elems)) {
     throw std::runtime_error("Active stress directional distribution file '" + file_name +
         "' has inconsistent CellData tuple counts.");
   }
 
-  elemental_distribution.resize(3, num_elems);
-  elemental_distribution = 0.0;
+  // Sentinel -1.0 marks unsupplied eta rows (read_files fills them with the domain
+  // default). The delay row is always written below, so it needs no sentinel.
+  elemental_distribution.resize(N_ACTIVE_STRESS_PARAMS, num_elems);
+  elemental_distribution = -1.0;
   std::vector<bool> seen(num_elems, false);
 
   for (int cell_id = 0; cell_id < num_elems; cell_id++) {
@@ -773,9 +791,12 @@ bool load_active_stress_directional_distribution_vtu(const std::string& file_nam
     }
     seen[idx] = true;
 
-    elemental_distribution(0, idx) = eta_f_data->GetValue(cell_id);
-    elemental_distribution(1, idx) = eta_s_data->GetValue(cell_id);
-    elemental_distribution(2, idx) = eta_n_data->GetValue(cell_id);
+    if (has_eta) {
+      elemental_distribution(AS_IDX_ETA_F, idx) = eta_f_data->GetValue(cell_id);
+      elemental_distribution(AS_IDX_ETA_S, idx) = eta_s_data->GetValue(cell_id);
+      elemental_distribution(AS_IDX_ETA_N, idx) = eta_n_data->GetValue(cell_id);
+    }
+    elemental_distribution(AS_IDX_DELAY, idx) = has_delay ? delay_data->GetValue(cell_id) : 0.0;
   }
 
   for (int i = 0; i < num_elems; i++) {
@@ -785,7 +806,7 @@ bool load_active_stress_directional_distribution_vtu(const std::string& file_nam
     }
   }
 
-  return true;
+  return {has_eta, has_delay};
 }
 
 /// @brief Store a surface mesh read from a VTK .vtp file into a Face object.

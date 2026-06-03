@@ -6,6 +6,7 @@
 #include "read_files.h"
 
 #include "FE/Common/FEException.h"
+#include "active_stress.h"
 #include "all_fun.h"
 #include "consts.h"
 #include "fft.h"
@@ -1636,36 +1637,74 @@ void read_fiber_temporal_values_file(FiberReinforcementStressParameters& fiber_p
 //---------------------------------------------
 // read_directional_distribution_vtu_file
 //---------------------------------------------
-// Read per-element active stress directional fractions from a VTU file.
+// Read per-element active stress parameters (directional fractions and/or
+// activation delay) from a VTU file. eta and delay are independently optional;
+// unsupplied eta rows are filled with the uniform domain values.
 //
 void read_directional_distribution_vtu_file(const std::string& file_path, dmnType& lDmn)
 {
+  using namespace active_stress;
   auto& tf = lDmn.stM.Tf;
-  bool has_distribution = vtk_xml_parser::load_active_stress_directional_distribution_vtu(
+
+  auto info = vtk_xml_parser::load_active_stress_directional_distribution_vtu(
       file_path,
       tf.elemental_distribution);
 
-  tf.has_elemental_distribution = has_distribution;
-  if (!has_distribution) {
+  tf.has_elemental_distribution = info.any();
+  if (!tf.has_elemental_distribution) {
     tf.elemental_distribution.clear();
     return;
   }
 
-  const double tol = 1.0e-10;
-  for (int e = 0; e < tf.elemental_distribution.ncols(); e++) {
-    double eta_f = tf.elemental_distribution(0, e);
-    double eta_s = tf.elemental_distribution(1, e);
-    double eta_n = tf.elemental_distribution(2, e);
+  const int ncols = tf.elemental_distribution.ncols();
 
-    if (eta_f < 0.0 || eta_s < 0.0 || eta_n < 0.0) {
-      throw std::runtime_error("Elemental directional distribution contains negative eta values at element index " +
-          std::to_string(e+1) + ".");
+  // Fill the eta rows: VTU values when supplied, else the uniform domain eta in
+  // every column. (The delay row is always written by the loader.)
+  if (!info.has_eta) {
+    for (int e = 0; e < ncols; e++) {
+      tf.elemental_distribution(AS_IDX_ETA_F, e) = tf.eta_f;
+      tf.elemental_distribution(AS_IDX_ETA_S, e) = tf.eta_s;
+      tf.elemental_distribution(AS_IDX_ETA_N, e) = tf.eta_n;
+    }
+  }
+
+  // Validate eta only when supplied by the VTU (domain defaults are validated
+  // elsewhere): non-negative and summing to 1 per element.
+  if (info.has_eta) {
+    const double tol = 1.0e-10;
+    for (int e = 0; e < ncols; e++) {
+      double eta_f = tf.elemental_distribution(AS_IDX_ETA_F, e);
+      double eta_s = tf.elemental_distribution(AS_IDX_ETA_S, e);
+      double eta_n = tf.elemental_distribution(AS_IDX_ETA_N, e);
+
+      if (eta_f < 0.0 || eta_s < 0.0 || eta_n < 0.0) {
+        throw std::runtime_error("Elemental directional distribution contains negative eta values at element index " +
+            std::to_string(e+1) + ".");
+      }
+
+      double eta_sum = eta_f + eta_s + eta_n;
+      if (std::abs(eta_sum - 1.0) > tol) {
+        throw std::runtime_error("Elemental directional distribution fractions must sum to 1.0 at element index " +
+            std::to_string(e+1) + ". Sum is " + std::to_string(eta_sum) + ".");
+      }
+    }
+  }
+
+  // Validate delay only when supplied: non-negative, and only meaningful for an
+  // unsteady (temporal curve) active stress.
+  if (info.has_delay) {
+    for (int e = 0; e < ncols; e++) {
+      double delay = tf.elemental_distribution(AS_IDX_DELAY, e);
+      if (delay < 0.0) {
+        throw std::runtime_error("Active-stress delay must be >= 0; got " + std::to_string(delay) +
+            " at element index " + std::to_string(e+1) + ".");
+      }
     }
 
-    double eta_sum = eta_f + eta_s + eta_n;
-    if (std::abs(eta_sum - 1.0) > tol) {
-      throw std::runtime_error("Elemental directional distribution fractions must sum to 1.0 at element index " +
-          std::to_string(e+1) + ". Sum is " + std::to_string(eta_sum) + ".");
+    if (!utils::btest(tf.fType, consts::iBC_ustd)) {
+      throw std::runtime_error("A per-element active-stress 'delay' field was provided, but the fiber "
+          "reinforcement stress is not Unsteady. Delay requires a temporal stress curve "
+          "(Fiber_reinforcement_stress type=\"Unsteady\").");
     }
   }
 }
@@ -2301,8 +2340,8 @@ void read_mat_model(Simulation* simulation, EquationParameters* eq_params, Domai
       if (lDmn.stM.Tf.has_elemental_distribution) {
         auto& ed = lDmn.stM.Tf.elemental_distribution;
         for (int e = 0; e < ed.ncols(); e++) {
-          max_eta_s = std::max(max_eta_s, ed(1, e));
-          max_eta_n = std::max(max_eta_n, ed(2, e));
+          max_eta_s = std::max(max_eta_s, ed(active_stress::AS_IDX_ETA_S, e));
+          max_eta_n = std::max(max_eta_n, ed(active_stress::AS_IDX_ETA_N, e));
         }
       }
       if (max_eta_s > 0.0 || max_eta_n > 0.0) {
