@@ -3,6 +3,7 @@
 
 #include "post.h"
 
+#include "FE/Common/FEException.h"
 #include "all_fun.h"
 #include "fluid.h"
 #include "fs.h"
@@ -17,7 +18,36 @@
 
 namespace post {
 
-void all_post(Simulation* simulation, Array<double>& res, const Array<double>& lY, const Array<double>& lD, 
+  namespace {
+
+    Array<double> deformation_gradient(const Array<double>& Nx, const Array<double>& dl,
+        int nsd, int nNo, int eq_start)
+    {
+      auto F = mat_fun::mat_id(nsd);
+      for (int a = 0; a < nNo; a++) {
+        if (nsd == 3) {
+          F(0,0) = F(0,0) + Nx(0,a)*dl(eq_start,a);
+          F(0,1) = F(0,1) + Nx(1,a)*dl(eq_start,a);
+          F(0,2) = F(0,2) + Nx(2,a)*dl(eq_start,a);
+          F(1,0) = F(1,0) + Nx(0,a)*dl(eq_start+1,a);
+          F(1,1) = F(1,1) + Nx(1,a)*dl(eq_start+1,a);
+          F(1,2) = F(1,2) + Nx(2,a)*dl(eq_start+1,a);
+          F(2,0) = F(2,0) + Nx(0,a)*dl(eq_start+2,a);
+          F(2,1) = F(2,1) + Nx(1,a)*dl(eq_start+2,a);
+          F(2,2) = F(2,2) + Nx(2,a)*dl(eq_start+2,a);
+        } else {
+          F(0,0) = F(0,0) + Nx(0,a)*dl(eq_start,a);
+          F(0,1) = F(0,1) + Nx(1,a)*dl(eq_start,a);
+          F(1,0) = F(1,0) + Nx(0,a)*dl(eq_start+1,a);
+          F(1,1) = F(1,1) + Nx(1,a)*dl(eq_start+1,a);
+        }
+      }   
+      return F;
+    }
+
+  }
+
+void all_post(Simulation* simulation, Array<double>& res, const SolutionStates& solutions,
     consts::OutputNameType outGrp, const int iEq) 
 {
   using namespace consts;
@@ -38,7 +68,7 @@ void all_post(Simulation* simulation, Array<double>& res, const Array<double>& l
     Array<double> tmpV(maxNSD,msh.nNo);
 
     if (outGrp == OutputNameType::outGrp_WSS ||  outGrp == OutputNameType::outGrp_trac) {
-      bpost(simulation, msh,  tmpV, lY, lD, outGrp);
+      bpost(simulation, msh,  tmpV, solutions, outGrp);
       for (int a = 0; a < com_mod.msh[iM].nNo; a++) {
         int Ac = msh.gN(a);
         res.set_col(Ac, tmpV.col(a));
@@ -47,7 +77,7 @@ void all_post(Simulation* simulation, Array<double>& res, const Array<double>& l
     } else if (outGrp == OutputNameType::outGrp_J) {
       Array<double> tmpV(1,msh.nNo); 
       Vector<double> tmpVe(msh.nEl);
-      tpost(simulation, msh, 1, tmpV, tmpVe, lD, lY, iEq, outGrp);
+      tpost(simulation, msh, 1, tmpV, tmpVe, solutions, iEq, outGrp);
       res = 0.0;
       for (int a = 0; a < com_mod.msh[iM].nNo; a++) {
         int Ac = msh.gN(a);
@@ -57,7 +87,7 @@ void all_post(Simulation* simulation, Array<double>& res, const Array<double>& l
      } else if (outGrp == OutputNameType::outGrp_mises) {
        Array<double> tmpV(1,msh.nNo); 
        Vector<double> tmpVe(msh.nEl);
-       tpost(simulation, msh, 1, tmpV, tmpVe, lD, lY, iEq, outGrp);
+       tpost(simulation, msh, 1, tmpV, tmpVe, solutions, iEq, outGrp);
        res = 0.0;
        for (int a = 0; a < com_mod.msh[iM].nNo; a++) {
          int Ac = msh.gN(a);
@@ -66,7 +96,7 @@ void all_post(Simulation* simulation, Array<double>& res, const Array<double>& l
 
      } else if (outGrp ==  OutputNameType::outGrp_divV) {
        Array<double> tmpV(1,msh.nNo); 
-       div_post(simulation, msh, tmpV, lY, lD, iEq);
+       div_post(simulation, msh, tmpV, solutions, iEq);
        res = 0.0;
        for (int a = 0; a < com_mod.msh[iM].nNo; a++) {
          int Ac = msh.gN(a);
@@ -74,7 +104,7 @@ void all_post(Simulation* simulation, Array<double>& res, const Array<double>& l
        }
 
      } else {
-       post(simulation, msh, tmpV, lY, lD, outGrp, iEq);
+       post(simulation, msh, tmpV, solutions, outGrp, iEq);
        for (int a = 0; a < com_mod.msh[iM].nNo; a++) {
          int Ac = msh.gN(a);
          res.set_col(Ac, tmpV.col(a));
@@ -87,7 +117,7 @@ void all_post(Simulation* simulation, Array<double>& res, const Array<double>& l
 /// faces. Currently this calculates WSS, which is t.n - (n.t.n)n
 /// Here t is stress tensor: t = \mu (grad(u) + grad(u)^T)
 //
-void bpost(Simulation* simulation, const mshType& lM, Array<double>& res, const Array<double>& lY, const Array<double>& lD, 
+void bpost(Simulation* simulation, const mshType& lM, Array<double>& res, const SolutionStates& solutions,
     consts::OutputNameType outGrp)
 {
   using namespace consts;
@@ -95,6 +125,8 @@ void bpost(Simulation* simulation, const mshType& lM, Array<double>& res, const 
   auto& com_mod = simulation->com_mod;
   auto& cm = com_mod.cm;
   auto& cm_mod = simulation->cm_mod;
+  const auto& lY = solutions.current.get_velocity();
+  const auto& lD = solutions.current.get_displacement();
 
   #define n_debug_bpost
   #ifdef debug_bpost
@@ -336,7 +368,7 @@ void bpost(Simulation* simulation, const mshType& lM, Array<double>& res, const 
   }
 }
 
-void div_post(Simulation* simulation, const mshType& lM, Array<double>& res, const Array<double>& lY, const Array<double>& lD,
+void div_post(Simulation* simulation, const mshType& lM, Array<double>& res, const SolutionStates& solutions,
     const int iEq)
 {
   using namespace consts;
@@ -350,6 +382,8 @@ void div_post(Simulation* simulation, const mshType& lM, Array<double>& res, con
   auto& com_mod = simulation->com_mod;
   auto& cm = com_mod.cm;
   auto& cm_mod = simulation->cm_mod;
+  const auto& lY = solutions.current.get_velocity();
+  const auto& lD = solutions.current.get_displacement();
   auto& eq = com_mod.eq[iEq];
 
   // [NOTE] Setting gobal variable 'dof'.
@@ -439,17 +473,8 @@ void div_post(Simulation* simulation, const mshType& lM, Array<double>& res, con
             vx(2,0) = vx(2,0) + Nx(0,a)*yl(k,a);
             vx(2,1) = vx(2,1) + Nx(1,a)*yl(k,a);
             vx(2,2) = vx(2,2) + Nx(2,a)*yl(k,a);
-
-            F(0,0) = F(0,0) + Nx(0,a)*dl(i,a);
-            F(0,1) = F(0,1) + Nx(1,a)*dl(i,a);
-            F(0,2) = F(0,2) + Nx(2,a)*dl(i,a);
-            F(1,0) = F(1,0) + Nx(0,a)*dl(j,a);
-            F(1,1) = F(1,1) + Nx(1,a)*dl(j,a);
-            F(1,2) = F(1,2) + Nx(2,a)*dl(j,a);
-            F(2,0) = F(2,0) + Nx(0,a)*dl(k,a);
-            F(2,1) = F(2,1) + Nx(1,a)*dl(k,a);
-            F(2,2) = F(2,2) + Nx(2,a)*dl(k,a);
           }
+          F = deformation_gradient(Nx, dl, nsd, eNoN, i);
 
           auto Fi = mat_fun::mat_inv(F,3);
 
@@ -464,12 +489,8 @@ void div_post(Simulation* simulation, const mshType& lM, Array<double>& res, con
             vx(0,1) = vx(0,1) + Nx(1,a)*yl(i,a);
             vx(1,0) = vx(1,0) + Nx(0,a)*yl(j,a);
             vx(1,1) = vx(1,1) + Nx(1,a)*yl(j,a);
-
-            F(0,0) = F(0,0) + Nx(0,a)*dl(i,a);
-            F(0,1) = F(0,1) + Nx(1,a)*dl(i,a);
-            F(1,0) = F(1,0) + Nx(0,a)*dl(j,a);
-            F(1,1) = F(1,1) + Nx(1,a)*dl(j,a);
           }
+          F = deformation_gradient(Nx, dl, nsd, eNoN, i);
 
           auto Fi =  mat_fun::mat_inv(F,2);
           VxFi(0) = vx(0,0)*Fi(0,0) + vx(0,1)*Fi(1,0);
@@ -499,13 +520,14 @@ void div_post(Simulation* simulation, const mshType& lM, Array<double>& res, con
 
 /// @brief Routine for post processing fiber alignment
 //
-void fib_algn_post(Simulation* simulation, const mshType& lM, Array<double>& res, const Array<double>& lD, const int iEq)
+void fib_algn_post(Simulation* simulation, const mshType& lM, Array<double>& res, const SolutionStates& solutions, const int iEq)
 {
   using namespace consts;
 
   auto& com_mod = simulation->com_mod;
   auto& cm = com_mod.cm;
   auto& cm_mod = simulation->cm_mod;
+  const auto& lD = solutions.current.get_displacement();
   auto& eq = com_mod.eq[iEq];
 
   int eNoN = lM.eNoN;
@@ -557,31 +579,12 @@ void fib_algn_post(Simulation* simulation, const mshType& lM, Array<double>& res
       double Jac = 0.0;
 
       if (g == 0 || !lM.lShpF) {
-        auto Nx = lM.Nx.slice(g);
-        nn::gnn(eNoN, nsd, nsd, Nx, xl, Nx, Jac, F);
+        auto Nxi = lM.Nx.slice(g);
+        nn::gnn(eNoN, nsd, nsd, Nxi, xl, Nx, Jac, F);
       }
 
       double w = lM.w(g)*Jac;
-      auto F = mat_fun::mat_id(nsd); 
-
-      for (int a = 0; a < eNoN; a++) {
-        if (nsd == 3) {
-          F(0,0) = F(0,0) + Nx(0,a)*dl(i,a);
-          F(0,1) = F(0,1) + Nx(1,a)*dl(i,a);
-          F(0,2) = F(0,2) + Nx(2,a)*dl(i,a);
-          F(1,0) = F(1,0) + Nx(0,a)*dl(j,a);
-          F(1,1) = F(1,1) + Nx(1,a)*dl(j,a);
-          F(1,2) = F(1,2) + Nx(2,a)*dl(j,a);
-          F(2,0) = F(2,0) + Nx(0,a)*dl(k,a);
-          F(2,1) = F(2,1) + Nx(1,a)*dl(k,a);
-          F(2,2) = F(2,2) + Nx(2,a)*dl(k,a);
-        } else {
-          F(0,0) = F(0,0) + Nx(0,a)*dl(i,a);
-          F(0,1) = F(0,1) + Nx(1,a)*dl(i,a);
-          F(1,0) = F(1,0) + Nx(0,a)*dl(j,a);
-          F(1,1) = F(1,1) + Nx(1,a)*dl(j,a);
-        }
-      }
+      auto F = deformation_gradient(Nx, dl, nsd, eNoN, i);
       for (int iFn = 0; iFn < 2; iFn++) {
         for (int i = 0; i < nsd; i++) {
           auto fN_col = fN.col(iFn);
@@ -613,13 +616,14 @@ void fib_algn_post(Simulation* simulation, const mshType& lM, Array<double>& res
 
 /// @brief Routine for post processing fiber directions.
 //
-void fib_dir_post(Simulation* simulation, const mshType& lM, const int nFn, Array<double>& res, const Array<double>& lD, const int iEq)
+void fib_dir_post(Simulation* simulation, const mshType& lM, const int nFn, Array<double>& res, const SolutionStates& solutions, const int iEq)
 {
   using namespace consts;
 
   auto& com_mod = simulation->com_mod;
   auto& cm = com_mod.cm;
   auto& cm_mod = simulation->cm_mod;
+  const auto& lD = solutions.current.get_displacement();
   auto& eq = com_mod.eq[iEq];
 
   // [NOTE] Setting gobal variable 'dof'.
@@ -678,26 +682,7 @@ void fib_dir_post(Simulation* simulation, const mshType& lM, const int nFn, Arra
 
       double w = lM.w(g) * Jac;
       N = lM.N.col(g);
-      F = mat_fun::mat_id(nsd); 
-
-      for (int a = 0; a < eNoN; a++) {
-        if (nsd == 3) {
-          F(0,0) = F(0,0) + Nx(0,a)*dl(i,a);
-          F(0,1) = F(0,1) + Nx(1,a)*dl(i,a);
-          F(0,2) = F(0,2) + Nx(2,a)*dl(i,a);
-          F(1,0) = F(1,0) + Nx(0,a)*dl(j,a);
-          F(1,1) = F(1,1) + Nx(1,a)*dl(j,a);
-          F(1,2) = F(1,2) + Nx(2,a)*dl(j,a);
-          F(2,0) = F(2,0) + Nx(0,a)*dl(k,a);
-          F(2,1) = F(2,1) + Nx(1,a)*dl(k,a);
-          F(2,2) = F(2,2) + Nx(2,a)*dl(k,a);
-        } else {
-          F(0,0) = F(0,0) + Nx(0,a)*dl(i,a);
-          F(0,1) = F(0,1) + Nx(1,a)*dl(i,a);
-          F(1,0) = F(1,0) + Nx(0,a)*dl(j,a);
-          F(1,1) = F(1,1) + Nx(1,a)*dl(j,a);
-        }
-      }
+      F = deformation_gradient(Nx, dl, nsd, eNoN, i);
 
       for (int iFn = 0; iFn < lM.nFn; iFn++) {
         for (int i = 0; i < nsd; i++) {
@@ -734,44 +719,38 @@ void fib_dir_post(Simulation* simulation, const mshType& lM, const int nFn, Arra
 
 }
 
-/// @brief Compute fiber stretch based on 4th invariant: I_{4,f}
+/// @brief Compute fiber stretch based on 4th invariant: λ = sqrt(I_{4,f})
 //
-void fib_strech(Simulation* simulation, const int iEq, const mshType& lM, const Array<double>& lD, Vector<double>& res)
+void fib_stretch(const ComMod& com_mod, const int iEq, const mshType& lM,
+    const Array<double>& lD, Vector<double>& res)
 {
   using namespace consts;
 
-  auto& com_mod = simulation->com_mod;
-  auto& cm = com_mod.cm;
-  auto& cm_mod = simulation->cm_mod;
   auto& eq = com_mod.eq[iEq];
-
   int nsd = com_mod.nsd;
   int tnNo = com_mod.tnNo;
   int tDof = com_mod.tDof;
-
-  // [NOTE] Setting gobal variable 'dof'.
-  com_mod.dof = eq.dof;
-
   int eNoN = lM.eNoN;
   int i = eq.s;
-  int j = i + 1;
-  int k = j + 1;
 
-  Vector<double> sA(tnNo); 
-  Vector<double> sF(tnNo); 
-  Array<double> xl(nsd,eNoN); 
+  Vector<double> sA(tnNo);
+  Vector<double> sF(tnNo);
+  Array<double> xl(nsd,eNoN);
   Array<double> dl(tDof,eNoN);
-  Array<double> Nx(nsd,eNoN); 
-  Vector<double> N(eNoN);
+  Array<double> Nx(nsd,eNoN);
 
   for (int e = 0; e < lM.nEl; e++) {
-    int cDmn  = all_fun::domain(com_mod, lM, iEq, e);
+    int cDmn = all_fun::domain(com_mod, lM, iEq, e);
     auto cPhys = eq.dmn[cDmn].phys;
+    if (cPhys != EquationType::phys_struct && cPhys != EquationType::phys_ustruct) {
+      continue;
+    }
+
     if (lM.eType == ElementType::NRB) {
       //CALL NRBNNX(lM, e)
     }
 
-    for (int a = 0; a < eNoN; a++) { 
+    for (int a = 0; a < eNoN; a++) {
       int Ac = lM.IEN(a,e);
       xl.set_col(a, com_mod.x.col(Ac));
       dl.set_col(a, lD.col(Ac));
@@ -781,40 +760,25 @@ void fib_strech(Simulation* simulation, const int iEq, const mshType& lM, const 
       double Jac = 0.0;
       Array<double> F(nsd,nsd);
       if (g == 0 || !lM.lShpF) {
-        auto Nx = lM.Nx.slice(g);
-        nn::gnn(eNoN, nsd, nsd, Nx, xl, Nx, Jac, F);
+        auto Nxi = lM.Nx.slice(g);
+        Array<double> dummy_ksix(nsd,nsd);
+        nn::gnn(eNoN, nsd, nsd, Nxi, xl, Nx, Jac, dummy_ksix);
       }
 
+      // Compute Deformation Gradient: F = I + grad(u)
+      F = deformation_gradient(Nx, dl, nsd, eNoN, i);
+
+      // Compute fiber stretch based on 4th invariant: I_{4,f} = F.fN.F.fN
+      auto fl = mat_fun::mat_mul(F, lM.fN.rows(0,nsd-1,e));
+      double lambda = sqrt(utils::norm(fl));
+
+      // L2 projection from integration points to nodes
       double w = lM.w(g)*Jac;
       auto N = lM.N.col(g);
-      F = mat_fun::mat_id(nsd);
-
-      for (int a = 0; a < eNoN; a++) { 
-        if (nsd == 3) {
-          F(0,0) = F(0,0) + Nx(0,a)*dl(i,a);
-          F(0,1) = F(0,1) + Nx(1,a)*dl(i,a);
-          F(0,2) = F(0,2) + Nx(2,a)*dl(i,a);
-          F(1,0) = F(1,0) + Nx(0,a)*dl(j,a);
-          F(1,1) = F(1,1) + Nx(1,a)*dl(j,a);
-          F(1,2) = F(1,2) + Nx(2,a)*dl(j,a);
-          F(2,0) = F(2,0) + Nx(0,a)*dl(k,a);
-          F(2,1) = F(2,1) + Nx(1,a)*dl(k,a);
-          F(2,2) = F(2,2) + Nx(2,a)*dl(k,a);
-        } else {
-          F(0,0) = F(0,0) + Nx(0,a)*dl(i,a);
-          F(0,1) = F(0,1) + Nx(1,a)*dl(i,a);
-          F(1,0) = F(1,0) + Nx(0,a)*dl(j,a);
-          F(1,1) = F(1,1) + Nx(1,a)*dl(j,a);
-        }
-      }
-
-      auto fl = mat_fun::mat_mul(F, lM.fN.rows(0,nsd-1,e));
-      double I4f = utils::norm(fl);
-
-      for (int a = 0; a < eNoN; a++) { 
+      for (int a = 0; a < eNoN; a++) {
         int Ac = lM.IEN(a,e);
         sA(Ac) = sA(Ac) + w*N(a);
-        sF(Ac) = sF(Ac) + w*N(a)*I4f;
+        sF(Ac) = sF(Ac) + w*N(a)*lambda;
       }
     }
   }
@@ -830,16 +794,44 @@ void fib_strech(Simulation* simulation, const int iEq, const mshType& lM, const 
       res(a) = res(a) + sF(Ac) / sA(Ac);
     }
   }
-
 }
 
-void post(Simulation* simulation, const mshType& lM, Array<double>& res, const Array<double>& lY, const Array<double>& lD, 
+/// @brief Compute fiber stretch rate dλ/dt via backward finite difference.
+//
+void fib_stretch_rate(const ComMod& com_mod, const int iEq, const mshType& lM, const SolutionStates& solutions, Vector<double>& res)
+{
+  const double dt = com_mod.dt;
+  int nNo = lM.nNo;
+
+  if (dt <= 0.0) {
+    svmp::raise<svmp::FE::InvalidArgumentException>(
+        SVMP_HERE,
+        "[fib_stretch_rate] Expected com_mod.dt > 0, but got " + std::to_string(dt) + ".");
+  }
+
+  if (res.size() != nNo) {
+    svmp::raise<svmp::FE::InvalidArgumentException>(
+        SVMP_HERE,
+        "[fib_stretch_rate] Expected res size " + std::to_string(nNo) + ", but got " + std::to_string(res.size()) + ".");
+  }
+
+  Vector<double> lambda_old(nNo);
+
+  fib_stretch(com_mod, iEq, lM, solutions.current.get_displacement(), res);
+  fib_stretch(com_mod, iEq, lM, solutions.old.get_displacement(), lambda_old);
+
+  res = (res - lambda_old) / dt; 
+}
+
+void post(Simulation* simulation, const mshType& lM, Array<double>& res, const SolutionStates& solutions,
     consts::OutputNameType outGrp, const int iEq)
 {
   using namespace consts;
   auto& com_mod = simulation->com_mod;
   auto& cm = com_mod.cm;
   auto& cm_mod = simulation->cm_mod;
+  const auto& lY = solutions.current.get_velocity();
+  const auto& lD = solutions.current.get_displacement();
 
   #define n_debug_post
   #ifdef debug_post
@@ -1164,12 +1156,23 @@ void ppbin2vtk(Simulation* simulation)
         continue;
       }
 
+      // Create local SolutionStates for loading bin file
+      const int tDof = com_mod.tDof;
+      const int tnNo = com_mod.tnNo;
+      SolutionStates temp_solutions;
+      temp_solutions.old.get_acceleration().resize(tDof, tnNo);
+      temp_solutions.old.get_velocity().resize(tDof, tnNo);
+      temp_solutions.old.get_displacement().resize(tDof, tnNo);
+
       std::array<double,3> rtmp;
-      init_from_bin(simulation, fName, rtmp);
+      init_from_bin(simulation, fName, rtmp, temp_solutions);
+
+      // Copy old solution to current for write_vtus (which reads current time level)
+      temp_solutions.current = temp_solutions.old;
 
       bool lAve = false;
 
-      vtk_xml::write_vtus(simulation, com_mod.Ao, com_mod.Yo, com_mod.Do, lAve);
+      vtk_xml::write_vtus(simulation, temp_solutions, lAve);
     }
   }
 
@@ -1186,7 +1189,7 @@ void ppbin2vtk(Simulation* simulation)
 // Reproduces Fortran SHLPOST.
 //
 void shl_post(Simulation* simulation, const mshType& lM, const int m, Array<double>& res, 
-    Vector<double>& resE, const Array<double>& lD, const int iEq, consts::OutputNameType outGrp)
+    Vector<double>& resE, const SolutionStates& solutions, const int iEq, consts::OutputNameType outGrp)
 {
   using namespace consts;
   using namespace mat_fun;
@@ -1200,6 +1203,7 @@ void shl_post(Simulation* simulation, const mshType& lM, const int m, Array<doub
 
   auto& com_mod = simulation->com_mod;
   auto& cm = com_mod.cm;
+  const auto& lD = solutions.current.get_displacement();
   auto& cm_mod = simulation->cm_mod;
   auto& eq = com_mod.eq[iEq];
 
@@ -1618,8 +1622,8 @@ void shl_post(Simulation* simulation, const mshType& lM, const int m, Array<doub
 //-------
 // Routine for post processing stress tensor
 //
-void tpost(Simulation* simulation, const mshType& lM, const int m, Array<double>& res, Vector<double>& resE, const Array<double>& lD, 
-    const Array<double>& lY, const int iEq, consts::OutputNameType outGrp)
+void tpost(Simulation* simulation, const mshType& lM, const int m, Array<double>& res, Vector<double>& resE,
+    const SolutionStates& solutions, const int iEq, consts::OutputNameType outGrp)
 {
   using namespace consts;
   using namespace mat_fun;
@@ -1628,6 +1632,8 @@ void tpost(Simulation* simulation, const mshType& lM, const int m, Array<double>
   auto& cep_mod = simulation->cep_mod; 
   auto& cm = com_mod.cm;
   auto& cm_mod = simulation->cm_mod;
+  const auto& lY = solutions.current.get_velocity();
+  const auto& lD = solutions.current.get_displacement();
   auto& eq = com_mod.eq[iEq];
 
   #define n_debug_tpost
@@ -1780,26 +1786,7 @@ void tpost(Simulation* simulation, const mshType& lM, const int m, Array<double>
       Je = Je + w;
 
       auto Im = mat_fun::mat_id(nsd); 
-      auto F = Im;
-
-      for (int a = 0; a < fs.eNoN; a++) {
-        if (nsd == 3) {
-          F(0,0) = F(0,0) + Nx(0,a)*dl(i,a);
-          F(0,1) = F(0,1) + Nx(1,a)*dl(i,a);
-          F(0,2) = F(0,2) + Nx(2,a)*dl(i,a);
-          F(1,0) = F(1,0) + Nx(0,a)*dl(j,a);
-          F(1,1) = F(1,1) + Nx(1,a)*dl(j,a);
-          F(1,2) = F(1,2) + Nx(2,a)*dl(j,a);
-          F(2,0) = F(2,0) + Nx(0,a)*dl(k,a);
-          F(2,1) = F(2,1) + Nx(1,a)*dl(k,a);
-          F(2,2) = F(2,2) + Nx(2,a)*dl(k,a);
-        } else {
-          F(0,0) = F(0,0) + Nx(0,a)*dl(i,a);
-          F(0,1) = F(0,1) + Nx(1,a)*dl(i,a);
-          F(1,0) = F(1,0) + Nx(0,a)*dl(j,a);
-          F(1,1) = F(1,1) + Nx(1,a)*dl(j,a);
-        }
-      }
+      auto F = deformation_gradient(Nx, dl, nsd, fs.eNoN, i);
 
       double detF = mat_fun::mat_det(F, nsd);
 

@@ -12,11 +12,13 @@
 
 #include "Array.h"
 #include "Array3.h"
+#include "SolutionStates.h"
 #include "CepMod.h"
 #include "ChnlMod.h"
 #include "CmMod.h"
 #include "Parameters.h"
 #include "RobinBoundaryCondition.h"
+#include "CoupledBoundaryCondition.h"
 #include "Timer.h"
 #include "Vector.h"
 
@@ -34,6 +36,7 @@
 #include <iostream>
 #include <memory>
 #include <string>
+#include <utility>
 #include <vector>
 #include <fstream>
 #include <sstream>
@@ -198,6 +201,9 @@ class bcType
 
     // Robin BC class
     RobinBoundaryCondition robin_bc;
+
+    // Coupled BC class
+    CoupledBoundaryCondition coupled_bc;
 };
 
 /// @brief Class storing data for B-Splines.
@@ -785,10 +791,6 @@ class svZeroDSolverInterfaceType
     // The path/name of the 0D solver shared library.
     std::string solver_library;
 
-    // Maps a 0D block name with a 3D face name representing the 
-    // coupling of a 0D block with a 3D face.
-    std::map<std::string,std::string> block_surface_map;
-
     // The path/name of the 0D solver JSON file.
     std::string configuration_file;
 
@@ -808,7 +810,6 @@ class svZeroDSolverInterfaceType
     bool has_data = false;
 
     void set_data(const svZeroDSolverInterfaceParameters& params);
-    void add_block_face(const std::string& block_name, const std::string& face_name);
 };
 
 /// @brief For coupled 0D-3D problems
@@ -831,6 +832,12 @@ class cplBCType
 
     /// @brief Number of coupled faces
     int nFa = 0;
+
+    /// @brief Number of \c Time_dependence Coupled BCs for svZeroD (set in \c init_svZeroD).
+    int nSvZeroD_coupled_bc = 0;
+
+    /// @brief (\c iEq, \c iBc) for each svZeroD coupled BC in deterministic traversal order.
+    std::vector<std::pair<int, int>> svZeroD_coupled_bc_idxs;
 
     /// @brief Number of unknowns in the 0D domain
     int nX = 0;
@@ -1464,41 +1471,53 @@ class urisType
     // Number of IB meshes.
     int nFa = 0;
 
-    // Position coordinates (2D array: rows x columns).
+    // Valve surface position coordinates.
     Array<double> x;
 
-    // Displacement (new) (2D array).
+    // Valve displacement.
     Array<double> Yd;
 
     // Default signed distance value away from the valve.
-    double sdf_default = 1000.0;
+    double sdf_default;
 
-    // Default distance value of the valve boundary (valve thickness).
-    double sdf_deps = 0.25;
+    // Half-valve thickness when the valve is open.
+    double sdf_deps;
 
-    // Default distance value of the valve boundary when the valve is closed.
-    double sdf_deps_close = 0.25;
+    // Half-thickness used when the valve is closed. Set larger than sdf_deps 
+    // if the fully closed position alone is not able to prevent backflow.
+    double sdf_deps_close;
 
-    // Displacements of the valve when it opens (3D array).
+    // Resistance value of the valve.
+    double resistance;
+
+    // Whether to invert the valve surface normal vector. Default is false.
+    // 
+    // Valve normal vectors are assumed to point downstream, so that the
+    // downstream region has positive signed distance and the upstream region
+    // has negative signed distance. If the input surface does not satisfy
+    // this assumption, this flag should be set to true to flip the normals.
+    bool invert_normal;
+
+    // Opening positions of the valve surfaces.
     Array3<double> DxOpen;
 
-    // Displacements of the valve when it closes (3D array).
+    // Closing positions of the valve surfaces.
     Array3<double> DxClose;
 
-    // Normal vector pointing in the positive flow direction (1D array).
+    // Normal vector pointing in the positive flow direction.
     Vector<double> nrm;
 
     // Close flag.
-    bool clsFlg = true;
+    bool clsFlg;
 
     // Iteration count.
     int cnt = 1000000;
 
-    // URIS: signed distance function of each node to the uris (1D array).
+    // Signed distance function indexed by fluid/background mesh node.
     Vector<double> sdf;
 
     // Mesh scale factor.
-    double scF = 1.0;
+    double scF;
 
     // Mean pressure upstream.
     double meanPU = 0.0;
@@ -1509,11 +1528,16 @@ class urisType
     // Relaxation factor to compute weighted averages of pressure values.
     double relax_factor = 0.5;
 
-    // Array to store the fluid mesh elements that the uris node is in (2D array).
+    // elemId(0, nd) = mesh index jM, elemId(1, nd) = element index iEln
+    // for the fluid element containing immersed surface node nd.
+    // Set to -1 if no containing element was found on this rank.
     Array<int> elemId;
 
-    // Array to count how many times a uris node is found in the fluid mesh of a processor (1D array).
-    Vector<int> elemCounter;
+    // Per-node ownership flag set by uris_find_tetra. A value of 1 means this
+    // rank own that node and is used for interpolating its displacement. 
+    // A value of 0 means another rank owns it and this rank skips it to avoid 
+    //double-counting in the MPI_SUM gather.
+    Vector<int> localNode;
 
     // Derived type variables
     // IB meshes
@@ -1606,11 +1630,9 @@ class ComMod {
     /// @brief Number of URIS surfaces (uninitialized, to be set later)
     int nUris;
 
-    /// @brief URIS resistance
-    double urisRes;
-
-    /// @brief URIS resistance when the valve is closed
-    double urisResClose;
+    /// @brief Fluid-related node mask for URIS SDF. Built once when
+    /// consistent with tnNo; rebuilt automatically if tnNo changes.
+    std::vector<bool> urisFluidNodeMask;
 
     /// @brief Whether to use precomputed state-variable solutions
     bool usePrecomp = false;
@@ -1757,18 +1779,6 @@ class ComMod {
     /// @brief RIS mapping array, with global (total) enumeration
      std::vector<Array2D> grisMapList;
 
-    /// @brief Old time derivative of variables (acceleration); known result at current time step
-    Array<double>  Ao;
-
-    /// @brief New time derivative of variables (acceleration); unknown result at next time step
-    Array<double>  An;
-
-    /// @brief Old integrated variables (displacement)
-    Array<double>  Do;
-
-    /// @brief New integrated variables (displacement)
-    Array<double>  Dn;
-
     /// @brief Residual vector
     Array<double>  R;
 
@@ -1777,12 +1787,6 @@ class ComMod {
 
     /// @brief Position vector of mesh nodes (in ref config)
     Array<double>  x;
-
-    /// @brief Old variables (velocity); known result at current time step
-    Array<double>  Yo;
-
-    /// @brief New variables (velocity); unknown result at next time step
-    Array<double>  Yn;
 
     /// @brief Body force
     Array<double>  Bf;

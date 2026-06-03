@@ -103,6 +103,7 @@ enum class BoundaryConditionType
   bType_undefNeu = 21, // undeforming Neu
   bType_RCR = 22,      // RCR-Neu
   bType_Ris0D = 23,    // RIS 0D
+  bType_Coupled = 24,    // Coupled to 0D
 };
 
 // Define constants using smaller name and integer value (needed for bitwise operations).
@@ -136,6 +137,9 @@ constexpr auto iBC_impD = static_cast<int>(BoundaryConditionType::bType_impD);
 
 constexpr auto BC_Neu = BoundaryConditionType::bType_Neu;
 constexpr auto iBC_Neu = static_cast<int>(BoundaryConditionType::bType_Neu);
+
+constexpr auto BC_Coupled = BoundaryConditionType::bType_Coupled;
+constexpr auto iBC_Coupled = static_cast<int>(BoundaryConditionType::bType_Coupled);
 
 constexpr auto BC_para = BoundaryConditionType::bType_para;
 constexpr auto iBC_para = static_cast<int>(BoundaryConditionType::bType_para);
@@ -222,6 +226,7 @@ enum class CplBCType
   cplBC_I = 401,       // implicit
   cplBC_Neu = 66113,   // Neumann type coupling
   cplBC_SI = 402,      // semi-implicit
+  cplBC_Coupled = 66114,   // Coupled
 };
 
 /// @brief Map for cplBC type to CplBCType. 
@@ -337,8 +342,11 @@ enum class OutputNameType
   outGrp_divV = 521, 
   outGrp_Visc = 522,
   outGrp_fS = 523,
-  outGrp_C = 524, 
+  outGrp_C = 524,
   outGrp_I1 = 525,
+  outGrp_ionicState = 526,
+  outGrp_fibStretch = 527,
+  outGrp_fibStretchRate = 528,
 
   out_velocity = 599,
   out_pressure = 598, 
@@ -367,7 +375,9 @@ enum class OutputNameType
   out_viscosity = 575,
   out_fibStrn = 574,
   out_CGstrain = 573,
-  out_CGInv1 = 572
+  out_CGInv1 = 572,
+  out_fibStretch = 571,
+  out_fibStretchRate = 570
 };
 
 /// @brief Simulation output file types. 
@@ -491,4 +501,3 @@ enum class LinearAlgebraType {
 };
 
 #endif
-

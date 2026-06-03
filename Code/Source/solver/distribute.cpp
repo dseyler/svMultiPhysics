@@ -5,8 +5,8 @@
 
 #include "distribute.h"
 
-#include "all_fun.h"
 #include "ComMod.h"
+#include "all_fun.h"
 #include "consts.h"
 #include "nn.h"
 #include "utils.h"
@@ -17,6 +17,8 @@
 
 #include <iostream>
 #include <math.h>
+
+#include "ionic_model.h"
 
 extern "C" {
 
@@ -343,8 +345,6 @@ void distribute(Simulation* simulation)
     cm.bcast(cm_mod, &com_mod.ris0DFlag);
     cm.bcast(cm_mod, &com_mod.urisFlag);
     cm.bcast(cm_mod, &com_mod.urisActFlag);
-    cm.bcast(cm_mod, &com_mod.urisRes);
-    cm.bcast(cm_mod, &com_mod.urisResClose);
     cm.bcast(cm_mod, &com_mod.usePrecomp);
     if (com_mod.rmsh.isReqd) {
       auto& rmsh = com_mod.rmsh;
@@ -563,7 +563,8 @@ void distribute(Simulation* simulation)
       cplBC.xo.resize(cplBC.nX);
     }
 
-  } else { 
+  } else {
+    // RCR (Windkessel): nX/xo sized in read_files from nFa; not genBC/svZeroD.
     cm.bcast(cm_mod, &cplBC.nX);
     if (cplBC.xo.size() == 0) {
        cplBC.xo.resize(cplBC.nX);
@@ -780,6 +781,12 @@ void dist_bc(ComMod& com_mod, const CmMod& cm_mod, const cmType& cm, bcType& lBc
 
   if (has_robin_bc) {
     lBc.robin_bc.distribute(com_mod, cm_mod, cm, com_mod.msh[lBc.iM].fa[lBc.iFa]);
+  }
+
+  // Communicating Coupled BC
+  //
+  if (utils::btest(lBc.bType, static_cast<int>(BoundaryConditionType::bType_Coupled))) {
+    lBc.coupled_bc.distribute(com_mod, cm_mod, cm, com_mod.msh[lBc.iM].fa[lBc.iFa]);
   }
 
 
@@ -1169,7 +1176,9 @@ void dist_uris(ComMod& com_mod, const CmMod& cm_mod, const cmType& cm) {
     cm.bcast(cm_mod, &uris[iUris].sdf_default);
     cm.bcast(cm_mod, &uris[iUris].sdf_deps);
     cm.bcast(cm_mod, &uris[iUris].sdf_deps_close);
+    cm.bcast(cm_mod, &uris[iUris].resistance);
     cm.bcast(cm_mod, &uris[iUris].clsFlg);
+    cm.bcast(cm_mod, &uris[iUris].invert_normal);
     cm.bcast(cm_mod, &uris[iUris].cnt);
     cm.bcast(cm_mod, &uris[iUris].scF);
     cm.bcast(cm_mod, uris[iUris].nrm);
@@ -1533,6 +1542,13 @@ void dist_eq(ComMod& com_mod, const CmMod& cm_mod, const cmType& cm, const std::
     if (dmn.phys == EquationType::phys_CEP) {
       auto& cep = dmn.cep;
       cm.bcast_enum(cm_mod, &cep.cepType);
+
+      // All ranks but the master need to allocate the ionic model instance.
+      if (!cm.mas(cm_mod)) {
+        cep.ionic_model = IonicModelFactory::create_model(
+            cep_model_type_to_name.at(cep.cepType));
+      }
+
       cm.bcast(cm_mod, &cep.nX);
       cm.bcast(cm_mod, &cep.nG);
       cm.bcast(cm_mod, &cep.nFn);
@@ -1552,21 +1568,13 @@ void dist_eq(ComMod& com_mod, const CmMod& cm_mod, const cmType& cm, const std::
       cm.bcast(cm_mod, &cep.Istim.A);
       cm.bcast_enum(cm_mod, &cep.odes.tIntType);
 
-      if (cep.odes.tIntType == TimeIntegratioType::CN2) {
+      if (cep.odes.tIntType == TimeIntegrationType::CN2) {
         cm.bcast(cm_mod, &cep.odes.maxItr);
         cm.bcast(cm_mod, &cep.odes.absTol);
         cm.bcast(cm_mod, &cep.odes.relTol);
       }
 
-      // Broadcast domain-specific model parameters
-      cm.bcast(cm_mod, &cep.ttp.G_Na);
-      cm.bcast(cm_mod, &cep.ttp.G_CaL);
-      cm.bcast(cm_mod, &cep.ttp.G_Kr);
-      cm.bcast(cm_mod, cep.ttp.G_Ks);
-      cm.bcast(cm_mod, cep.ttp.G_to);
-
-      cm.bcast(cm_mod, cep.bo.tau_si);
-      cm.bcast(cm_mod, cep.bo.tau_fi);
+      cep.ionic_model->distribute_parameters(cm_mod, cm);
     } 
 
     if ((dmn.phys == EquationType::phys_struct) || (dmn.phys == EquationType::phys_ustruct)) {
