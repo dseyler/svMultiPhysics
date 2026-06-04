@@ -26,7 +26,8 @@ void load_fiber_direction_vtu(const std::string& file_name, const std::string& d
 struct ActiveStressDistInfo {
   bool has_eta = false;     // all three of eta_f/eta_s/eta_n present
   bool has_delay = false;   // delay present
-  bool any() const { return has_eta || has_delay; }
+  bool has_scale = false;   // scale (magnitude) present
+  bool any() const { return has_eta || has_delay || has_scale; }
 };
 
 ActiveStressDistInfo load_active_stress_directional_distribution_vtu(const std::string& file_name,

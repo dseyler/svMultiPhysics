@@ -16,9 +16,10 @@ enum AsParamRow : int {
   AS_IDX_ETA_S = 1,
   AS_IDX_ETA_N = 2,
   AS_IDX_DELAY = 3,
+  AS_IDX_SCALE = 4,
 };
 
-static constexpr int N_ACTIVE_STRESS_PARAMS = 4;
+static constexpr int N_ACTIVE_STRESS_PARAMS = 5;
 
 struct ElementActiveStressParams
 {
@@ -26,8 +27,7 @@ struct ElementActiveStressParams
   double eta_s = 0.0;
   double eta_n = 0.0;
   double delay = 0.0;
-
-  // double scale = 1.0;   // future: spatially-varying active-stress magnitude
+  double scale = 1.0;   // per-element active-stress magnitude multiplier
 };
 
 /// @brief Resolve the per-element active-stress parameters for a single element.
@@ -46,6 +46,7 @@ inline ElementActiveStressParams resolve_active_stress_params(
     p.eta_s = (*params)(AS_IDX_ETA_S, elem_id);
     p.eta_n = (*params)(AS_IDX_ETA_N, elem_id);
     p.delay = (*params)(AS_IDX_DELAY, elem_id);
+    p.scale = (*params)(AS_IDX_SCALE, elem_id);
   }
 
   return p;

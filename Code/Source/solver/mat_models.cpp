@@ -378,9 +378,12 @@ void compute_pk2cc(const ComMod& com_mod, const CepMod& cep_mod, const dmnType& 
   auto ep = active_stress::resolve_active_stress_params(as_params, elem_id, defaults);
 
   // Fiber-reinforced stress - compute total active stress at this element's
-  // (delayed) activation time, then distribute among fiber directions.
+  // (delayed) activation time, apply the per-element magnitude, then distribute
+  // among fiber directions. scale multiplies the steady or unsteady Ta (and the
+  // zeroed pre-activation value stays 0).
   double Ta = 0.0;
   compute_fib_stress(com_mod, cep_mod, stM.Tf, Ta, ep.delay);
+  Ta *= ep.scale;
 
   double Tfa = ep.eta_f * Ta;  // Fiber direction
   double Tsa = ep.eta_s * Ta;  // Sheet direction

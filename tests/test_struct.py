@@ -76,6 +76,15 @@ def test_directionally_distributed_active_stress_delay(n_proc):
     test_folder = "directionally_distributed_active_stress_delay"
     run_with_reference(base_folder, test_folder, fields, n_proc, t_max=5)
 
+def test_directionally_distributed_active_stress_scale(n_proc):
+    # Uniform eta, spatially-heterogeneous per-element magnitude 'scale' read from
+    # a VTU: elements below the z-midplane have scale=0.5, those above scale=2.0,
+    # giving an asymmetric deformation. A wrong per-element scale mapping under MPI
+    # moves the strong region onto the wrong cells and diverges from the serial
+    # reference. Runs 5 steps at 1/3/4 procs.
+    test_folder = "directionally_distributed_active_stress_scale"
+    run_with_reference(base_folder, test_folder, fields, n_proc, t_max=5)
+
 def test_robin(n_proc):
     test_folder = "robin"
     run_with_reference(base_folder, test_folder, fields, n_proc)
