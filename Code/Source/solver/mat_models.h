@@ -24,8 +24,8 @@ void cc_to_voigt(const int nsd, const Tensor4<double>& CC, Array<double>& Dm);
 
 void voigt_to_cc(const int nsd, const Array<double>& Dm, Tensor4<double>& CC);
 
-void compute_fib_stress(const ComMod& com_mod, const CepMod& cep_mod, const fibStrsType& Tfl, double& g,
-    double delay=0.0);
+void compute_fib_stress(const ComMod& com_mod, const CepMod& cep_mod, const fibStrsType& Tfl,
+    const Array<double>* as_params, const int elem_id, double& Tfa, double& Tsa, double& Tna);
 
 void compute_pk2cc(const ComMod& com_mod, const CepMod& cep_mod, const dmnType& lDmn, const Array<double>& F, const int nfd,
     const Array<double>& fl, const double ya, Array<double>& S, Array<double>& Dm, double& Ja, const int elem_id=-1,
