@@ -237,7 +237,7 @@ active_stress::DirectionalActiveStress compute_fib_stress(const ComMod& com_mod,
     double eff_time = com_mod.time - elem_params.delay;
     if (eff_time >= Tfl.gt.ti) {
       Vector<double> gv(1), tv(1);
-      ifft(com_mod, Tfl.gt, gv, tv, eff_time);
+      ifft(com_mod, Tfl.gt, gv, tv, elem_params.delay);
       Ta = gv[0];
     }
   }

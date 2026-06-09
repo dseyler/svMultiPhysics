@@ -5,8 +5,6 @@
 
 #include "fft.h"
 #include <math.h>
-#include <cmath>
-#include <limits>
 
 /// @brief Replicates Fortran 'SUBROUTINE FFT(fid, np, gt)'.
 ///
@@ -98,7 +96,7 @@ void fft(const int np, const std::vector<std::vector<double>>& temporal_values, 
 /// @brief This is to calculate flow rate and flow acceleration (IFFT)
 //
 void ifft(const ComMod& com_mod, const fcType& gt, Vector<double>& Y, Vector<double>& dY,
-    double time_override)
+    double delay)
 {
   using namespace consts;
   #define n_debug_ifft
@@ -107,9 +105,9 @@ void ifft(const ComMod& com_mod, const fcType& gt, Vector<double>& Y, Vector<dou
   dmsg.banner();
   #endif
 
-  // A finite time_override (default NaN) evaluates the curve at that time instead
-  // of com_mod.time (used for per-element active-stress delay).
-  double time = std::isnan(time_override) ? com_mod.time : time_override;
+  // Evaluate the curve at com_mod.time shifted back by `delay` (default 0 -> the
+  // current time). Used for per-element active-stress activation delay.
+  double time = com_mod.time - delay;
   #ifdef debug_ifft
   dmsg << "time: " << time;
   dmsg << "gt.lrmp: " << gt.lrmp;
