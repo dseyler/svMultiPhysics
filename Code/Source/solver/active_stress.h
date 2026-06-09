@@ -46,28 +46,6 @@ struct DirectionalActiveStress
   double Tna = 0.0;   // sheet-normal direction
 };
 
-/// @brief Resolve the per-element active-stress parameters for a single element.
-///
-/// When a per-element distribution is available (params != nullptr and elem_id
-/// is in range) every field is read from the local (N_ACTIVE_STRESS_PARAMS x nElem)
-/// column elem_id. Otherwise `defaults` (the uniform domain values) are returned.
-/// No heap allocation or virtual dispatch: safe to call in the Gauss-point loop.
-inline ElementActiveStressParams resolve_active_stress_params(
-    const Array<double>* params, const int elem_id, const ElementActiveStressParams& defaults)
-{
-  ElementActiveStressParams p = defaults;
-
-  if (params != nullptr && params->size() != 0 && elem_id >= 0 && elem_id < params->ncols()) {
-    p.eta_f = (*params)(AS_IDX_ETA_F, elem_id);
-    p.eta_s = (*params)(AS_IDX_ETA_S, elem_id);
-    p.eta_n = (*params)(AS_IDX_ETA_N, elem_id);
-    p.delay = (*params)(AS_IDX_DELAY, elem_id);
-    p.scale = (*params)(AS_IDX_SCALE, elem_id);
-  }
-
-  return p;
-}
-
 /// @brief Encapsulates the spatial active-stress directional distribution:
 /// the uniform fallback (eta_f/s/n, delay, scale), the optional per-element
 /// distribution read from a VTU, and the read/validation/resolution logic.
@@ -93,32 +71,40 @@ class ActiveStressField
       uniform_.eta_n = eta_n;
     }
 
-    /// @brief Load the per-element distribution from a VTU: fill unsupplied eta
-    /// rows from the uniform eta and validate eta (sum/non-negative) and delay
-    /// (non-negative). Sets the spatially-variable flag.
+    /// @brief Load the per-element distribution from a VTU and fill unsupplied eta
+    /// rows from the uniform eta. Records which groups were supplied and sets the
+    /// spatially-variable flag. All validation is deferred to validate().
     void read_from_vtu(const std::string& file_path);
 
-    /// @brief Setup-time validation that needs the constitutive model and the
-    /// steady/unsteady flag: a per-element delay requires an unsteady curve, and
-    /// eta_s/eta_n are only supported by Guccione/HO/HO-ma. Uses the uniform and
-    /// (if present) per-element fractions.
+    /// @brief Setup-time validation (all of it): supplied per-element eta sum to 1
+    /// and are non-negative; supplied delay is non-negative and requires an unsteady
+    /// curve; and eta_s/eta_n are only supported by Guccione/HO/HO-ma. Uses the
+    /// uniform and (if present) per-element fractions.
     void validate(consts::ConstitutiveModelType isoType, bool is_unsteady) const;
 
     // --- distribution support (used by the bridge in distribute.cpp) ---
     bool spatially_variable() const { return spatially_variable_; }
     Array<double>& data() { return data_; }
-    const Array<double>& data() const { return data_; }
     void clear_data() { data_.clear(); spatially_variable_ = false; }
-    const ElementActiveStressParams& uniform() const { return uniform_; }
     ElementActiveStressParams& uniform() { return uniform_; }
 
     // --- hot path (per Gauss point) ---
-    /// @brief Resolve the per-element params against the caller-supplied LOCAL
-    /// array (the mesh's scattered slice), falling back to the uniform defaults.
-    /// Allocation-free, non-virtual.
+    /// @brief Resolve the per-element params for one element against the caller-
+    /// supplied LOCAL array (the mesh's scattered slice): read its column if present
+    /// and in range, else fall back to the uniform defaults. Allocation-free,
+    /// non-virtual.
     ElementActiveStressParams params(const Array<double>* local_array, int elem_id) const
     {
-      return resolve_active_stress_params(local_array, elem_id, uniform_);
+      ElementActiveStressParams p = uniform_;
+      if (local_array != nullptr && local_array->size() != 0 &&
+          elem_id >= 0 && elem_id < local_array->ncols()) {
+        p.eta_f = (*local_array)(AS_IDX_ETA_F, elem_id);
+        p.eta_s = (*local_array)(AS_IDX_ETA_S, elem_id);
+        p.eta_n = (*local_array)(AS_IDX_ETA_N, elem_id);
+        p.delay = (*local_array)(AS_IDX_DELAY, elem_id);
+        p.scale = (*local_array)(AS_IDX_SCALE, elem_id);
+      }
+      return p;
     }
 
   private:

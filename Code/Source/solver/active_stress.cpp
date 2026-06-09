@@ -15,6 +15,7 @@ namespace active_stress {
 // Load per-element active-stress parameters (directional fractions and/or
 // activation delay/magnitude) from a VTU file. eta, delay and scale are
 // independently optional; unsupplied eta rows are filled with the uniform values.
+// All validation is deferred to validate().
 //
 void ActiveStressField::read_from_vtu(const std::string& file_path)
 {
@@ -27,20 +28,31 @@ void ActiveStressField::read_from_vtu(const std::string& file_path)
     return;
   }
 
-  const int ncols = data_.ncols();
-
-  // Fill the eta rows: VTU values when supplied, else the uniform eta in every
-  // column. (The delay and scale rows are always written by the loader.)
+  // Fill the eta rows with the uniform eta when the VTU didn't supply them. (The
+  // delay and scale rows are always written by the loader.)
   if (!vtu_has_eta_) {
-    for (int e = 0; e < ncols; e++) {
+    for (int e = 0; e < data_.ncols(); e++) {
       data_(AS_IDX_ETA_F, e) = uniform_.eta_f;
       data_(AS_IDX_ETA_S, e) = uniform_.eta_s;
       data_(AS_IDX_ETA_N, e) = uniform_.eta_n;
     }
   }
+}
 
-  // Validate eta only when supplied by the VTU (uniform defaults are validated
-  // at parse time): non-negative and summing to 1 per element.
+//------------
+// validate
+//------------
+// All setup-time validation for the active-stress distribution: supplied
+// per-element eta sum to 1 and are non-negative; supplied delay is non-negative
+// and requires an unsteady curve; and eta_s/eta_n are only supported by
+// Guccione/HO/HO-ma. (Uniform eta is validated at parse time.)
+//
+void ActiveStressField::validate(consts::ConstitutiveModelType isoType, bool is_unsteady) const
+{
+  const int ncols = data_.ncols();
+
+  // Per-element eta supplied by the VTU: non-negative and summing to 1 (eta filled
+  // from the already-validated uniform values needs no re-check).
   if (vtu_has_eta_) {
     const double tol = 1.0e-10;
     for (int e = 0; e < ncols; e++) {
@@ -61,7 +73,8 @@ void ActiveStressField::read_from_vtu(const std::string& file_path)
     }
   }
 
-  // Validate delay only when supplied: non-negative.
+  // Per-element delay supplied by the VTU: non-negative, and only meaningful for a
+  // temporal (unsteady) stress curve.
   if (vtu_has_delay_) {
     for (int e = 0; e < ncols; e++) {
       double delay = data_(AS_IDX_DELAY, e);
@@ -70,23 +83,12 @@ void ActiveStressField::read_from_vtu(const std::string& file_path)
             " at element index " + std::to_string(e+1) + ".");
       }
     }
-  }
-}
 
-//------------
-// validate
-//------------
-// Setup-time checks that need the constitutive model and the steady/unsteady
-// flag: a per-element delay only applies to an unsteady curve, and eta_s/eta_n
-// are only supported by Guccione/HO/HO-ma.
-//
-void ActiveStressField::validate(consts::ConstitutiveModelType isoType, bool is_unsteady) const
-{
-  // A per-element delay requires a temporal (unsteady) stress curve.
-  if (vtu_has_delay_ && !is_unsteady) {
-    throw std::runtime_error("A per-element active-stress 'delay' field was provided, but the fiber "
-        "reinforcement stress is not Unsteady. Delay requires a temporal stress curve "
-        "(Fiber_reinforcement_stress type=\"Unsteady\").");
+    if (!is_unsteady) {
+      throw std::runtime_error("A per-element active-stress 'delay' field was provided, but the fiber "
+          "reinforcement stress is not Unsteady. Delay requires a temporal stress curve "
+          "(Fiber_reinforcement_stress type=\"Unsteady\").");
+    }
   }
 
   // Sheet / sheet-normal active stress is only supported by Guccione, HO, HO-ma.
