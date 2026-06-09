@@ -12,6 +12,7 @@
 
 #include "Array.h"
 #include "Array3.h"
+#include "active_stress.h"
 #include "SolutionStates.h"
 #include "CepMod.h"
 #include "ChnlMod.h"
@@ -323,25 +324,14 @@ class fibStrsType
     // Constant steady value
     double g = 0.0;
 
-    // Directional stress distribution parameters
-    // Fraction of active stress in fiber direction (default: 1.0)
-    double eta_f = 1.0;
-    
-    // Fraction of active stress in sheet direction (default: 0.0)
-    double eta_s = 0.0;
-    
-    // Fraction of active stress in sheet-normal direction (default: 0.0)
-    double eta_n = 0.0;
-
     // Unsteady time-dependent values
     fcType gt;
 
-    // Optional per-element active-stress params, read from a VTU before
-    // partitioning (original global element order). Shape
-    // (active_stress::N_ACTIVE_STRESS_PARAMS x nElem); see active_stress.h
-    // (AS_IDX_*) for the row layout: eta_f, eta_s, eta_n, delay, scale.
-    bool has_elemental_distribution = false;
-    Array<double> elemental_distribution;
+    // Spatial active-stress directional distribution: owns the uniform
+    // directional fractions (eta_f/s/n), the optional per-element parameters
+    // (eta/delay/scale) read from a VTU, and the read/validation/resolution
+    // logic. See active_stress.h.
+    active_stress::ActiveStressField as_field;
 };
 
 /// @brief Structural domain type

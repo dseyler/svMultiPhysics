@@ -695,14 +695,17 @@ void load_fiber_direction_vtu(const std::string& file_name, const std::string& d
 /// - elemental_distribution shape = (N_ACTIVE_STRESS_PARAMS, nElem), indexed by
 ///   (global element id - 1). Supplied rows are filled from the VTU; the delay and
 ///   scale rows are always written (0.0 / 1.0 defaults where the array is absent);
-///   unsupplied eta rows are left at a sentinel of -1.0 for the caller (read_files)
-///   to fill with the uniform domain eta.
-/// Returns:
-/// - which groups (eta, delay, scale) were supplied (see ActiveStressDistInfo).
-ActiveStressDistInfo load_active_stress_directional_distribution_vtu(const std::string& file_name,
-    Array<double>& elemental_distribution)
+///   unsupplied eta rows are left at a sentinel of -1.0 for the caller
+///   (ActiveStressField::read_from_vtu) to fill with the uniform eta.
+/// - has_eta/has_delay/has_scale report which groups were supplied.
+void load_active_stress_directional_distribution_vtu(const std::string& file_name,
+    Array<double>& elemental_distribution, bool& has_eta, bool& has_delay, bool& has_scale)
 {
   using namespace active_stress;
+
+  has_eta = false;
+  has_delay = false;
+  has_scale = false;
 
   if (FILE *file = fopen(file_name.c_str(), "r")) {
       fclose(file);
@@ -731,9 +734,9 @@ ActiveStressDistInfo load_active_stress_directional_distribution_vtu(const std::
   bool has_eta_s = (eta_s_arr != nullptr);
   bool has_eta_n = (eta_n_arr != nullptr);
   bool any_eta = has_eta_f || has_eta_s || has_eta_n;
-  bool has_eta = has_eta_f && has_eta_s && has_eta_n;
-  bool has_delay = (delay_arr != nullptr);
-  bool has_scale = (scale_arr != nullptr);
+  has_eta = has_eta_f && has_eta_s && has_eta_n;
+  has_delay = (delay_arr != nullptr);
+  has_scale = (scale_arr != nullptr);
 
   if (any_eta && !has_eta) {
     throw std::runtime_error("Active stress directional distribution file '" + file_name +
@@ -742,7 +745,7 @@ ActiveStressDistInfo load_active_stress_directional_distribution_vtu(const std::
 
   if (!has_eta && !has_delay && !has_scale) {
     elemental_distribution.clear();
-    return {false, false, false};
+    return;
   }
 
   auto elem_ids = vtkIntArray::SafeDownCast(cell_data->GetArray(ELEMENT_IDS_NAME.c_str()));
@@ -819,7 +822,6 @@ ActiveStressDistInfo load_active_stress_directional_distribution_vtu(const std::
     }
   }
 
-  return {has_eta, has_delay, has_scale};
 }
 
 /// @brief Store a surface mesh read from a VTK .vtp file into a Face object.

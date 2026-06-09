@@ -163,9 +163,9 @@ void distribute(Simulation* simulation)
 
 
   // Copy per-element active-stress directional parameters (read onto the domain
-  // material as stM.Tf.elemental_distribution, in the VTU's global element order)
-  // onto the owning mesh so they are reordered and scattered alongside fN during
-  // partitioning. Master-only: the data exists only on the master at this point.
+  // material's stM.Tf.as_field, in the VTU's global element order) onto the owning
+  // mesh so they are reordered and scattered alongside fN during partitioning.
+  // Master-only: the data exists only on the master at this point.
   //
   // [NOTE] Single-mesh / single-domain assumption: each domain's distribution is
   // mapped onto com_mod.msh[0], whose global element numbering is assumed to match
@@ -176,7 +176,7 @@ void distribute(Simulation* simulation)
       auto& eq = com_mod.eq[iEq];
       for (int iDmn = 0; iDmn < eq.nDmn; iDmn++) {
         auto& tf = eq.dmn[iDmn].stM.Tf;
-        if (!tf.has_elemental_distribution || tf.elemental_distribution.size() == 0) {
+        if (!tf.as_field.spatially_variable() || tf.as_field.data().size() == 0) {
           continue;
         }
         auto& lM = com_mod.msh[0];
@@ -184,11 +184,10 @@ void distribute(Simulation* simulation)
         lM.active_stress_params.resize(nP, lM.gnEl);
         for (int e = 0; e < lM.gnEl; e++) {
           for (int p = 0; p < nP; p++) {
-            lM.active_stress_params(p, e) = tf.elemental_distribution(p, e);
+            lM.active_stress_params(p, e) = tf.as_field.data()(p, e);
           }
         }
-        tf.elemental_distribution.clear();
-        tf.has_elemental_distribution = false;
+        tf.as_field.clear_data();
       }
     }
   }
@@ -1778,9 +1777,9 @@ void dist_mat_consts(const ComMod& com_mod, const CmMod& cm_mod, const cmType& c
   // Broadcast directional stress distribution scalar fallbacks. The per-element
   // distribution (when present) is reordered and scattered per-rank onto the
   // owning mesh in part_msh (see lM.active_stress_params), not broadcast here.
-  cm.bcast(cm_mod, &lStM.Tf.eta_f);
-  cm.bcast(cm_mod, &lStM.Tf.eta_s);
-  cm.bcast(cm_mod, &lStM.Tf.eta_n);
+  cm.bcast(cm_mod, &lStM.Tf.as_field.uniform().eta_f);
+  cm.bcast(cm_mod, &lStM.Tf.as_field.uniform().eta_s);
+  cm.bcast(cm_mod, &lStM.Tf.as_field.uniform().eta_n);
 
   // Distribute CANN parameter table
   if (lStM.isoType == ConstitutiveModelType::stArtificialNeuralNet) {

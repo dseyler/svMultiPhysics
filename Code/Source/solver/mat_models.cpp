@@ -217,18 +217,14 @@ void voigt_to_cc(const int nsd, const Array<double>& Dm, Tensor4<double>& CC)
 ///
 /// (Extends the original Fortran 'GETFIBSTRESS' scalar, which computed Ta only.)
 //
-void compute_fib_stress(const ComMod& com_mod, const CepMod& cep_mod, const fibStrsType& Tfl,
-    const Array<double>* as_params, const int elem_id, double& Tfa, double& Tsa, double& Tna)
+active_stress::DirectionalActiveStress compute_fib_stress(const ComMod& com_mod, const CepMod& cep_mod,
+    const fibStrsType& Tfl, const Array<double>* as_params, const int elem_id)
 {
   using namespace consts;
 
-  // Resolve per-element params (eta/delay/scale), falling back to the uniform
-  // domain values carried on Tfl.
-  active_stress::ElementActiveStressParams defaults;
-  defaults.eta_f = Tfl.eta_f;
-  defaults.eta_s = Tfl.eta_s;
-  defaults.eta_n = Tfl.eta_n;
-  auto elem_params = active_stress::resolve_active_stress_params(as_params, elem_id, defaults);
+  // Resolve per-element params (eta/delay/scale) against this element's LOCAL
+  // mesh array, falling back to the uniform values (both owned by Tfl.as_field).
+  auto elem_params = Tfl.as_field.params(as_params, elem_id);
 
   // Scalar prescribed active stress at this element's (delayed) activation time.
   double Ta = 0.0;
@@ -249,9 +245,11 @@ void compute_fib_stress(const ComMod& com_mod, const CepMod& cep_mod, const fibS
   // Per-element magnitude (steady or unsteady; the zeroed pre-activation value
   // stays 0), then distribute among the fiber directions.
   Ta *= elem_params.scale;
-  Tfa = elem_params.eta_f * Ta;  // Fiber direction
-  Tsa = elem_params.eta_s * Ta;  // Sheet direction
-  Tna = elem_params.eta_n * Ta;  // Sheet-normal direction
+  return {
+    elem_params.eta_f * Ta,   // Tfa - fiber direction
+    elem_params.eta_s * Ta,   // Tsa - sheet direction
+    elem_params.eta_n * Ta    // Tna - sheet-normal direction
+  };
 }
 
 
@@ -391,8 +389,7 @@ void compute_pk2cc(const ComMod& com_mod, const CepMod& cep_mod, const dmnType& 
   // Fiber-reinforced active stress, distributed among the fiber/sheet/sheet-normal
   // directions. All per-element processing (resolve, delay, magnitude, eta split)
   // is encapsulated in compute_fib_stress.
-  double Tfa = 0.0, Tsa = 0.0, Tna = 0.0;
-  compute_fib_stress(com_mod, cep_mod, stM.Tf, as_params, elem_id, Tfa, Tsa, Tna);
+  auto [Tfa, Tsa, Tna] = compute_fib_stress(com_mod, cep_mod, stM.Tf, as_params, elem_id);
 
   // Aliases for fiber directions
   const auto& fib_dir1 = fl.col(0);

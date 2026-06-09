@@ -1634,81 +1634,6 @@ void read_fiber_temporal_values_file(FiberReinforcementStressParameters& fiber_p
   fft(i, temporal_values, lDmn.stM.Tf.gt);
 }
 
-//---------------------------------------------
-// read_directional_distribution_vtu_file
-//---------------------------------------------
-// Read per-element active stress parameters (directional fractions and/or
-// activation delay) from a VTU file. eta and delay are independently optional;
-// unsupplied eta rows are filled with the uniform domain values.
-//
-void read_directional_distribution_vtu_file(const std::string& file_path, dmnType& lDmn)
-{
-  using namespace active_stress;
-  auto& tf = lDmn.stM.Tf;
-
-  auto info = vtk_xml_parser::load_active_stress_directional_distribution_vtu(
-      file_path,
-      tf.elemental_distribution);
-
-  tf.has_elemental_distribution = info.any();
-  if (!tf.has_elemental_distribution) {
-    tf.elemental_distribution.clear();
-    return;
-  }
-
-  const int ncols = tf.elemental_distribution.ncols();
-
-  // Fill the eta rows: VTU values when supplied, else the uniform domain eta in
-  // every column. (The delay row is always written by the loader.)
-  if (!info.has_eta) {
-    for (int e = 0; e < ncols; e++) {
-      tf.elemental_distribution(AS_IDX_ETA_F, e) = tf.eta_f;
-      tf.elemental_distribution(AS_IDX_ETA_S, e) = tf.eta_s;
-      tf.elemental_distribution(AS_IDX_ETA_N, e) = tf.eta_n;
-    }
-  }
-
-  // Validate eta only when supplied by the VTU (domain defaults are validated
-  // elsewhere): non-negative and summing to 1 per element.
-  if (info.has_eta) {
-    const double tol = 1.0e-10;
-    for (int e = 0; e < ncols; e++) {
-      double eta_f = tf.elemental_distribution(AS_IDX_ETA_F, e);
-      double eta_s = tf.elemental_distribution(AS_IDX_ETA_S, e);
-      double eta_n = tf.elemental_distribution(AS_IDX_ETA_N, e);
-
-      if (eta_f < 0.0 || eta_s < 0.0 || eta_n < 0.0) {
-        throw std::runtime_error("Elemental directional distribution contains negative eta values at element index " +
-            std::to_string(e+1) + ".");
-      }
-
-      double eta_sum = eta_f + eta_s + eta_n;
-      if (std::abs(eta_sum - 1.0) > tol) {
-        throw std::runtime_error("Elemental directional distribution fractions must sum to 1.0 at element index " +
-            std::to_string(e+1) + ". Sum is " + std::to_string(eta_sum) + ".");
-      }
-    }
-  }
-
-  // Validate delay only when supplied: non-negative, and only meaningful for an
-  // unsteady (temporal curve) active stress.
-  if (info.has_delay) {
-    for (int e = 0; e < ncols; e++) {
-      double delay = tf.elemental_distribution(AS_IDX_DELAY, e);
-      if (delay < 0.0) {
-        throw std::runtime_error("Active-stress delay must be >= 0; got " + std::to_string(delay) +
-            " at element index " + std::to_string(e+1) + ".");
-      }
-    }
-
-    if (!utils::btest(tf.fType, consts::iBC_ustd)) {
-      throw std::runtime_error("A per-element active-stress 'delay' field was provided, but the fiber "
-          "reinforcement stress is not Unsteady. Delay requires a temporal stress curve "
-          "(Fiber_reinforcement_stress type=\"Unsteady\").");
-    }
-  }
-}
-
 //------------
 // read_files
 //------------
@@ -2293,10 +2218,11 @@ void read_mat_model(Simulation* simulation, EquationParameters* eq_params, Domai
   }
 
   // Set fiber reinforcement stress.
-  if (domain_params->fiber_reinforcement_stress.defined()) { 
+  if (domain_params->fiber_reinforcement_stress.defined()) {
     auto& fiber_params = domain_params->fiber_reinforcement_stress;
     auto fiber_stress = fiber_params.type.value();
     std::transform(fiber_stress.begin(), fiber_stress.end(), fiber_stress.begin(), ::tolower);
+    bool is_unsteady = (fiber_stress == "unsteady");
 
     if (fiber_stress == "steady") {
       lDmn.stM.Tf.fType = utils::ibset(lDmn.stM.Tf.fType, static_cast<int>(BoundaryConditionType::bType_std));
@@ -2308,49 +2234,27 @@ void read_mat_model(Simulation* simulation, EquationParameters* eq_params, Domai
       read_fiber_temporal_values_file(fiber_params, lDmn);
     }
 
-    // Read directional stress distribution parameters
+    // Uniform directional stress distribution (the fallback / per-element default).
     if (fiber_params.directional_distribution.defined()) {
       // Validate: ensures exactly 3 parameters specified (no empty blocks), sums to 1.0, non-negative
       fiber_params.directional_distribution.validate();
-      
-      // Read the validated values (validate() ensures all three are defined)
-      lDmn.stM.Tf.eta_f = fiber_params.directional_distribution.fiber_direction.value();
-      lDmn.stM.Tf.eta_s = fiber_params.directional_distribution.sheet_direction.value();
-      lDmn.stM.Tf.eta_n = fiber_params.directional_distribution.sheet_normal_direction.value();
-    }
-    // Otherwise (no block at all), defaults (eta_f=1.0, eta_s=0.0, eta_n=0.0) from ComMod.h are used
 
-    // Optionally override directional fractions per element from a VTU file.
-    //   <Spatial_values_file_path> filename.vtu </Spatial_values_file_path>
+      lDmn.stM.Tf.as_field.set_uniform_eta(
+          fiber_params.directional_distribution.fiber_direction.value(),
+          fiber_params.directional_distribution.sheet_direction.value(),
+          fiber_params.directional_distribution.sheet_normal_direction.value());
+    }
+    // Otherwise (no block at all), defaults (eta_f=1.0, eta_s=0.0, eta_n=0.0) are used.
+
+    // Optionally override directional fractions (and add delay/scale) per element
+    // from a VTU file: <Spatial_values_file_path> filename.vtu </Spatial_values_file_path>
     if (fiber_params.spatial_values_file_path.defined() && !fiber_params.spatial_values_file_path.value().empty()) {
-      read_directional_distribution_vtu_file(fiber_params.spatial_values_file_path.value(), lDmn);
+      lDmn.stM.Tf.as_field.read_from_vtu(fiber_params.spatial_values_file_path.value());
     }
 
-    // Validate (at setup time) that the constitutive model supports sheet and
-    // sheet-normal active stress whenever any eta_s/eta_n fraction is non-zero.
-    // Only Guccione, HO, and HO-ma support these contributions. This is checked
-    // against the configured fractions (uniform and per-element), not the runtime
-    // stress products, so a misconfiguration fails immediately and deterministically.
-    bool supports_directional_distribution = (lDmn.stM.isoType == ConstitutiveModelType::stIso_Gucci ||
-                                              lDmn.stM.isoType == ConstitutiveModelType::stIso_HO ||
-                                              lDmn.stM.isoType == ConstitutiveModelType::stIso_HO_ma);
-    if (!supports_directional_distribution) {
-      double max_eta_s = lDmn.stM.Tf.eta_s;
-      double max_eta_n = lDmn.stM.Tf.eta_n;
-      if (lDmn.stM.Tf.has_elemental_distribution) {
-        auto& ed = lDmn.stM.Tf.elemental_distribution;
-        for (int e = 0; e < ed.ncols(); e++) {
-          max_eta_s = std::max(max_eta_s, ed(active_stress::AS_IDX_ETA_S, e));
-          max_eta_n = std::max(max_eta_n, ed(active_stress::AS_IDX_ETA_N, e));
-        }
-      }
-      if (max_eta_s > 0.0 || max_eta_n > 0.0) {
-        throw std::runtime_error("Directional distribution of active stress (eta_s > 0 or eta_n > 0) "
-          "is only supported for Guccione, Holzapfel-Ogden (HO), and Holzapfel-Ogden Modified Anisotropy (HO-ma) models. "
-          "Current model does not support sheet or sheet-normal stress contributions. "
-          "Set Fiber_direction=1.0, Sheet_direction=0.0, Sheet_normal_direction=0.0.");
-      }
-    }
+    // Setup-time validation: a per-element delay requires an unsteady curve, and
+    // eta_s/eta_n are only supported by Guccione/HO/HO-ma (uniform + per-element).
+    lDmn.stM.Tf.as_field.validate(lDmn.stM.isoType, is_unsteady);
   }
 
   // Check for shell model

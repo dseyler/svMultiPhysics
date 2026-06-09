@@ -3,6 +3,12 @@
 
 #include "Array.h"
 
+#include <string>
+
+// Forward declaration so the header doesn't pull in consts.h (which would create
+// an include cycle via ComMod.h). The enumerators are only used in active_stress.cpp.
+namespace consts { enum class ConstitutiveModelType; }
+
 namespace active_stress {
 
 // Row indices into the (N_ACTIVE_STRESS_PARAMS x nElem) per-element array carried
@@ -30,6 +36,16 @@ struct ElementActiveStressParams
   double scale = 1.0;   // per-element active-stress magnitude multiplier
 };
 
+/// @brief Active stress distributed among the fiber / sheet / sheet-normal
+/// directions (the output of compute_fib_stress). Member order matches the
+/// structured-binding call site: auto [Tfa, Tsa, Tna] = compute_fib_stress(...).
+struct DirectionalActiveStress
+{
+  double Tfa = 0.0;   // fiber direction
+  double Tsa = 0.0;   // sheet direction
+  double Tna = 0.0;   // sheet-normal direction
+};
+
 /// @brief Resolve the per-element active-stress parameters for a single element.
 ///
 /// When a per-element distribution is available (params != nullptr and elem_id
@@ -51,6 +67,68 @@ inline ElementActiveStressParams resolve_active_stress_params(
 
   return p;
 }
+
+/// @brief Encapsulates the spatial active-stress directional distribution:
+/// the uniform fallback (eta_f/s/n, delay, scale), the optional per-element
+/// distribution read from a VTU, and the read/validation/resolution logic.
+///
+/// One instance lives on the domain material (stM.Tf). `data_` is the global
+/// read/distribution buffer (master only); during partitioning the bridge copies
+/// it onto the owning mesh (mshType::active_stress_params) and `clear_data()`s it.
+/// At runtime `params()` resolves against the caller-supplied LOCAL mesh array
+/// (the scattered slice), falling back to the uniform defaults.
+class ActiveStressField
+{
+  public:
+    ActiveStressField() = default;
+
+    // --- setup (master, from read_mat_model) ---
+
+    /// @brief Set the uniform directional fractions (from the XML
+    /// Directional_distribution block). Uniform delay/scale stay 0/1.
+    void set_uniform_eta(double eta_f, double eta_s, double eta_n)
+    {
+      uniform_.eta_f = eta_f;
+      uniform_.eta_s = eta_s;
+      uniform_.eta_n = eta_n;
+    }
+
+    /// @brief Load the per-element distribution from a VTU: fill unsupplied eta
+    /// rows from the uniform eta and validate eta (sum/non-negative) and delay
+    /// (non-negative). Sets the spatially-variable flag.
+    void read_from_vtu(const std::string& file_path);
+
+    /// @brief Setup-time validation that needs the constitutive model and the
+    /// steady/unsteady flag: a per-element delay requires an unsteady curve, and
+    /// eta_s/eta_n are only supported by Guccione/HO/HO-ma. Uses the uniform and
+    /// (if present) per-element fractions.
+    void validate(consts::ConstitutiveModelType isoType, bool is_unsteady) const;
+
+    // --- distribution support (used by the bridge in distribute.cpp) ---
+    bool spatially_variable() const { return spatially_variable_; }
+    Array<double>& data() { return data_; }
+    const Array<double>& data() const { return data_; }
+    void clear_data() { data_.clear(); spatially_variable_ = false; }
+    const ElementActiveStressParams& uniform() const { return uniform_; }
+    ElementActiveStressParams& uniform() { return uniform_; }
+
+    // --- hot path (per Gauss point) ---
+    /// @brief Resolve the per-element params against the caller-supplied LOCAL
+    /// array (the mesh's scattered slice), falling back to the uniform defaults.
+    /// Allocation-free, non-virtual.
+    ElementActiveStressParams params(const Array<double>* local_array, int elem_id) const
+    {
+      return resolve_active_stress_params(local_array, elem_id, uniform_);
+    }
+
+  private:
+    bool spatially_variable_ = false;
+    ElementActiveStressParams uniform_;   // uniform defaults (eta from XML; delay 0 / scale 1)
+    Array<double> data_;                  // (N x nElem) read/distribution buffer, global order
+    bool vtu_has_eta_ = false;
+    bool vtu_has_delay_ = false;
+    bool vtu_has_scale_ = false;
+};
 
 } // namespace active_stress
 
