@@ -1,26 +1,45 @@
 #include "active_stress.h"
 
 #include "consts.h"
-#include "vtk_xml_parser.h"
+#include "VtkData.h"
 
 #include <algorithm>
 #include <cmath>
 #include <stdexcept>
+#include <vector>
 
 namespace active_stress {
 
 //------------------
 // read_from_vtu
 //------------------
-// Load per-element active-stress parameters (directional fractions and/or
-// activation delay/magnitude) from a VTU file. eta, delay and scale are
-// independently optional; unsupplied eta rows are filled with the uniform values.
-// All validation is deferred to validate().
+// Load per-element active-stress parameters from a VTU file (CellData arrays keyed
+// by Int32 GlobalElementID). eta_f/eta_s/eta_n (all-three-or-none), delay and scale
+// are independently optional; unsupplied eta rows are filled with the uniform eta,
+// delay defaults to 0 and scale to 1. Per the codebase idiom (VtkVtuData /
+// copy_cell_data) a wrong-typed CellData array silently does not load. All value
+// validation is deferred to validate().
 //
 void ActiveStressField::read_from_vtu(const std::string& file_path)
 {
-  vtk_xml_parser::load_active_stress_directional_distribution_vtu(
-      file_path, data_, vtu_has_eta_, vtu_has_delay_, vtu_has_scale_);
+  VtkVtuData vtu(file_path);   // reads the file; throws on a missing/unreadable file
+  const int n = vtu.num_elems();
+  if (n <= 0) {
+    throw std::runtime_error("Failed reading active stress VTU file '" + file_path + "'.");
+  }
+
+  bool has_eta_f = vtu.has_cell_data("eta_f");
+  bool has_eta_s = vtu.has_cell_data("eta_s");
+  bool has_eta_n = vtu.has_cell_data("eta_n");
+  bool any_eta = has_eta_f || has_eta_s || has_eta_n;
+  vtu_has_eta_   = has_eta_f && has_eta_s && has_eta_n;
+  vtu_has_delay_ = vtu.has_cell_data("delay");
+  vtu_has_scale_ = vtu.has_cell_data("scale");
+
+  if (any_eta && !vtu_has_eta_) {
+    throw std::runtime_error("Active stress directional distribution file '" + file_path +
+        "' must either provide all three CellData arrays (eta_f, eta_s, eta_n) or none of them.");
+  }
 
   spatially_variable_ = vtu_has_eta_ || vtu_has_delay_ || vtu_has_scale_;
   if (!spatially_variable_) {
@@ -28,13 +47,54 @@ void ActiveStressField::read_from_vtu(const std::string& file_path)
     return;
   }
 
-  // Fill the eta rows with the uniform eta when the VTU didn't supply them. (The
-  // delay and scale rows are always written by the loader.)
-  if (!vtu_has_eta_) {
-    for (int e = 0; e < data_.ncols(); e++) {
-      data_(AS_IDX_ETA_F, e) = uniform_.eta_f;
-      data_(AS_IDX_ETA_S, e) = uniform_.eta_s;
-      data_(AS_IDX_ETA_N, e) = uniform_.eta_n;
+  if (!vtu.has_cell_data("GlobalElementID")) {
+    throw std::runtime_error("Active stress directional distribution file '" + file_path +
+        "' does not contain required CellData Int32 array 'GlobalElementID'.");
+  }
+  Vector<int> gid(n);
+  vtu.copy_cell_data("GlobalElementID", gid);
+
+  // Read the supplied arrays into cell-order temporaries (pre-sized; zero-init).
+  Vector<double> eta_f, eta_s, eta_n, delay, scale;
+  if (vtu_has_eta_) {
+    eta_f.resize(n); eta_s.resize(n); eta_n.resize(n);
+    vtu.copy_cell_data("eta_f", eta_f);
+    vtu.copy_cell_data("eta_s", eta_s);
+    vtu.copy_cell_data("eta_n", eta_n);
+  }
+  if (vtu_has_delay_) { delay.resize(n); vtu.copy_cell_data("delay", delay); }
+  if (vtu_has_scale_) { scale.resize(n); vtu.copy_cell_data("scale", scale); }
+
+  // Build the (N x nElem) array, indexed by GlobalElementID-1. Each row is filled
+  // directly: VTU value where supplied, else the uniform eta / delay 0 / scale 1.
+  data_.resize(N_ACTIVE_STRESS_PARAMS, n);
+  std::vector<bool> seen(n, false);
+  for (int cell = 0; cell < n; cell++) {
+    int global_elem_id = gid(cell);
+    if (global_elem_id <= 0 || global_elem_id > n) {
+      throw std::runtime_error("GlobalElementID value '" + std::to_string(global_elem_id) +
+          "' in active stress directional distribution file '" + file_path +
+          "' is out of valid range [1, " + std::to_string(n) + "].");
+    }
+
+    int idx = global_elem_id - 1;
+    if (seen[idx]) {
+      throw std::runtime_error("Duplicate GlobalElementID value '" + std::to_string(global_elem_id) +
+          "' in active stress directional distribution file '" + file_path + "'.");
+    }
+    seen[idx] = true;
+
+    data_(AS_IDX_ETA_F, idx) = vtu_has_eta_   ? eta_f(cell) : uniform_.eta_f;
+    data_(AS_IDX_ETA_S, idx) = vtu_has_eta_   ? eta_s(cell) : uniform_.eta_s;
+    data_(AS_IDX_ETA_N, idx) = vtu_has_eta_   ? eta_n(cell) : uniform_.eta_n;
+    data_(AS_IDX_DELAY, idx) = vtu_has_delay_ ? delay(cell) : 0.0;
+    data_(AS_IDX_SCALE, idx) = vtu_has_scale_ ? scale(cell) : 1.0;
+  }
+
+  for (int i = 0; i < n; i++) {
+    if (!seen[i]) {
+      throw std::runtime_error("Missing GlobalElementID '" + std::to_string(i+1) +
+          "' in active stress directional distribution file '" + file_path + "'.");
     }
   }
 }

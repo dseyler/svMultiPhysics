@@ -22,12 +22,6 @@ class VtkFileExtentions {
 void load_fiber_direction_vtu(const std::string& file_name, const std::string& data_name, const int idx,
     const int nsd, mshType& mesh);
 
-/// @brief Load per-element active-stress params from a VTU into elemental_distribution.
-/// Reports which optional groups were supplied via the out-params (all-3-or-none eta,
-/// independently optional delay/scale).
-void load_active_stress_directional_distribution_vtu(const std::string& file_name,
-    Array<double>& elemental_distribution, bool& has_eta, bool& has_delay, bool& has_scale);
-
 void load_vtp(const std::string& file_name, faceType& face);
 
 void load_vtp(const std::string& file_name, mshType& mesh);
