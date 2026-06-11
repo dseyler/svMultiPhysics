@@ -85,6 +85,18 @@ def test_directionally_distributed_active_stress_scale(n_proc):
     test_folder = "directionally_distributed_active_stress_scale"
     run_with_reference(base_folder, test_folder, fields, n_proc, t_max=5)
 
+def test_directionally_distributed_active_stress_multidomain(n_proc):
+    # Two material domains (split along z) each with its OWN spatial active-stress
+    # directional distribution (eta_domain1.vtu / eta_domain2.vtu), and the two
+    # fields differ and vary in x. This guards the multi-domain routing fix: with
+    # the old single mesh-scoped distribution, one domain's field clobbered/bled
+    # onto the other domain's elements; each element must instead read ITS OWN
+    # domain's field, matched by exact GlobalElementID. A routing or per-element
+    # mapping error under MPI sends the wrong eta to a domain's cells and diverges
+    # from the serial reference. Runs 3 steps at 1/3/4 procs.
+    test_folder = "directionally_distributed_active_stress_multidomain"
+    run_with_reference(base_folder, test_folder, fields, n_proc, t_max=3)
+
 def test_robin(n_proc):
     test_folder = "robin"
     run_with_reference(base_folder, test_folder, fields, n_proc)
