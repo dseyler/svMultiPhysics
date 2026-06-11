@@ -967,6 +967,12 @@ class mshType
     /// @brief Element domain ID number
     Vector<int> eId;
 
+    /// @brief Real GlobalElementID per element (1-based, as written in the mesh
+    /// VTU). Global (size gnEl) on the master after the mesh read; scattered to
+    /// LOCAL (size nEl) per rank in part_msh, mirroring eId. gE(e)-1 indexes a
+    /// per-element global-id-keyed data array (e.g. active_stress_params).
+    Vector<int> gE;
+
     /// @brief Global nodes maping nNo --> tnNo
     Vector<int> gN;
 

@@ -5,18 +5,23 @@
 
 #include <string>
 
-// Forward declaration so the header doesn't pull in consts.h (which would create
-// an include cycle via ComMod.h). The enumerators are only used in active_stress.cpp.
+// Forward declarations so the header doesn't pull in consts.h / ComMod.h (which
+// would create an include cycle: ComMod.h includes this header). The full types
+// are only needed in active_stress.cpp, which includes them.
 namespace consts { enum class ConstitutiveModelType; }
+class ComMod;
+class CmMod;
+class cmType;
+class mshType;
 
 namespace active_stress {
 
-// Row indices into the (N_ACTIVE_STRESS_PARAMS x nElem) per-element array carried
-// on mshType::active_stress_params (and, before partitioning, on
-// fibStrsType::elemental_distribution).
+// Row indices into the (N_ACTIVE_STRESS_PARAMS x nElem) per-element array. The
+// master holds the global read buffer (ActiveStressField::data_, GID-1 indexed);
+// after partitioning each rank holds its local slice on mshType::active_stress_params.
 // To add a spatially-varying parameter: add a field to ElementActiveStressParams,
-// add a row index here, bump N_ACTIVE_STRESS_PARAMS, read/fill/validate it in the
-// VTU loader + read_files, and consume it where it applies.
+// add a row index here, bump N_ACTIVE_STRESS_PARAMS, read/fill/validate it in
+// read_from_vtu + read_files, and consume it where it applies.
 enum AsParamRow : int {
   AS_IDX_ETA_F = 0,
   AS_IDX_ETA_S = 1,
@@ -48,13 +53,15 @@ struct DirectionalActiveStress
 
 /// @brief Encapsulates the spatial active-stress directional distribution:
 /// the uniform fallback (eta_f/s/n, delay, scale), the optional per-element
-/// distribution read from a VTU, and the read/validation/resolution logic.
+/// distribution read from a VTU, and the read/validation/distribution/resolution
+/// logic.
 ///
-/// One instance lives on the domain material (stM.Tf). `data_` is the global
-/// read/distribution buffer (master only); during partitioning the bridge copies
-/// it onto the owning mesh (mshType::active_stress_params) and `clear_data()`s it.
-/// At runtime `params()` resolves against the caller-supplied LOCAL mesh array
-/// (the scattered slice), falling back to the uniform defaults.
+/// One instance lives per-domain on the domain material (stM.Tf). `data_` is the
+/// global read buffer (master only), indexed by GlobalElementID-1. After
+/// partitioning, `distribute()` resolves every local element of a mesh against
+/// ITS OWN domain's field by exact GlobalElementID (mshType::gE) and fills the
+/// mesh's local slice (mshType::active_stress_params), then frees `data_`. At
+/// runtime `params()` reads that LOCAL slice, falling back to the uniform defaults.
 class ActiveStressField
 {
   public:
@@ -82,11 +89,23 @@ class ActiveStressField
     /// uniform and (if present) per-element fractions.
     void validate(consts::ConstitutiveModelType isoType, bool is_unsteady) const;
 
-    // --- distribution support (used by the bridge in distribute.cpp) ---
+    // --- distribution (MPI, called from distribute.cpp after part_msh) ---
     bool spatially_variable() const { return spatially_variable_; }
-    Array<double>& data() { return data_; }
-    void clear_data() { data_.clear(); spatially_variable_ = false; }
-    ElementActiveStressParams& uniform() { return uniform_; }
+
+    /// @brief Broadcast the per-domain scalar state every rank needs: the uniform
+    /// eta fallback and the spatially_variable_ flag (the latter so all ranks gate
+    /// the distribute() collective identically). Called per-domain in
+    /// dist_mat_consts.
+    void distribute_scalars(const CmMod& cm_mod, const cmType& cm);
+
+    /// @brief Resolve every LOCAL element of mesh lM against ITS OWN domain's
+    /// field, by exact GlobalElementID (lM.gE), filling lM.active_stress_params.
+    /// Self-contained BC-style gather/resolve/scatter; no-op (no array) when no
+    /// domain of the equation is spatially variable. Static so it can read the
+    /// private state of every domain's field. Call once per (equation, mesh) after
+    /// part_msh has scattered gE/eId and materials are distributed.
+    static void distribute(ComMod& com_mod, const CmMod& cm_mod, const cmType& cm,
+        int iEq, mshType& lM);
 
     // --- hot path (per Gauss point) ---
     /// @brief Resolve the per-element params for one element against the caller-

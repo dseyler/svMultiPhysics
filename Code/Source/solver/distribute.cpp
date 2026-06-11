@@ -162,36 +162,6 @@ void distribute(Simulation* simulation)
   }
 
 
-  // Copy per-element active-stress directional parameters (read onto the domain
-  // material's stM.Tf.as_field, in the VTU's global element order) onto the owning
-  // mesh so they are reordered and scattered alongside fN during partitioning.
-  // Master-only: the data exists only on the master at this point.
-  //
-  // [NOTE] Single-mesh / single-domain assumption: each domain's distribution is
-  // mapped onto com_mod.msh[0], whose global element numbering is assumed to match
-  // the VTU GlobalElementID 1:1. Generalizing to multi-mesh / multi-domain requires
-  // routing each domain's distribution to the mesh whose elements it indexes.
-  if (cm.mas(cm_mod)) {
-    for (int iEq = 0; iEq < com_mod.nEq; iEq++) {
-      auto& eq = com_mod.eq[iEq];
-      for (int iDmn = 0; iDmn < eq.nDmn; iDmn++) {
-        auto& tf = eq.dmn[iDmn].stM.Tf;
-        if (!tf.as_field.spatially_variable() || tf.as_field.data().size() == 0) {
-          continue;
-        }
-        auto& lM = com_mod.msh[0];
-        const int nP = active_stress::N_ACTIVE_STRESS_PARAMS;
-        lM.active_stress_params.resize(nP, lM.gnEl);
-        for (int e = 0; e < lM.gnEl; e++) {
-          for (int p = 0; p < nP; p++) {
-            lM.active_stress_params(p, e) = tf.as_field.data()(p, e);
-          }
-        }
-        tf.as_field.clear_data();
-      }
-    }
-  }
-
   int risProc = -1;
   int jM = 0;
   for (int iM = 0; iM < nMsh; iM++) {
@@ -305,13 +275,24 @@ void distribute(Simulation* simulation)
               for (int j = 0; j < bf.bm.dof; j++) {
                 bf.bm.d(j,a,i) = tmpD(j,Ac,i);
               }            
-            }            
-          }            
-        }            
-      }            
-    }            
-    return; 
-  }            
+            }
+          }
+        }
+      }
+    }
+
+    // Resolve the per-element active-stress distribution (single-process case).
+    // part_msh has already set up each mesh (gE / eId / eDist), and the material
+    // data lives on this single process, so each element can be matched to its
+    // own domain's field by exact GlobalElementID. Mirrors the parallel pass below.
+    for (int iEq = 0; iEq < com_mod.nEq; iEq++) {
+      for (int iM = 0; iM < com_mod.nMsh; iM++) {
+        active_stress::ActiveStressField::distribute(com_mod, cm_mod, cm, iEq, com_mod.msh[iM]);
+      }
+    }
+
+    return;
+  }
 
   // Partitioning the faces
   //
@@ -542,6 +523,18 @@ void distribute(Simulation* simulation)
   for (int iEq = 0; iEq < com_mod.nEq; iEq++) {
     auto& eq = com_mod.eq[iEq];
     dist_eq(com_mod, cm_mod, cm, tMs, gmtl, cep_mod, eq);
+  }
+
+  // Resolve the per-element active-stress distribution now that meshes are
+  // partitioned (lM.gE / lM.eId scattered) and materials distributed. For each
+  // (equation, mesh), each local element is matched to ITS OWN domain's field by
+  // exact GlobalElementID. The call is a no-op (and skips its collective) when no
+  // domain of the equation is spatially variable, so it is safe to run for all
+  // equations and meshes.
+  for (int iEq = 0; iEq < com_mod.nEq; iEq++) {
+    for (int iM = 0; iM < com_mod.nMsh; iM++) {
+      active_stress::ActiveStressField::distribute(com_mod, cm_mod, cm, iEq, com_mod.msh[iM]);
+    }
   }
 
   // For CMM initialization
@@ -1774,12 +1767,11 @@ void dist_mat_consts(const ComMod& com_mod, const CmMod& cm_mod, const cmType& c
    cm.bcast(cm_mod, lStM.Tf.gt.i, "lStM.Tf.gt.i");
   }
   
-  // Broadcast directional stress distribution scalar fallbacks. The per-element
-  // distribution (when present) is reordered and scattered per-rank onto the
-  // owning mesh in part_msh (see lM.active_stress_params), not broadcast here.
-  cm.bcast(cm_mod, &lStM.Tf.as_field.uniform().eta_f);
-  cm.bcast(cm_mod, &lStM.Tf.as_field.uniform().eta_s);
-  cm.bcast(cm_mod, &lStM.Tf.as_field.uniform().eta_n);
+  // Broadcast the active-stress field's scalar state: the uniform eta fallback
+  // and the spatially_variable_ flag (so every rank gates the post-partition
+  // ActiveStressField::distribute() collective identically). The per-element
+  // distribution itself stays on the master and is resolved there by distribute().
+  lStM.Tf.as_field.distribute_scalars(cm_mod, cm);
 
   // Distribute CANN parameter table
   if (lStM.isoType == ConstitutiveModelType::stArtificialNeuralNet) {
@@ -2066,11 +2058,9 @@ void part_msh(Simulation* simulation, int iM, mshType& lM, Vector<int>& gmtl, in
 
     lM.iGC.resize(lM.nEl);
 
-    // active_stress_params (if present) is already in global == local element
-    // order on the single process; just flag it as available.
-    if (lM.active_stress_params.size() != 0) {
-      lM.has_active_stress_params = true;
-    }
+    // lM.gE (real GlobalElementID) is already in global == local element order on
+    // a single process; leave it as-is. The active-stress per-element params are
+    // resolved post-partition by ActiveStressField::distribute().
     return;
   }
 
@@ -2336,10 +2326,10 @@ void part_msh(Simulation* simulation, int iM, mshType& lM, Vector<int>& gmtl, in
 
   Array<int> tempIEN;
   Array<double> tmpFn;
-  Array<double> tmpAS;
+  Vector<int> gePart;
   flag = false;
   bool fnFlag = false;
-  bool asFlag = false;
+  bool geFlag = false;
 
   #ifdef dbg_part_msh
   dmsg << "sCount: " << sCount;
@@ -2425,6 +2415,19 @@ void part_msh(Simulation* simulation, int iM, mshType& lM, Vector<int>& gmtl, in
       lM.eId.clear();
     }
 
+    // This is to distribute gE (real GlobalElementID per element), if allocated.
+    // Mirrors eId; each rank ends up with its local elements' GlobalElementIDs,
+    // the exact key used by ActiveStressField::distribute() post-partition.
+    if (lM.gE.size() != 0) {
+      geFlag = true;
+      gePart.resize(lM.gnEl);
+      for (int e = 0; e < lM.gnEl; e++) {
+        int Ec = lM.otnIEN[e];
+        gePart[Ec] = lM.gE[e];
+      }
+      lM.gE.clear();
+    }
+
     // This it to distribute fN, if allocated
     if (lM.fN.size() != 0) {
       fnFlag = true;
@@ -2436,19 +2439,6 @@ void part_msh(Simulation* simulation, int iM, mshType& lM, Vector<int>& gmtl, in
       lM.fN.clear();
     }
 
-    // This is to distribute the per-element active-stress params, if allocated.
-    // Reorder old -> new element order via otnIEN, mirroring fN.
-    if (lM.active_stress_params.size() != 0) {
-      asFlag = true;
-      const int nP = active_stress::N_ACTIVE_STRESS_PARAMS;
-      tmpAS.resize(nP, lM.gnEl);
-      for (int e = 0; e < lM.gnEl; e++) {
-        int Ec = lM.otnIEN[e];
-        tmpAS.set_col(Ec, lM.active_stress_params.col(e));
-      }
-      lM.active_stress_params.clear();
-    }
-
   } else {
     lM.otnIEN.clear();
   }
@@ -2457,7 +2447,7 @@ void part_msh(Simulation* simulation, int iM, mshType& lM, Vector<int>& gmtl, in
 
   cm.bcast(cm_mod, &flag);
   cm.bcast(cm_mod, &fnFlag);
-  cm.bcast(cm_mod, &asFlag);
+  cm.bcast(cm_mod, &geFlag);
   cm.bcast(cm_mod, lM.eDist);
   if (com_mod.risFlag) {
     cm.bcast(cm_mod, lM.partRIS);
@@ -2485,9 +2475,23 @@ void part_msh(Simulation* simulation, int iM, mshType& lM, Vector<int>& gmtl, in
       disp[i] = lM.eDist[i];
       sCount[i] = lM.eDist[i+1] - disp[i];
     }
-    MPI_Scatterv(part.data(), sCount.data(), disp.data(), cm_mod::mpint, lM.eId.data(), nEl, 
+    MPI_Scatterv(part.data(), sCount.data(), disp.data(), cm_mod::mpint, lM.eId.data(), nEl,
         cm_mod::mpint, cm_mod.master, cm.com());
     part.clear();
+  }
+
+  // Communicating gE (real GlobalElementID per element), if necessary. Mirrors
+  // eId; each rank ends up with its local elements' GlobalElementIDs.
+  //
+  if (geFlag) {
+    lM.gE.resize(nEl);
+    for (int i = 0; i < num_proc; i++) {
+      disp[i] = lM.eDist[i];
+      sCount[i] = lM.eDist[i+1] - disp[i];
+    }
+    MPI_Scatterv(gePart.data(), sCount.data(), disp.data(), cm_mod::mpint, lM.gE.data(), nEl,
+        cm_mod::mpint, cm_mod.master, cm.com());
+    gePart.clear();
   }
 
   // Communicating fN, if neccessary
@@ -2511,23 +2515,6 @@ void part_msh(Simulation* simulation, int iM, mshType& lM, Vector<int>& gmtl, in
     MPI_Scatterv(tmpFn.data(), sCount.data(), disp.data(), cm_mod::mpreal, lM.fN.data(), nEl*nFn*nsd,
         cm_mod::mpreal, cm_mod.master, cm.com());
     tmpFn.clear();
-  }
-
-  // Communicating active-stress per-element params, if necessary. Mirrors fN
-  // with nP = N_ACTIVE_STRESS_PARAMS values per element. Each rank ends up with
-  // only its local elements, indexed by local element index.
-  //
-  if (asFlag) {
-    const int nP = active_stress::N_ACTIVE_STRESS_PARAMS;
-    lM.active_stress_params.resize(nP, nEl);
-    for (int i = 0; i < num_proc; i++) {
-      disp[i] = lM.eDist[i] * nP;
-      sCount[i] = lM.eDist[i+1] * nP - disp[i];
-    }
-    MPI_Scatterv(tmpAS.data(), sCount.data(), disp.data(), cm_mod::mpreal, lM.active_stress_params.data(), nEl*nP,
-        cm_mod::mpreal, cm_mod.master, cm.com());
-    tmpAS.clear();
-    lM.has_active_stress_params = true;
   }
 
   // Now scattering the sorted lM%IEN to all processors.

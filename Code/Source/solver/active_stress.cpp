@@ -2,11 +2,16 @@
 
 #include "consts.h"
 #include "VtkData.h"
+#include "ComMod.h"
+#include "CmMod.h"
+#include "all_fun.h"
 
 #include <algorithm>
 #include <cmath>
 #include <stdexcept>
 #include <vector>
+
+#include "mpi.h"
 
 namespace active_stress {
 
@@ -171,6 +176,123 @@ void ActiveStressField::validate(consts::ConstitutiveModelType isoType, bool is_
         "is only supported for Guccione, Holzapfel-Ogden (HO), and Holzapfel-Ogden Modified Anisotropy (HO-ma) models. "
         "Current model does not support sheet or sheet-normal stress contributions. "
         "Set Fiber_direction=1.0, Sheet_direction=0.0, Sheet_normal_direction=0.0.");
+    }
+  }
+}
+
+//---------------------
+// distribute_scalars
+//---------------------
+// Broadcast the per-domain scalar state every rank needs: the uniform eta
+// fallback and the spatially_variable_ flag. The flag is needed so all ranks
+// gate the distribute() collective identically (deadlock safety).
+//
+void ActiveStressField::distribute_scalars(const CmMod& cm_mod, const cmType& cm)
+{
+  cm.bcast(cm_mod, &uniform_.eta_f);
+  cm.bcast(cm_mod, &uniform_.eta_s);
+  cm.bcast(cm_mod, &uniform_.eta_n);
+  cm.bcast(cm_mod, &spatially_variable_);
+}
+
+//------------
+// distribute
+//------------
+// Resolve every LOCAL element of mesh lM against ITS OWN domain's field by exact
+// GlobalElementID (lM.gE), filling lM.active_stress_params (the local slice that
+// params() reads at runtime). Self-contained, BC-style:
+//   (1) each rank lists its local elements as (GlobalElementID, owning domain),
+//   (2) gather to the master,
+//   (3) the master resolves each element from that domain's read buffer (data_,
+//       GID-1 indexed) or its uniform fallback,
+//   (4) scatter the resolved 5-tuples back so each rank fills its local slice.
+// This fixes the multi-domain routing (each element reads its own domain's data)
+// and removes the otnIEN coupling. No-op (no array, params() falls back to the
+// uniform values) when no domain of the equation is spatially variable.
+//
+void ActiveStressField::distribute(ComMod& com_mod, const CmMod& cm_mod, const cmType& cm,
+    int iEq, mshType& lM)
+{
+  auto& eq = com_mod.eq[iEq];
+  const int nP = N_ACTIVE_STRESS_PARAMS;
+
+  // Gate identically on every rank (uses the bcast spatially_variable_ flag) so
+  // the collectives below are entered by all ranks or none.
+  bool any_spatial = false;
+  for (int d = 0; d < eq.nDmn; d++) {
+    if (eq.dmn[d].stM.Tf.as_field.spatially_variable()) { any_spatial = true; break; }
+  }
+  if (!any_spatial) {
+    return;
+  }
+
+  const int nEl = lM.nEl;
+  const int np = cm.np();
+  const bool master = cm.mas(cm_mod);
+
+  // (1) Each rank lists its local elements: interleaved (GlobalElementID, domain).
+  std::vector<int> send(2 * nEl);
+  for (int e = 0; e < nEl; e++) {
+    send[2*e]   = lM.gE(e);                                 // real GID (1-based)
+    send[2*e+1] = all_fun::domain(com_mod, lM, iEq, e);     // owning domain index
+  }
+
+  // (2) Per-rank counts/displacements (in ints), from lM.eDist (valid on all ranks).
+  std::vector<int> g_count(np), g_disp(np);
+  for (int r = 0; r < np; r++) {
+    g_disp[r]  = 2 * lM.eDist(r);
+    g_count[r] = 2 * (lM.eDist(r+1) - lM.eDist(r));
+  }
+  const int total = lM.eDist(np);   // == gnEl
+
+  // (3) Gather (gid, domain) for every element to the master, in new-partition order.
+  std::vector<int> recv;
+  if (master) { recv.resize(2 * total); }
+  MPI_Gatherv(send.data(), 2*nEl, cm_mod::mpint,
+              master ? recv.data() : nullptr, g_count.data(), g_disp.data(),
+              cm_mod::mpint, cm_mod.master, cm.com());
+
+  // (4) Master resolves each element from ITS OWN domain's field by exact GID.
+  std::vector<double> resolved;
+  if (master) {
+    resolved.resize(nP * total);
+    for (int k = 0; k < total; k++) {
+      int gid = recv[2*k];
+      int d   = recv[2*k+1];
+      auto& f = eq.dmn[d].stM.Tf.as_field;
+      ElementActiveStressParams p = f.uniform_;
+      if (f.spatially_variable_ && gid-1 >= 0 && gid-1 < f.data_.ncols()) {
+        p.eta_f = f.data_(AS_IDX_ETA_F, gid-1);
+        p.eta_s = f.data_(AS_IDX_ETA_S, gid-1);
+        p.eta_n = f.data_(AS_IDX_ETA_N, gid-1);
+        p.delay = f.data_(AS_IDX_DELAY, gid-1);
+        p.scale = f.data_(AS_IDX_SCALE, gid-1);
+      }
+      resolved[nP*k+AS_IDX_ETA_F] = p.eta_f;
+      resolved[nP*k+AS_IDX_ETA_S] = p.eta_s;
+      resolved[nP*k+AS_IDX_ETA_N] = p.eta_n;
+      resolved[nP*k+AS_IDX_DELAY] = p.delay;
+      resolved[nP*k+AS_IDX_SCALE] = p.scale;
+    }
+  }
+
+  // (5) Scatter the resolved 5-tuples back; each rank fills its local slice in
+  // local element order (Array<double>(nP, nEl) is element-major over columns).
+  std::vector<int> s_count(np), s_disp(np);
+  for (int r = 0; r < np; r++) {
+    s_disp[r]  = nP * lM.eDist(r);
+    s_count[r] = nP * (lM.eDist(r+1) - lM.eDist(r));
+  }
+  lM.active_stress_params.resize(nP, nEl);
+  MPI_Scatterv(master ? resolved.data() : nullptr, s_count.data(), s_disp.data(),
+               cm_mod::mpreal, lM.active_stress_params.data(), nP*nEl,
+               cm_mod::mpreal, cm_mod.master, cm.com());
+  lM.has_active_stress_params = true;
+
+  // (6) Master frees each domain's global read buffer.
+  if (master) {
+    for (int d = 0; d < eq.nDmn; d++) {
+      eq.dmn[d].stM.Tf.as_field.data_.clear();
     }
   }
 }

@@ -432,18 +432,30 @@ void store_element_conn(vtkSmartPointer<vtkUnstructuredGrid> vtk_ugrid, mshType&
   }
 }
 
-/// @brief Store element IDs into a mshType object. 
+/// @brief Store the real GlobalElementID per element into mesh.gE (1-based, as
+/// written in the VTU). When the mesh VTU lacks a 'GlobalElementID' CellData
+/// array, fall back to a sequential 1..n numbering (backward compatible — the
+/// solver historically assumed mesh element order == GlobalElementID-1).
 ///
-/// \todo [NOTE] Are element IDs used?
+/// Mesh data set
+///   mesh.gE - real GlobalElementID per element (size gnEl, 1-based)
 //
 void store_element_ids(vtkSmartPointer<vtkUnstructuredGrid> vtk_ugrid, mshType& mesh)
 {
+  int num_elems = vtk_ugrid->GetNumberOfCells();
+  mesh.gE = Vector<int>(num_elems);
+
   auto elem_ids = vtkIntArray::SafeDownCast(vtk_ugrid->GetCellData()->GetArray(ELEMENT_IDS_NAME.c_str()));
-  if (elem_ids == nullptr) { 
-    throw std::runtime_error("No '" + ELEMENT_IDS_NAME + "' data of type Int32 found in VTK mesh.");
+  if (elem_ids == nullptr) {
+    // No GlobalElementID array: sequential 1-based fallback.
+    for (int i = 0; i < num_elems; i++) {
+      mesh.gE(i) = i + 1;
+    }
+    return;
   }
-  int num_elem_ids = elem_ids->GetNumberOfTuples();
-  for (int i = 0; i < num_elem_ids; i++) { 
+
+  for (int i = 0; i < num_elems; i++) {
+    mesh.gE(i) = elem_ids->GetValue(i);
   }
 }
 
@@ -852,6 +864,10 @@ void load_vtu(const std::string& file_name, mshType& mesh)
 
   // Store element connectivity.
   store_element_conn(vtk_ugrid, mesh);
+
+  // Store the real GlobalElementID per element (mesh.gE); sequential fallback
+  // when the VTU lacks the array.
+  store_element_ids(vtk_ugrid, mesh);
 }
 
 /// @brief Store a surface mesh read from a VTK .vtu file into a Face object.
