@@ -229,6 +229,10 @@ void construct_dsolid(ComMod& com_mod, CepMod& cep_mod, const mshType& lM, const
                 bfl(nsd,eNoN), fN(nsd,nFn), pS0l(nsymd,eNoN), Nx(nsd,eNoN), lR(dof,eNoN);
   Array3<double> lK(dof*dof,eNoN,eNoN);
 
+  // Per-element active-stress parameters live on the mesh, so resolve the pointer
+  // once for the whole loop (null when no spatial active stress is present).
+  const Array<double>* as_params = lM.has_active_stress_params ? &lM.active_stress_params : nullptr;
+
   // Loop over all elements of mesh
 
   for (int e = 0; e < lM.nEl; e++) {
@@ -236,7 +240,7 @@ void construct_dsolid(ComMod& com_mod, CepMod& cep_mod, const mshType& lM, const
     cDmn = all_fun::domain(com_mod, lM, cEq, e);
     auto cPhys = eq.dmn[cDmn].phys;
     if (cPhys != EquationType::phys_struct) {
-      continue; 
+      continue;
     }
 
     // Update shape functions for NURBS
@@ -300,8 +304,6 @@ void construct_dsolid(ComMod& com_mod, CepMod& cep_mod, const mshType& lM, const
       double w = lM.w(g) * Jac;
       N = lM.N.col(g);
       pSl = 0.0;
-
-      const Array<double>* as_params = lM.has_active_stress_params ? &lM.active_stress_params : nullptr;
 
       if (nsd == 3) {
         struct_3d(com_mod, cep_mod, eNoN, nFn, w, N, Nx, al, yl, dl, bfl, fN, pS0l, pSl, ya_l, lR, lK, e, as_params);

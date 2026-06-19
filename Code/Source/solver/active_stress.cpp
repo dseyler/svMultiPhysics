@@ -231,14 +231,14 @@ void ActiveStressField::distribute(ComMod& com_mod, const CmMod& cm_mod, const c
   const bool master = cm.mas(cm_mod);
 
   // (1) Each rank lists its local elements: interleaved (GlobalElementID, domain).
-  std::vector<int> send(2 * nEl);
+  Vector<int> send(2 * nEl);
   for (int e = 0; e < nEl; e++) {
     send[2*e]   = lM.gE(e);                                 // real GID (1-based)
     send[2*e+1] = all_fun::domain(com_mod, lM, iEq, e);     // owning domain index
   }
 
   // (2) Per-rank counts/displacements (in ints), from lM.eDist (valid on all ranks).
-  std::vector<int> g_count(np), g_disp(np);
+  Vector<int> g_count(np), g_disp(np);
   for (int r = 0; r < np; r++) {
     g_disp[r]  = 2 * lM.eDist(r);
     g_count[r] = 2 * (lM.eDist(r+1) - lM.eDist(r));
@@ -246,14 +246,14 @@ void ActiveStressField::distribute(ComMod& com_mod, const CmMod& cm_mod, const c
   const int total = lM.eDist(np);   // == gnEl
 
   // (3) Gather (gid, domain) for every element to the master, in new-partition order.
-  std::vector<int> recv;
+  Vector<int> recv;
   if (master) { recv.resize(2 * total); }
   MPI_Gatherv(send.data(), 2*nEl, cm_mod::mpint,
               master ? recv.data() : nullptr, g_count.data(), g_disp.data(),
               cm_mod::mpint, cm_mod.master, cm.com());
 
   // (4) Master resolves each element from ITS OWN domain's field by exact GID.
-  std::vector<double> resolved;
+  Vector<double> resolved;
   if (master) {
     resolved.resize(nP * total);
     for (int k = 0; k < total; k++) {
@@ -278,7 +278,7 @@ void ActiveStressField::distribute(ComMod& com_mod, const CmMod& cm_mod, const c
 
   // (5) Scatter the resolved 5-tuples back; each rank fills its local slice in
   // local element order (Array<double>(nP, nEl) is element-major over columns).
-  std::vector<int> s_count(np), s_disp(np);
+  Vector<int> s_count(np), s_disp(np);
   for (int r = 0; r < np; r++) {
     s_disp[r]  = nP * lM.eDist(r);
     s_count[r] = nP * (lM.eDist(r+1) - lM.eDist(r));

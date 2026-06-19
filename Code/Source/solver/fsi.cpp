@@ -82,6 +82,11 @@ void construct_fsi(ComMod& com_mod, CepMod& cep_mod, const mshType& lM, const So
   double struct_3d_time = 0.0;
   double fluid_3d_time = 0.0;
 
+  // Per-element active-stress parameters live on the mesh, so resolve the pointer
+  // once for the whole loop (null when no spatial active stress is present). Used
+  // by the struct/ustruct branches below.
+  const Array<double>* as_params = lM.has_active_stress_params ? &lM.active_stress_params : nullptr;
+
   for (int e = 0; e < lM.nEl; e++) {
     // setting globals
     cDmn = all_fun::domain(com_mod, lM, cEq, e); 
@@ -211,7 +216,6 @@ void construct_fsi(ComMod& com_mod, CepMod& cep_mod, const mshType& lM, const So
 
           case Equation_struct: {
             auto N0 = fs_1[0].N.col(g);
-            const Array<double>* as_params = lM.has_active_stress_params ? &lM.active_stress_params : nullptr;
             struct_ns::struct_3d(com_mod, cep_mod, fs_1[0].eNoN, nFn, w, N0, Nwx, al, yl, dl, bfl, fN, pS0l, pSl, ya_l, lR, lK, e, as_params);
           } break;
           case Equation_lElas:
@@ -222,7 +226,6 @@ void construct_fsi(ComMod& com_mod, CepMod& cep_mod, const mshType& lM, const So
           case Equation_ustruct: {
             auto N0 = fs_1[0].N.col(g);
             auto N1 = fs_1[1].N.col(g);
-            const Array<double>* as_params = lM.has_active_stress_params ? &lM.active_stress_params : nullptr;
             ustruct::ustruct_3d_m(com_mod, cep_mod, vmsStab, fs_1[0].eNoN, fs_1[1].eNoN, nFn, w, Jac, N0, N1, Nwx, al, yl, dl, bfl, fN, ya_l, lR, lK, lKd, e, as_params);
           } break;
           }
@@ -244,7 +247,6 @@ void construct_fsi(ComMod& com_mod, CepMod& cep_mod, const mshType& lM, const So
 
           case Equation_struct: {
             auto N0 = fs_1[0].N.col(g);
-            const Array<double>* as_params = lM.has_active_stress_params ? &lM.active_stress_params : nullptr;
             struct_ns::struct_2d(com_mod, cep_mod, fs_1[0].eNoN, nFn, w, N0, Nwx, al, yl, dl, bfl, fN, pS0l, pSl, ya_l, lR, lK, e, as_params);
           } break;
 

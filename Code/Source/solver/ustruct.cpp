@@ -254,6 +254,10 @@ void construct_usolid(ComMod& com_mod, CepMod& cep_mod, const mshType& lM, const
                 bfl(nsd,eNoN), fN(nsd,nFn), pS0l(nsymd,eNoN), Nx(nsd,eNoN), lR(dof,eNoN);
   Array3<double> lK(dof*dof,eNoN,eNoN), lKd(dof*nsd,eNoN,eNoN);
 
+  // Per-element active-stress parameters live on the mesh, so resolve the pointer
+  // once for the whole loop (null when no spatial active stress is present).
+  const Array<double>* as_params = lM.has_active_stress_params ? &lM.active_stress_params : nullptr;
+
   for (int e = 0; e < lM.nEl; e++) {
     // Change the current domain which will be used in later function calls.
     cDmn = all_fun::domain(com_mod, lM, cEq, e);
@@ -332,8 +336,6 @@ void construct_usolid(ComMod& com_mod, CepMod& cep_mod, const mshType& lM, const
       }
 
       double w = fs[0].w(g) * Jac;
-
-      const Array<double>* as_params = lM.has_active_stress_params ? &lM.active_stress_params : nullptr;
 
       if (nsd == 3) {
         auto N0 = fs[0].N.col(g);
