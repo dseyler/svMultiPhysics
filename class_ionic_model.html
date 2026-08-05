@@ -12,7 +12,6 @@
 <link href="search/search.css" rel="stylesheet" type="text/css"/>
 <script type="text/javascript" src="search/searchdata.js"></script>
 <script type="text/javascript" src="search/search.js"></script>
-<script src="https://polyfill.io/v3/polyfill.min.js?features=es6"></script>
 <script type="text/javascript">
 window.MathJax = {
   options: {
@@ -20,11 +19,19 @@ window.MathJax = {
     processHtmlClass: 'tex2jax_process'
   },
   loader: {
-    load: ['[tex]/ams']
+    load: ['[tex]/ams','[tex]/physics']
   },
   tex: {
-    macros: {},
-    packages: ['base','configmacros','ams']
+    macros: {    fiberdirection: "{\\mathbf{f}}",
+    sheetdirection: "{\\mathbf{s}}",
+    sheetnormaldirection: "{\\mathbf{n}}",
+    calcium: "{[\\text{Ca}^{2+}]}",
+    Tact: "{T_\\text{act}}",
+    fiberstretch: "{\\lambda}",
+    fiberstretchrate: "{\\dot{\\lambda}}",
+    astressstate: "{\\mathbf{s}}",
+    },
+    packages: ['base','configmacros','newcommand','ams','physics']
   }
 };
 </script>
@@ -104,7 +111,7 @@ $(function() {
 <div class="dynheader">
 Inheritance diagram for IonicModel:</div>
 <div class="dyncontent">
-<div class="center"><!-- SVG 0 --></div>
+<div class="center"><iframe scrolling="no" frameborder="0" src="class_ionic_model__inherit__graph.svg" width="479" height="110"><p><b>This browser is not able to show SVG: try Firefox, Chrome, Safari, or Opera instead.</b></p></iframe></div>
 <center><span class="legend">[<a href="graph_legend.html">legend</a>]</span></center></div>
 <table class="memberdecls">
 <tr class="heading"><td colspan="2"><h2 class="groupheader"><a id="pub-types" name="pub-types"></a>
@@ -201,7 +208,7 @@ Protected Attributes</h2></td></tr>
 </table>
 <a name="details" id="details"></a><h2 class="groupheader">Detailed Description</h2>
 <div class="textblock"><p>Abstract ionic model class. </p>
-<h3><a class="anchor" id="autotoc_md2"></a>
+<h3><a class="anchor" id="autotoc_md18"></a>
 Mathematical model</h3>
 <p>This class represents an abstract ionic model, i.e. an ODE system in the form  </p><p class="formulaDsp">
 \[ \begin{aligned}
@@ -213,14 +220,14 @@ Mathematical model</h3>
 <p> where \(v\) is the transmembrane potential, \(\mathbf{w}\) is a vector of ionic model variables (which may be gating variables or ionic concentrations), \(I_\text{ion}\) is the ionic current, and \(I_\text{ext}\) is an externally applied current.</p>
 <p>Individual models differ in the number of state variables \(\mathbf{w}\) and in the expressions of \(I_\text{ion}\) and \(\mathbf{F}\). These are specified by classes derived from this.</p>
 <p><b>References</b>:</p><ul>
-<li>Colli Franzone, Pavarino, Scacchi. Mathematical Cardiac Electrophysiology. Springer, 2014.</li>
-<li>Goktepe, Kuhl. Computational Modeling of Cardiac Electrophysiology: a Novel Finite Element Approach. International Journal for Numerical Methods in Biomedical Engineering, 2009.</li>
+<li><a href="https://doi.org/10.1007/978-3-319-04801-7">Colli Franzone, Pavarino, Scacchi (2014)</a></li>
+<li><a href="https://doi.org/10.1007/s00466-009-0434-z">Goktepe, Kuhl (2009)</a></li>
 </ul>
-<h3><a class="anchor" id="autotoc_md3"></a>
+<h3><a class="anchor" id="autotoc_md19"></a>
 Numerical methods</h3>
 <p>The vector of state variables \(\mathbf{w}\) is partitioned into two groups, the state variables \(\mathbf{x}\) (including the transmembrane potential \(v\)) and the gating variables \(\mathbf{x}_g\). The ODE system is advanced through a Rush-Larsen scheme, in which the gating variables are updated through an analytical expression and the state variables through a time-stepping scheme.</p>
 <p>This class currently supports forward Euler (FE), fourth-order explicit Runge-Kutta (RK) and Crank-Nicolson (CN) for advancing the state variables. Refer to the documentation of the functions integ_fe, integ_rk and integ_cn2 for details on the individual methods. Beware that the CN method is only supported for ionic models that implement the getj method, and an exception is raised otherwise.</p>
-<h3><a class="anchor" id="autotoc_md4"></a>
+<h3><a class="anchor" id="autotoc_md20"></a>
 Implementing concrete ionic models</h3>
 <p>To implement a new ionic model, the following steps need to be taken:</p>
 <ol type="1">
@@ -244,7 +251,7 @@ Implementing concrete ionic models</h3>
         </tr>
       </table>
 </div><div class="memdoc">
-<p>Alias for initial states vector. Each initial state is a pair of a label for that state variable and its initial value. </p><dl class="todo"><dt><b><a class="el" href="todo.html#_todo000004">Todo:</a></b></dt><dd>[michelebucelli] This would work better with a struct, due to the fields having meaningful names instead of first and second. </dd></dl>
+<p>Alias for initial states vector. Each initial state is a pair of a label for that state variable and its initial value. </p><dl class="todo"><dt><b><a class="el" href="todo.html#_todo000005">Todo:</a></b></dt><dd>[michelebucelli] This would work better with a struct, due to the fields having meaningful names instead of first and second. </dd></dl>
 
 </div>
 </div>
@@ -660,7 +667,7 @@ Implementing concrete ionic models</h3>
 </dl>
 <dl class="section return"><dt>Returns</dt><dd>A matrix containing the jacobian of the model equations. </dd></dl>
 
-<p>Reimplemented in <a class="el" href="class_aliev_panfilov.html#a808e9def1cdddf717bc49f4f2de12cb1">AlievPanfilov</a>, <a class="el" href="class_bueno_orovio.html#a80a54309b88b7f6d0929632758666e64">BuenoOrovio</a>, <a class="el" href="class_fitz_hugh_nagumo.html#a6bb0924e2ea9ade0bb543e530f8e0ce5">FitzHughNagumo</a>, and <a class="el" href="class_t_t_p.html#a8d3e77d4b895caf0eb7906652e80d3cc">TTP</a>.</p>
+<p>Reimplemented in <a class="el" href="class_aliev_panfilov.html#a808e9def1cdddf717bc49f4f2de12cb1">AlievPanfilov</a>, <a class="el" href="class_bueno_orovio.html#a80a54309b88b7f6d0929632758666e64">BuenoOrovio</a>, and <a class="el" href="class_fitz_hugh_nagumo.html#a6bb0924e2ea9ade0bb543e530f8e0ce5">FitzHughNagumo</a>.</p>
 
 </div>
 </div>
