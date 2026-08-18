@@ -735,6 +735,12 @@ void struct_3d(ComMod &com_mod, CepMod &cep_mod, const int eNoN, const int nFn,
 
   for (int b = 0; b < eNoN; b++) {
 
+    // Material stiffness (D*B). This depends only on b, so compute it once per
+    // b rather than once per (a,b) pair: Dm and Bm are both filled before these
+    // loops and are only read inside them, and mat_mul overwrites DBm rather
+    // than accumulating into it. Same arithmetic, eNoN times fewer calls.
+    mat_mul(Dm, Bm.rslice(b), DBm);
+
     for (int a = 0; a < eNoN; a++) {
 
       // Geometric stiffness
@@ -745,9 +751,6 @@ void struct_3d(ComMod &com_mod, CepMod &cep_mod, const int eNoN, const int nFn,
               Nx(2,a)*S(2,2)*Nx(2,b);
 
       T1 = amd*N(a)*N(b) + afu*NxSNx;
-
-      // Material Stiffness (Bt*D*B)
-      mat_mul(Dm, Bm.rslice(b), DBm);
 
       // dM1/du1
       // Material stiffness: Bt*D*B
