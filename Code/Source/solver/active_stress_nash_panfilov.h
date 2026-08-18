@@ -69,6 +69,13 @@ public:
     return std::make_unique<Parameters>();
   }
 
+  /**
+   * @brief This model's state evolves with the calcium concentration alone
+   * (see @ref getf), so it uses neither the fiber stretch nor its rate.
+   */
+  virtual bool needs_fiber_stretch() const override { return false; }
+  virtual bool needs_fiber_stretch_rate() const override { return false; }
+
 protected:
   /**
    * @brief Read model parameters from a parameter object.

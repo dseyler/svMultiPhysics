@@ -175,6 +175,21 @@ public:
                                  const Vector<double> &fiber_stretch,
                                  const Vector<double> &fiber_stretch_rate);
 
+  /**
+   * @brief Whether this model uses the fiber stretch passed to
+   * @ref advance_time_step.
+   *
+   * Defaults to true so that a model which forgets to override it is merely
+   * slower, rather than silently receiving values it expected to be meaningful.
+   */
+  virtual bool needs_fiber_stretch() const { return true; }
+
+  /**
+   * @brief Whether this model uses the fiber stretch rate passed to
+   * @ref advance_time_step.
+   */
+  virtual bool needs_fiber_stretch_rate() const { return true; }
+
   /// Number of state variables for this model.
   const unsigned int n_states;
 

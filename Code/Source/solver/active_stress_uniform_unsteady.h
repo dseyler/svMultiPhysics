@@ -76,6 +76,13 @@ protected:
   virtual void init_local(Vector<double> &state) const override {}
 
   /**
+   * @brief This model's active tension is a function of time alone, so it uses
+   * neither the fiber stretch nor its rate.
+   */
+  virtual bool needs_fiber_stretch() const override { return false; }
+  virtual bool needs_fiber_stretch_rate() const override { return false; }
+
+  /**
    * @brief Advance in time for a single node.
    *
    * This model has no states, so this function does nothing.
