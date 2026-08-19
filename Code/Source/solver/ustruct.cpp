@@ -1403,9 +1403,11 @@ void ustruct_3d_m(ComMod &com_mod, CepMod &cep_mod, const bool vmsFlag,
   double NxSNx{0.0}, BtDB{0.0};
   double Tv{0.0}, Ku{0.0};
 
+  Array<double> DBm(6,3);
+
   for (int b = 0; b < eNoNw; b++) {
 
-    auto DBm = mat_mul(Dm, Bm.rslice(b));
+    mat_mul(Dm, Bm.rslice(b), DBm);
 
     for (int a = 0; a < eNoNw; a++) {
       NxSNx = Nwx(0,a)*Siso(0,0)*Nwx(0,b)
