@@ -97,7 +97,6 @@ namespace mat_fun {
     Vector<double> mat_mul(const Array<double>& A, const Vector<double>& v);
     Array<double> mat_mul(const Array<double>& A, const Array<double>& B);
     void mat_mul(const Array<double>& A, const Array<double>& B, Array<double>& result);
-    void mat_mul6x3(const Array<double>& A, const Array<double>& B, Array<double>& C);
 
     Array<double> mat_symm(const Array<double>& A, const int nd);
     Array<double> mat_symm_prod(const Vector<double>& u, const Vector<double>& v, const int nd);
