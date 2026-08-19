@@ -507,15 +507,9 @@ mat_mul(const Array<double>& A, const Array<double>& B)
 
   Array<double> result(A_num_rows, B_num_cols);
 
-  for (int i = 0; i < A_num_rows; i++) {
-    for (int j = 0; j < B_num_cols; j++) {
-      double sum = 0.0;
-      for (int k = 0; k < A_num_cols; k++) {
-        sum += A(i,k) * B(k,j);
-      }
-    result(i,j) = sum;
-    }
-  }
+  // Delegate rather than repeat the loop, so callers of this form reach the
+  // fixed-shape fast paths too. Most call sites use this overload.
+  mat_mul(A, B, result);
 
   return result;
 }
