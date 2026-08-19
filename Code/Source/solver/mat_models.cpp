@@ -1559,6 +1559,117 @@ void g_vol_pen(const ComMod& com_mod, const dmnType& lDmn, const double p,
   }
 }
 
+namespace {
+
+// ---------------------------------------------------------------------------
+// Fixed-size stand-ins for the mat_fun helpers the viscous kernels use.
+//
+// Only the storage changes -- from heap-allocated Array to stack-resident
+// Eigen -- so the arithmetic below is transcribed operation-for-operation from
+// mat_fun.cpp and stays bit-identical. Two of the originals are worth calling
+// out: mat_det() expands a 3x3 determinant recursively, allocating a minor and
+// calling pow() three times per evaluation, and mat_dev() costs four
+// allocations because Array's operator- and operator* both return by value.
+//
+// eNoN depends on element type; HEX27 is the largest, so the max-size Eigen
+// form keeps the nsd-by-eNoN scratch on the stack while its column count stays
+// a run-time value.
+// ---------------------------------------------------------------------------
+
+constexpr int MAX_ENON = 27;
+
+template <int nsd>
+struct VType {
+  using Mat  = Eigen::Matrix<double, nsd, nsd>;
+  using MatX = Eigen::Matrix<double, nsd, Eigen::Dynamic, 0, nsd, MAX_ENON>;
+};
+
+inline double det_fixed(const Eigen::Matrix<double, 2, 2>& A)
+{
+  return A(0,0)*A(1,1) - A(0,1)*A(1,0);
+}
+
+/// @brief mat_det()'s cofactor expansion along row 0, accumulated in its order.
+///
+/// The original multiplies each term by pow(-1.0, 2+i), which is exactly +1,
+/// -1, +1, so the signs are folded in here without changing any rounding.
+inline double det_fixed(const Eigen::Matrix<double, 3, 3>& A)
+{
+  double D = 0.0;
+  D = D + A(0,0) * (A(1,1)*A(2,2) - A(1,2)*A(2,1));
+  D = D - A(0,1) * (A(1,0)*A(2,2) - A(1,2)*A(2,0));
+  D = D + A(0,2) * (A(1,0)*A(2,1) - A(1,1)*A(2,0));
+  return D;
+}
+
+/// @brief mat_inv() for the fixed sizes, dividing each cofactor by the
+/// determinant exactly as the original does.
+///
+/// Eigen's .inverse() computes 1/d once and multiplies through, which rounds
+/// differently, so it deliberately is not used here.
+inline Eigen::Matrix<double, 2, 2> inv_fixed(const Eigen::Matrix<double, 2, 2>& A,
+                                             const double d)
+{
+  Eigen::Matrix<double, 2, 2> Ai;
+  Ai(0,0) =  A(1,1) / d;
+  Ai(0,1) = -A(0,1) / d;
+  Ai(1,0) = -A(1,0) / d;
+  Ai(1,1) =  A(0,0) / d;
+  return Ai;
+}
+
+inline Eigen::Matrix<double, 3, 3> inv_fixed(const Eigen::Matrix<double, 3, 3>& A,
+                                             const double d)
+{
+  Eigen::Matrix<double, 3, 3> Ai;
+  Ai(0,0) = (A(1,1)*A(2,2) - A(1,2)*A(2,1)) / d;
+  Ai(0,1) = (A(0,2)*A(2,1) - A(0,1)*A(2,2)) / d;
+  Ai(0,2) = (A(0,1)*A(1,2) - A(0,2)*A(1,1)) / d;
+
+  Ai(1,0) = (A(1,2)*A(2,0) - A(1,0)*A(2,2)) / d;
+  Ai(1,1) = (A(0,0)*A(2,2) - A(0,2)*A(2,0)) / d;
+  Ai(1,2) = (A(0,2)*A(1,0) - A(0,0)*A(1,2)) / d;
+
+  Ai(2,0) = (A(1,0)*A(2,1) - A(1,1)*A(2,0)) / d;
+  Ai(2,1) = (A(0,1)*A(2,0) - A(0,0)*A(2,1)) / d;
+  Ai(2,2) = (A(0,0)*A(1,1) - A(0,1)*A(1,0)) / d;
+  return Ai;
+}
+
+/// @brief mat_symm(): S(i,j) = 0.5 * (A(i,j) + A(j,i)).
+template <int nsd>
+inline Eigen::Matrix<double, nsd, nsd> symm_fixed(const Eigen::Matrix<double, nsd, nsd>& A)
+{
+  Eigen::Matrix<double, nsd, nsd> S;
+  for (int i = 0; i < nsd; i++) {
+    for (int j = 0; j < nsd; j++) {
+      S(i,j) = 0.5 * (A(i,j) + A(j,i));
+    }
+  }
+  return S;
+}
+
+/// @brief mat_dev(): A - (tr(A) / nsd) * I, elementwise as the original.
+template <int nsd>
+inline Eigen::Matrix<double, nsd, nsd> dev_fixed(const Eigen::Matrix<double, nsd, nsd>& A)
+{
+  double trA = 0.0;
+  for (int i = 0; i < nsd; i++) {
+    trA = trA + A(i,i);
+  }
+  const double c = trA / static_cast<double>(nsd);
+
+  Eigen::Matrix<double, nsd, nsd> R;
+  for (int i = 0; i < nsd; i++) {
+    for (int j = 0; j < nsd; j++) {
+      R(i,j) = A(i,j) - c * (i == j ? 1.0 : 0.0);
+    }
+  }
+  return R;
+}
+
+} // namespace
+
 /**
  * @brief Get the viscous PK2 stress and corresponding tangent matrix contributions for a solid
  * with a viscous pseudo-potential model.
@@ -1580,44 +1691,41 @@ void g_vol_pen(const ComMod& com_mod, const dmnType& lDmn, const double p,
  * @param Kvis_u Viscous tangent matrix contribution due to displacement
  * @param Kvis_v Visous tangent matrix contribution due to velocity
  */
-void compute_visc_stress_potential(const double mu, const int eNoN, const Array<double>& Nx, const Array<double>& vx, const Array<double>& F,
-                        Array<double>& Svis, Array3<double>& Kvis_u, Array3<double>& Kvis_v) {
+namespace {
 
-    using namespace consts;
-    using namespace mat_fun;
-    using namespace utils;
-
-    // Number of spatial dimensions
-    int nsd = F.nrows();
+/// @brief compute_visc_stress_potential() with the spatial dimension fixed at
+/// compile time. Same transformation as visc_newtonian_impl: heap temporaries
+/// become stack ones, arithmetic unchanged.
+template <int nsd>
+void visc_potential_impl(const double mu, const int eNoN, const Array<double>& Nx,
+                         const Array<double>& vx, const Array<double>& F,
+                         Array<double>& Svis, Array3<double>& Kvis_u,
+                         Array3<double>& Kvis_v)
+{
+    using Mat  = typename VType<nsd>::Mat;
+    using MatX = typename VType<nsd>::MatX;
 
     // Initialize Svis, Kvis_u, Kvis_v to zero
     Svis = 0.0;
     Kvis_u = 0.0;
     Kvis_v = 0.0;
 
+    Eigen::Map<const Mat> Fm(F.data());
+    Eigen::Map<const Mat> vxm(vx.data());
+    Eigen::Map<const Eigen::Matrix<double, nsd, Eigen::Dynamic>> Nxm(Nx.data(), nsd, eNoN);
 
     // Required intermediate terms for stress and tangent
-    auto Ft = transpose(F);
-    auto F_Ft = mat_mul(F, Ft);
-    auto Ft_vx = mat_mul(Ft, vx);
-    auto vxt = transpose(vx);
-    auto F_vxt = mat_mul(F, vxt);
+    const Mat F_Ft  = Fm * Fm.transpose();
+    const Mat Ft_vx = Fm.transpose() * vxm;
+    const Mat F_vxt = Fm * vxm.transpose();
 
-    //double F_Nx[nsd][eNoN] = {0}, vx_Nx[nsd][eNoN] = {0};
-    Array<double> F_Nx(nsd,eNoN), vx_Nx(nsd,eNoN);
-    
-    for (int a = 0; a < eNoN; ++a) {
-        for (int i = 0; i < nsd; ++i) {
-            for (int j = 0; j < nsd; ++j) {
-                F_Nx(i,a) += F(i,j) * Nx(j,a);
-                vx_Nx(i,a) += vx(i,j) * Nx(j,a);
-            }
-        }
-    }
+    // F_Nx(i,a) = sum_j F(i,j) * Nx(j,a); vx_Nx likewise.
+    const MatX F_Nx  = Fm * Nxm;
+    const MatX vx_Nx = vxm * Nxm;
 
     // 2nd Piola-Kirchhoff stress due to viscosity
     // Svis = mu * 1/2 * ( (F^T * dv/dX) + (F^T * dv/dX)^T )
-    Svis = mu * mat_symm(Ft_vx, nsd);
+    Eigen::Map<Mat>(Svis.data()) = mu * symm_fixed<nsd>(Ft_vx);
 
     // Tangent matrix contributions due to viscosity
     for (int b = 0; b < eNoN; ++b) {
@@ -1637,6 +1745,18 @@ void compute_visc_stress_potential(const double mu, const int eNoN, const Array<
         }
     }
 }
+
+} // namespace
+
+void compute_visc_stress_potential(const double mu, const int eNoN, const Array<double>& Nx, const Array<double>& vx, const Array<double>& F,
+                        Array<double>& Svis, Array3<double>& Kvis_u, Array3<double>& Kvis_v) {
+    if (F.nrows() == 3) {
+        visc_potential_impl<3>(mu, eNoN, Nx, vx, F, Svis, Kvis_u, Kvis_v);
+    } else {
+        visc_potential_impl<2>(mu, eNoN, Nx, vx, F, Svis, Kvis_u, Kvis_v);
+    }
+}
+
 
 /**
  * @brief Get the viscous PK2 stress and corresponding tangent matrix contributions for a solid
@@ -1659,50 +1779,56 @@ void compute_visc_stress_potential(const double mu, const int eNoN, const Array<
  * @param Kvis_u Viscous tangent matrix contribution due to displacement
  * @param Kvis_v Visous tangent matrix contribution due to velocity
  */
-void compute_visc_stress_newtonian(const double mu, const int eNoN, const Array<double>& Nx, const Array<double>& vx, const Array<double>& F,
-                           Array<double>& Svis, Array3<double>& Kvis_u, Array3<double>& Kvis_v) {
-    using namespace consts;
-    using namespace mat_fun;
-    using namespace utils;
+namespace {
 
-    // Number of spatial dimensions
-    int nsd = F.nrows();
+/// @brief compute_visc_stress_newtonian() with the spatial dimension fixed at
+/// compile time, so every temporary lives on the stack instead of the heap.
+///
+/// The original allocated roughly fifteen Arrays per Gauss point: one for each
+/// named intermediate, plus four hidden inside mat_dev() and one inside every
+/// mat_det() call. All of that is gone; the arithmetic is unchanged.
+template <int nsd>
+void visc_newtonian_impl(const double mu, const int eNoN, const Array<double>& Nx,
+                         const Array<double>& vx, const Array<double>& F,
+                         Array<double>& Svis, Array3<double>& Kvis_u,
+                         Array3<double>& Kvis_v)
+{
+    using Mat  = typename VType<nsd>::Mat;
+    using MatX = typename VType<nsd>::MatX;
 
     // Initialize Svis, Kvis_u, Kvis_v to zero
     Svis = 0.0;
     Kvis_u = 0.0;
     Kvis_v = 0.0;
 
-    // Get identity matrix, Jacobian, and F^-1
-    auto Idm = mat_id(nsd);
-    auto J = mat_det(F, nsd);
-    auto Fi = mat_inv(F, nsd);
+    // Array and Eigen are both column-major, so these alias the caller's
+    // buffers rather than copying them.
+    Eigen::Map<const Mat> Fm(F.data());
+    Eigen::Map<const Mat> vxm(vx.data());
+    Eigen::Map<const Eigen::Matrix<double, nsd, Eigen::Dynamic>> Nxm(Nx.data(), nsd, eNoN);
+
+    // Jacobian and F^-1
+    const double J = det_fixed(Mat(Fm));
+    if (utils::is_zero(fabs(J))) {
+      throw std::runtime_error("Singular matrix detected to compute inverse");
+    }
+    const Mat Fi = inv_fixed(Mat(Fm), J);
 
     // Required intermediate terms for stress and tangent
-    // vx_Fi: Velocity gradient in current configuration          
-    auto vx_Fi = mat_mul(vx, Fi);
-    auto vx_Fi_symm = mat_symm(vx_Fi, nsd);
+    // vx_Fi: Velocity gradient in current configuration
+    const Mat vx_Fi = vxm * Fi;
     // ddev: Deviatoric part of rate of strain tensor
-    auto ddev = mat_dev(vx_Fi_symm, nsd);
-    //double Nx_Fi[nsd][eNoN] = {0}, ddev_Nx_Fi[nsd][eNoN] = {0}, vx_Fi_Nx_Fi[nsd][eNoN] = {0};
-    Array<double> Nx_Fi(nsd,eNoN), ddev_Nx_Fi(nsd,eNoN), vx_Fi_Nx_Fi(nsd,eNoN);
-    for (int a = 0; a < eNoN; ++a) {
-        for (int i = 0; i < nsd; ++i) {
-            for (int j = 0; j < nsd; ++j) {
-                Nx_Fi(i,a) += Nx(j,a) * Fi(j,i);
-            }
-        }
-    }
+    const Mat ddev = dev_fixed<nsd>(symm_fixed<nsd>(vx_Fi));
 
-    mat_mul(ddev,  Nx_Fi, ddev_Nx_Fi);
-    mat_mul(vx_Fi, Nx_Fi, vx_Fi_Nx_Fi);
+    // Nx_Fi(i,a) = sum_j Nx(j,a) * Fi(j,i), i.e. Fi^T * Nx.
+    const MatX Nx_Fi      = Fi.transpose() * Nxm;
+    const MatX ddev_Nx_Fi = ddev * Nx_Fi;
+    const MatX vx_Fi_Nx_Fi = vx_Fi * Nx_Fi;
 
     // 2nd Piola-Kirchhoff stress due to viscosity
     // Svis = 2 * mu * J * F^-1 * d_dev * F^-T
-    auto Fit = transpose(Fi);
-    auto ddev_Fit = mat_mul(ddev, Fit);
-    auto Fi_ddev_Fit = mat_mul(Fi, ddev_Fit);
-    Svis = 2.0 * mu * J * Fi_ddev_Fit;
+    const Mat Fi_ddev_Fit = Fi * (ddev * Fi.transpose());
+    Eigen::Map<Mat>(Svis.data()) = 2.0 * mu * J * Fi_ddev_Fit;
 
     // Tangent matrix contributions due to viscosity
     double r2d = 2.0 / nsd;
@@ -1718,17 +1844,30 @@ void compute_visc_stress_newtonian(const double mu, const int eNoN, const Array<
                     int ii = i * nsd + j;
 
                     // Derivative of the residual w.r.t displacement
-                    Kvis_u(ii,a,b) = mu * J * (2.0 * 
+                    Kvis_u(ii,a,b) = mu * J * (2.0 *
                                     (ddev_Nx_Fi(i,a) * Nx_Fi(j,b) - ddev_Nx_Fi(i,b) * Nx_Fi(j,a)) -
                                     (Nx_Fi_Nx_Fi * vx_Fi(i,j) + Nx_Fi(i,b) * vx_Fi_Nx_Fi(j,a) -
                                     r2d * Nx_Fi(i,a) * vx_Fi_Nx_Fi(j,b)));
 
                     // Derivative of the residual w.r.t velocity
-                    Kvis_v(ii,a,b) = mu * J * (Nx_Fi_Nx_Fi * Idm(i,j) +
+                    // Idm(i,j) was a freshly allocated identity matrix per call.
+                    Kvis_v(ii,a,b) = mu * J * (Nx_Fi_Nx_Fi * (i == j ? 1.0 : 0.0) +
                                     Nx_Fi(i,b) * Nx_Fi(j,a) - r2d * Nx_Fi(i,a) * Nx_Fi(j,b));
                 }
             }
         }
+    }
+}
+
+} // namespace
+
+void compute_visc_stress_newtonian(const double mu, const int eNoN, const Array<double>& Nx, const Array<double>& vx, const Array<double>& F,
+                           Array<double>& Svis, Array3<double>& Kvis_u, Array3<double>& Kvis_v) {
+    // Dispatch on the spatial dimension; both 2D and 3D solid kernels call here.
+    if (F.nrows() == 3) {
+        visc_newtonian_impl<3>(mu, eNoN, Nx, vx, F, Svis, Kvis_u, Kvis_v);
+    } else {
+        visc_newtonian_impl<2>(mu, eNoN, Nx, vx, F, Svis, Kvis_u, Kvis_v);
     }
 }
 
