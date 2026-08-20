@@ -465,17 +465,11 @@ void Integrator::predictor()
 
   // Determine if we need to compute fiber stretch and stretch rate, by going
   // through all domains of all equations until we find one for which active
-  // stress is enabled.
+  // stress is enabled and the active stres model needs the stretch or stretch rate.
   //
-  // Two separate questions are being answered here:
-  //   have_active_stress - is an active stress model present at all? If so the
-  //     stretch vectors are indexed for every node by
-  //     ActiveStress::advance_time_step and must be allocated, whether or not
-  //     the model reads the values.
-  //   need_fiber_stretch{,_rate} - does anything actually consume the values?
-  //     Only then is the per-element Gauss-point loop in post::fib_stretch
-  //     worth running; otherwise the defaults below (no stretch, no movement)
-  //     are handed to the model unchanged.
+  // have_active_stress is tracked separately from need_fiber_stretch because
+  // advance_time_step() indexes both vectors for every node whether or not the
+  // model reads the values, so they must be allocated either way.
   bool have_active_stress = false;
   bool need_fiber_stretch = false;
   bool need_fiber_stretch_rate = false;
@@ -489,9 +483,9 @@ void Integrator::predictor()
       for (const auto &dmn : eq.dmn) {
         if (dmn.active_stress != nullptr) {
           have_active_stress = true;
-          need_fiber_stretch |= dmn.active_stress->needs_fiber_stretch();
+          need_fiber_stretch |= dmn.active_stress->needs_fiber_stretch;
           need_fiber_stretch_rate |=
-              dmn.active_stress->needs_fiber_stretch_rate();
+              dmn.active_stress->needs_fiber_stretch_rate;
         }
       }
     }
@@ -501,42 +495,44 @@ void Integrator::predictor()
     }
   }
 
-  // Allocate whenever the vectors will be read, and default them to no stretch
-  // and no movement. That covers both the case where no domain solves for the
-  // displacement and the case where the active stress models present do not
-  // read these values at all.
+  // If we need to compute fiber stretch, we iterate through all meshes, compute
+  // the stretch for each mesh, and then copy the mesh-local resulting vector
+  // into the global vector.
   if (have_active_stress || need_fiber_stretch) {
     fiber_stretch.resize(com_mod.tnNo);
-    fiber_stretch = 1.0;
-  }
 
-  if (have_active_stress || need_fiber_stretch_rate) {
-    fiber_stretch_rate.resize(com_mod.tnNo);
-    fiber_stretch_rate = 0.0;
-  }
+    if (need_fiber_stretch && fiber_stretch_eq_index >= 0) {
+      for (const auto &mesh : com_mod.msh) {
+        Vector<double> tmp(mesh.nNo);
 
-  // If something consumes the fiber stretch, we iterate through all meshes,
-  // compute the stretch for each mesh, and then copy the mesh-local resulting
-  // vector into the global vector.
-  if (need_fiber_stretch && fiber_stretch_eq_index >= 0) {
-    for (const auto &mesh : com_mod.msh) {
-      Vector<double> tmp(mesh.nNo);
-
-      post::fib_stretch(com_mod, fiber_stretch_eq_index, mesh, Dn, tmp);
-      for (int a = 0; a < mesh.nNo; ++a)
-        fiber_stretch[mesh.gN[a]] = tmp[a];
+        post::fib_stretch(com_mod, fiber_stretch_eq_index, mesh, Dn, tmp);
+        for (int a = 0; a < mesh.nNo; ++a)
+          fiber_stretch[mesh.gN[a]] = tmp[a];
+      }
+    } else {
+      // No domain solves for the displacement, or no model reads the stretch:
+      // set the fiber stretch to 1, corresponding to no stretch.
+      fiber_stretch = 1.0;
     }
   }
 
   // Same for fiber stretch rate.
-  if (need_fiber_stretch_rate && fiber_stretch_eq_index >= 0) {
-    for (const auto &mesh : com_mod.msh) {
-      Vector<double> tmp(mesh.nNo);
+  if (have_active_stress) {
+    fiber_stretch_rate.resize(com_mod.tnNo);
 
-      post::fib_stretch_rate(com_mod, fiber_stretch_eq_index, mesh,
-                             solutions_, tmp);
-      for (int a = 0; a < mesh.nNo; ++a)
-        fiber_stretch_rate[mesh.gN[a]] = tmp[a];
+    if (need_fiber_stretch_rate && fiber_stretch_eq_index >= 0) {
+      for (const auto &mesh : com_mod.msh) {
+        Vector<double> tmp(mesh.nNo);
+
+        post::fib_stretch_rate(com_mod, fiber_stretch_eq_index, mesh,
+                               solutions_, tmp);
+        for (int a = 0; a < mesh.nNo; ++a)
+          fiber_stretch_rate[mesh.gN[a]] = tmp[a];
+      }
+    } else {
+      // If we didn't find any domain solving for the displacement, then we set
+      // the fiber stretch rate to 0, corresponding to no movement.
+      fiber_stretch_rate = 0.0;
     }
   }
 

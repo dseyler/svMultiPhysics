@@ -103,8 +103,15 @@ public:
    * @brief Constructor.
    *
    * @param n_states_ Number of state variables for this model.
+   * @param needs_fiber_stretch_ Whether this model uses the fiber stretch
+   *   passed to @ref advance_time_step.
+   * @param needs_fiber_stretch_rate_ Whether this model uses the fiber stretch
+   *   rate passed to @ref advance_time_step.
    */
-  ActiveStress(const unsigned int n_states_) : n_states(n_states_) {}
+  ActiveStress(const unsigned int n_states_, const bool needs_fiber_stretch_,
+               const bool needs_fiber_stretch_rate_)
+      : n_states(n_states_), needs_fiber_stretch(needs_fiber_stretch_),
+        needs_fiber_stretch_rate(needs_fiber_stretch_rate_) {}
 
   /**
    * @brief Virtual destructor.
@@ -175,23 +182,14 @@ public:
                                  const Vector<double> &fiber_stretch,
                                  const Vector<double> &fiber_stretch_rate);
 
-  /**
-   * @brief Whether this model uses the fiber stretch passed to
-   * @ref advance_time_step.
-   *
-   * Defaults to true so that a model which forgets to override it is merely
-   * slower, rather than silently receiving values it expected to be meaningful.
-   */
-  virtual bool needs_fiber_stretch() const { return true; }
-
-  /**
-   * @brief Whether this model uses the fiber stretch rate passed to
-   * @ref advance_time_step.
-   */
-  virtual bool needs_fiber_stretch_rate() const { return true; }
-
   /// Number of state variables for this model.
   const unsigned int n_states;
+
+  /// Whether this model uses the fiber stretch passed to
+  const bool needs_fiber_stretch;
+
+  /// Whether this model uses the fiber stretch rate passed to
+  const bool needs_fiber_stretch_rate;
 
 protected:
   /**

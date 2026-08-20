@@ -37,7 +37,9 @@ public:
   /**
    * @brief Constructor.
    */
-  UniformUnsteadyActiveStress() : ActiveStress(/* n_states = */ 0) {}
+  UniformUnsteadyActiveStress() : ActiveStress(/* n_states = */ 0,
+                          /* needs_fiber_stretch = */ false,
+                          /* needs_fiber_stretch_rate = */ false) {}
 
   /**
    * @brief Construct an instance of model parameters.
@@ -75,12 +77,6 @@ protected:
    */
   virtual void init_local(Vector<double> &state) const override {}
 
-  /**
-   * @brief This model's active tension is a function of time alone, so it uses
-   * neither the fiber stretch nor its rate.
-   */
-  virtual bool needs_fiber_stretch() const override { return false; }
-  virtual bool needs_fiber_stretch_rate() const override { return false; }
 
   /**
    * @brief Advance in time for a single node.

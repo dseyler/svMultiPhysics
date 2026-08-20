@@ -59,7 +59,9 @@ public:
   /**
    * @brief Constructor.
    */
-  NashPanfilov() : ActiveStressODE(1) {}
+  NashPanfilov() : ActiveStressODE(/* n_state_variables = */ 1,
+                                  /* needs_fiber_stretch = */ false,
+                                  /* needs_fiber_stretch_rate = */ false) {}
 
   /**
    * @brief Construct an instance of model parameters.
@@ -69,12 +71,6 @@ public:
     return std::make_unique<Parameters>();
   }
 
-  /**
-   * @brief This model's state evolves with the calcium concentration alone
-   * (see @ref getf), so it uses neither the fiber stretch nor its rate.
-   */
-  virtual bool needs_fiber_stretch() const override { return false; }
-  virtual bool needs_fiber_stretch_rate() const override { return false; }
 
 protected:
   /**
