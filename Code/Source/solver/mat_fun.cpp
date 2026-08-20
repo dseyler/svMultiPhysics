@@ -508,7 +508,8 @@ mat_mul(const Array<double>& A, const Array<double>& B)
   Array<double> result(A_num_rows, B_num_cols);
 
   // Delegate rather than repeat the loop, so callers of this form reach the
-  // fixed-shape fast paths too. Most call sites use this overload.
+  // Fall back onto the overload of this function that takes the result matrix
+  // as an output argument.
   mat_mul(A, B, result);
 
   return result;
