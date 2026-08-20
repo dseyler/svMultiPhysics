@@ -103,8 +103,15 @@ public:
    * @brief Constructor.
    *
    * @param n_states_ Number of state variables for this model.
+   * @param needs_fiber_stretch_ Whether this model uses the fiber stretch
+   *   passed to @ref advance_time_step.
+   * @param needs_fiber_stretch_rate_ Whether this model uses the fiber stretch
+   *   rate passed to @ref advance_time_step.
    */
-  ActiveStress(const unsigned int n_states_) : n_states(n_states_) {}
+  ActiveStress(const unsigned int n_states_, const bool needs_fiber_stretch_,
+               const bool needs_fiber_stretch_rate_)
+      : n_states(n_states_), needs_fiber_stretch(needs_fiber_stretch_),
+        needs_fiber_stretch_rate(needs_fiber_stretch_rate_) {}
 
   /**
    * @brief Virtual destructor.
@@ -177,6 +184,12 @@ public:
 
   /// Number of state variables for this model.
   const unsigned int n_states;
+
+  /// Whether this model uses fiber stretch.
+  const bool needs_fiber_stretch;
+
+  /// Whether this model uses fiber stretch rate.
+  const bool needs_fiber_stretch_rate;
 
 protected:
   /**
