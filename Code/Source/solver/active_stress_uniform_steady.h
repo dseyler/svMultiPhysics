@@ -33,7 +33,7 @@ public:
   /**
    * @brief Constructor.
    */
-  UniformSteadyActiveStress() : ActiveStress(/* n_states = */ 0, 
+  UniformSteadyActiveStress() : ActiveStress(/* n_states = */ 0,
                      /* needs_fiber_stretch = */ false,
                      /* needs_fiber_stretch_rate = */ false) {}
 
