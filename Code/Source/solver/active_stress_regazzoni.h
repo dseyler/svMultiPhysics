@@ -135,7 +135,6 @@ public:
     return std::make_unique<Parameters>();
   }
 
-
 protected:
   /**
    * @brief Read model parameters from a parameter object.

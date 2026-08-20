@@ -65,7 +65,6 @@ protected:
    */
   virtual void init_local(Vector<double> &state) const override {}
 
-
   /**
    * @brief Advance in time for a single node.
    *

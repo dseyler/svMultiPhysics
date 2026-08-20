@@ -185,10 +185,10 @@ public:
   /// Number of state variables for this model.
   const unsigned int n_states;
 
-  /// Whether this model uses the fiber stretch passed to
+  /// Whether this model uses fiber stretch.
   const bool needs_fiber_stretch;
 
-  /// Whether this model uses the fiber stretch rate passed to
+  /// Whether this model uses fiber stretch rate.
   const bool needs_fiber_stretch_rate;
 
 protected:
