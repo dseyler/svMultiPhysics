@@ -13,6 +13,7 @@
 */
 
 #include "trilinos_impl.h"
+#include "Profiler.h"
 #include "ComMod.h"
 #define NOOUTPUT
 
@@ -546,7 +547,10 @@ void trilinos_solve_(const Teuchos::RCP<Trilinos> &trilinos_, double *x, const d
   */
   auto BelosProblem = Teuchos::rcp(new Belos_LinearProblem(K_bdry, trilinos_->X, trilinos_->F));
 
-  setPreconditioner(trilinos_, precondType, BelosProblem);
+  {
+    SVMP_PROFILE_PHASE("ls_precond");
+    setPreconditioner(trilinos_, precondType, BelosProblem);
+  }
 
   bool set = BelosProblem->setProblem();
   if (!set) {
@@ -609,6 +613,7 @@ void trilinos_solve_(const Teuchos::RCP<Trilinos> &trilinos_, double *x, const d
   timer.stop();
 
   solverTime = timer.totalElapsedTime();
+  SVMP_PROFILE_ADD("ls_iterate", solverTime);
 
   if (result == Belos::Converged) {
     converged = true;

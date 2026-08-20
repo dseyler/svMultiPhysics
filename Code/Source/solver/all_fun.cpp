@@ -3,6 +3,8 @@
 
 #include "all_fun.h"
 
+#include "Profiler.h"
+
 #include "fsils_api.hpp"
 #include "mat_fun.h"
 #include "nn.h"
@@ -413,7 +415,10 @@ double integ(const ComMod& com_mod, const CmMod& cm_mod, int iM, const Array<dou
   if (com_mod.cm.seq()) {
     return result;
   }
-  result = com_mod.cm.reduce(cm_mod, result);
+  {
+    SVMP_PROFILE_PHASE("mpi_integ_reduce");
+    result = com_mod.cm.reduce(cm_mod, result);
+  }
   return result;
 }
 ///////////////////////////////////////////////////////////////////////////
@@ -672,7 +677,10 @@ double integ(const ComMod& com_mod, const CmMod& cm_mod, int dId, const Array<do
     return result;
   }
 
-  result = com_mod.cm.reduce(cm_mod, result);
+  {
+    SVMP_PROFILE_PHASE("mpi_integ_reduce");
+    result = com_mod.cm.reduce(cm_mod, result);
+  }
   return result;
 }
 
@@ -834,7 +842,10 @@ double integ(const ComMod& com_mod, const CmMod& cm_mod, const faceType& lFa, co
     return result; 
   }
 
-  result = com_mod.cm.reduce(cm_mod, result);
+  {
+    SVMP_PROFILE_PHASE("mpi_integ_reduce");
+    result = com_mod.cm.reduce(cm_mod, result);
+  }
   return result; 
 }
 
@@ -961,7 +972,10 @@ double integ(const ComMod& com_mod, const CmMod& cm_mod, const faceType& lFa,
     return result; 
   }
 
-  result = cm.reduce(cm_mod, result);
+  {
+    SVMP_PROFILE_PHASE("mpi_integ_reduce");
+    result = cm.reduce(cm_mod, result);
+  }
 
   return result; 
 }

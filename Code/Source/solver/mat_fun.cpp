@@ -3,6 +3,8 @@
 
 #include "mat_fun.h"
 
+#include "Profiler.h"
+
 #include "consts.h"
 
 #include "utils.h"
@@ -33,6 +35,7 @@ double mat_ddot(const Array<double>& A, const Array<double>& B, const int nd)
 double 
 mat_det(const Array<double>& A, const int nd)
 {
+  SVMP_PROFILE_OP(mat_det, nd, -1, nd);
   double D = 0.0;
 
   if (nd == 2) {
@@ -66,6 +69,7 @@ mat_det(const Array<double>& A, const int nd)
 Array<double> 
 mat_dev(const Array<double>& A, const int nd)
 {
+  SVMP_PROFILE_OP(mat_dev, nd, -1, nd);
   Array<double> result(nd,nd);
 
   double trA = mat_trace(A,nd);
@@ -80,6 +84,7 @@ mat_dev(const Array<double>& A, const int nd)
 Array<double> 
 mat_dyad_prod(const Vector<double>& u, const Vector<double>& v, const int nd)
 {
+  SVMP_PROFILE_OP(mat_dyad_prod, nd, -1, nd);
   Array<double> result(nd,nd);
 
   for (int j = 0; j < nd; j++) {
@@ -94,6 +99,7 @@ mat_dyad_prod(const Vector<double>& u, const Vector<double>& v, const int nd)
 Array<double> 
 mat_id(const int nd)
 {
+  SVMP_PROFILE_OP(mat_id, nd, -1, nd);
   Array<double> A(nd,nd);
 
   for (int i = 0; i < nd; i++) {
@@ -108,6 +114,7 @@ mat_id(const int nd)
 Array<double> 
 mat_inv(const Array<double>& A, const int nd, bool debug)
 {
+  SVMP_PROFILE_OP(mat_inv, nd, -1, nd);
   int iok = 0;
   Array<double> Ainv(nd,nd);
 
@@ -465,6 +472,7 @@ mat_inv_lp_eigen(const Array<double>& A, const int nd)
 Vector<double> 
 mat_mul(const Array<double>& A, const Vector<double>& v)
 {
+  SVMP_PROFILE_OP(mat_mul_vec, A.nrows(), A.ncols(), 1);
   int num_rows = A.nrows();
   int num_cols = A.ncols();
 
@@ -495,6 +503,7 @@ mat_mul(const Array<double>& A, const Vector<double>& v)
 Array<double> 
 mat_mul(const Array<double>& A, const Array<double>& B)
 {
+  SVMP_PROFILE_OP(mat_mul_return, A.nrows(), A.ncols(), B.ncols());
   int A_num_rows = A.nrows();
   int A_num_cols = A.ncols();
   int B_num_rows = B.nrows();
@@ -552,6 +561,7 @@ inline void mat_mul_fixed_rows(const Array<double>& A, const Array<double>& B, A
 
 void mat_mul(const Array<double>& A, const Array<double>& B, Array<double>& result)
 { 
+  SVMP_PROFILE_OP(mat_mul_inplace, A.nrows(), A.ncols(), B.ncols());
   // Fixed-shape fast paths for the products that dominate the element loops.
   //
   //   3x3 * 3x3     F*S in struct_3d; vx*Fi, ddev*Fit, Fi*ddev_Fit and the
@@ -602,6 +612,7 @@ void mat_mul(const Array<double>& A, const Array<double>& B, Array<double>& resu
 Array<double> 
 mat_symm(const Array<double>& A, const int nd)
 {
+  SVMP_PROFILE_OP(mat_symm, nd, -1, nd);
   Array<double> S(nd, nd);
 
   for (int i = 0; i < nd; i++) { 
@@ -619,6 +630,7 @@ mat_symm(const Array<double>& A, const int nd)
 Array<double> 
 mat_symm_prod(const Vector<double>& u, const Vector<double>& v, const int nd)
 {
+  SVMP_PROFILE_OP(mat_symm_prod, nd, -1, nd);
   Array<double> result(nd, nd);
 
   for (int i = 0; i < nd; i++) { 
@@ -651,6 +663,7 @@ double mat_trace(const Array<double>& A, const int nd)
 Tensor4<double> 
 ten_asym_prod12(const Array<double>& A, const Array<double>& B, const int nd)
 {
+  SVMP_PROFILE_OP(ten_asym_prod12, nd, nd, nd);
   Tensor4<double> C(nd,nd,nd,nd);
 
   int nn = pow(nd,4);
@@ -831,6 +844,7 @@ void ten_init(const int nd)
 Tensor4<double>  
 ten_dyad_prod(const Array<double>& A, const Array<double>& B, const int nd)
 {   
+  SVMP_PROFILE_OP(ten_dyad_prod, nd, nd, nd);
   int nn = pow(nd,4);
   Tensor4<double> C(nd,nd,nd,nd);
   
@@ -869,6 +883,7 @@ ten_ids(const int nd)
 Array<double> 
 ten_mddot(const Tensor4<double>& A, const Array<double>& B, const int nd) 
 {
+  SVMP_PROFILE_OP(ten_mddot, nd, nd, nd);
   Array<double> C(nd,nd);
 
   if (nd == 2) {
@@ -899,6 +914,7 @@ ten_mddot(const Tensor4<double>& A, const Array<double>& B, const int nd)
 Tensor4<double> 
 ten_symm_prod(const Array<double>& A, const Array<double>& B, const int nd)
 {
+  SVMP_PROFILE_OP(ten_symm_prod, nd, nd, nd);
   int nn = pow(nd,4);
   Tensor4<double> C(nd,nd,nd,nd);
   
@@ -935,6 +951,7 @@ ten_transpose(const Tensor4<double>& A, const int nd)
 Array<double> 
 transpose(const Array<double>& A)
 {
+  SVMP_PROFILE_OP(transpose, A.ncols(), -1, A.nrows());
   int num_rows = A.nrows();
   int num_cols = A.ncols();
   Array<double> result(num_cols, num_rows);

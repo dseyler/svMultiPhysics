@@ -2,6 +2,8 @@
 // SPDX-License-Identifier: BSD-3-Clause
 
 #include "Integrator.h"
+
+#include "Profiler.h"
 #include "Core/Exception.h"
 #include "all_fun.h"
 #include "bf.h"
@@ -63,6 +65,7 @@ void Integrator::initialize_arrays() {
 //------------------------
 /// @brief Execute one Newton iteration loop for the current time step
 bool Integrator::step() {
+  SVMP_PROFILE_PHASE("step_total");
   using namespace consts;
 
   auto& com_mod = simulation_->com_mod;
@@ -125,6 +128,7 @@ bool Integrator::step() {
       #ifdef debug_integrator_step
       dmsg << "Synchronize R across processes ..." << std::endl;
       #endif
+      SVMP_PROFILE_PHASE("mpi_commu_residual");
       all_fun::commu(com_mod, com_mod.R);
     }
 
@@ -177,6 +181,7 @@ bool Integrator::step() {
 // initiator_step
 //------------------------
 void Integrator::initiator_step() {
+  SVMP_PROFILE_PHASE("newton_initiator");
   #ifdef debug_integrator_step
   DebugMsg dmsg(__func__, simulation_->com_mod.cm.idcm());
   dmsg << "Initiator step ..." << std::endl;
@@ -196,6 +201,7 @@ void Integrator::initiator_step() {
 // allocate_linear_system
 //------------------------
 void Integrator::allocate_linear_system(eqType& eq) {
+  SVMP_PROFILE_PHASE("newton_alloc_ls");
   #ifdef debug_integrator_step
   DebugMsg dmsg(__func__, simulation_->com_mod.cm.idcm());
   dmsg << "Allocating the RHS and LHS" << std::endl;
@@ -212,6 +218,7 @@ void Integrator::allocate_linear_system(eqType& eq) {
 // set_body_forces
 //------------------------
 void Integrator::set_body_forces() {
+  SVMP_PROFILE_PHASE("newton_body_force");
   #ifdef debug_integrator_step
   DebugMsg dmsg(__func__, simulation_->com_mod.cm.idcm());
   dmsg << "Set body forces ..." << std::endl;
@@ -228,6 +235,7 @@ void Integrator::set_body_forces() {
 // assemble_equations
 //------------------------
 void Integrator::assemble_equations() {
+  SVMP_PROFILE_PHASE("newton_assembly");
   auto& com_mod = simulation_->com_mod;
   auto& cep_mod = simulation_->get_cep_mod();
 
@@ -250,6 +258,7 @@ void Integrator::assemble_equations() {
 // apply_boundary_conditions
 //------------------------
 void Integrator::apply_boundary_conditions() {
+  SVMP_PROFILE_PHASE("newton_bc");
   auto& com_mod = simulation_->com_mod;
   auto& cm_mod = simulation_->cm_mod;
 
@@ -261,7 +270,10 @@ void Integrator::apply_boundary_conditions() {
   #endif
 
   // Apply Neumann or Traction boundary conditions
-  set_bc::set_bc_neu(com_mod, cm_mod, solutions_);
+  {
+    SVMP_PROFILE_PHASE("bc_neu");
+    set_bc::set_bc_neu(com_mod, cm_mod, solutions_);
+  }
 
   // Apply CMM BC conditions
   if (!com_mod.cmmInit) {
@@ -269,7 +281,10 @@ void Integrator::apply_boundary_conditions() {
   }
 
   // Apply weakly applied Dirichlet BCs
-  set_bc::set_bc_dir_w(com_mod, solutions_);
+  {
+    SVMP_PROFILE_PHASE("bc_dir_w");
+    set_bc::set_bc_dir_w(com_mod, solutions_);
+  }
 
   if (com_mod.risFlag) {
     ris::ris_resbc(com_mod, solutions_);
@@ -296,6 +311,7 @@ void Integrator::apply_boundary_conditions() {
 // solve_linear_system
 //------------------------
 void Integrator::solve_linear_system() {
+  SVMP_PROFILE_PHASE("newton_solve");
   auto& com_mod = simulation_->com_mod;
   auto& eq = com_mod.eq[com_mod.cEq];
 
@@ -316,6 +332,7 @@ void Integrator::solve_linear_system() {
 // corrector_and_check_convergence
 //------------------------
 bool Integrator::corrector_and_check_convergence() {
+  SVMP_PROFILE_PHASE("newton_corrector");
   auto& com_mod = simulation_->com_mod;
 
   #ifdef debug_integrator_step
@@ -338,6 +355,7 @@ bool Integrator::corrector_and_check_convergence() {
 // update_residual_arrays
 //------------------------
 void Integrator::update_residual_arrays(eqType& eq) {
+  SVMP_PROFILE_PHASE("newton_residual");
   using namespace consts;
 
   auto& com_mod = simulation_->com_mod;
@@ -392,6 +410,7 @@ void Integrator::update_residual_arrays(eqType& eq) {
 ///
 void Integrator::predictor()
 {
+  SVMP_PROFILE_PHASE("predictor");
   using namespace consts;
 
   auto& com_mod = simulation_->com_mod;

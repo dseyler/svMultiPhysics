@@ -15,6 +15,11 @@
 #define Array3_check_enabled
 #endif
 
+// If set then maintain the allocation counters declared below.
+#ifdef ENABLE_PROFILING
+#define Array3_gather_stats
+#endif
+
 template<typename T>
 
 /*! @brief The Array3 template class implements a simple interface to 3D arrays.
@@ -41,8 +46,10 @@ class Array3
       slice_size_ = 0;
       size_ = 0;
       data_ = nullptr;
+      #ifdef Array3_gather_stats
       num_allocated += 1;
       active += 1;
+      #endif
     };
 
     Array3(const int num_rows, const int num_cols, const int num_slices, bool row_major=true) 
@@ -58,8 +65,10 @@ class Array3
       }
 
       allocate(num_rows, num_cols, num_slices, row_major);
+      #ifdef Array3_gather_stats
       num_allocated += 1;
       active += 1;
+      #endif
     }
 
     /// @brief Array copy
@@ -71,16 +80,20 @@ class Array3
 
       allocate(rhs.nrows_, rhs.ncols_, rhs.nslices_);
       memcpy(data_, rhs.data_, size_*sizeof(T));
+      #ifdef Array3_gather_stats
       num_allocated += 1;
       active += 1;
+      #endif
     }
 
     ~Array3() 
     {
       if (data_ != nullptr) {
+        #ifdef Array3_gather_stats
         memory_in_use -= sizeof(T) * size_;;
         memory_returned += sizeof(T) * size_;;
         active -= 1;
+        #endif
         delete [] data_;
         data_ = nullptr;
        }
@@ -99,7 +112,9 @@ class Array3
       size_ = nrows_ * ncols_ * nslices_;
       data_ = new T [size_];
       memset(data_, 0, sizeof(T)*size_);
+      #ifdef Array3_gather_stats
       memory_in_use += sizeof(T) * size_;;
+      #endif
     }
 
     void check_index(const int i, const int j, const int k) const
@@ -140,8 +155,10 @@ class Array3
     {
       if (data_ != nullptr) {
         delete [] data_;
+        #ifdef Array3_gather_stats
         memory_in_use -= sizeof(T) * size_;;
         memory_returned += sizeof(T) * size_;;
+        #endif
       }
 
       nrows_ = 0;
@@ -255,8 +272,10 @@ class Array3
 
       if (data_ != nullptr) {
         delete [] data_;
+        #ifdef Array3_gather_stats
         memory_in_use -= sizeof(T) * size_;;
         memory_returned += sizeof(T) * size_;;
+        #endif
         data_ = nullptr;
       }
 
