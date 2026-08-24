@@ -243,10 +243,7 @@ std::pair<Matrix<nsd>, Tensor<nsd>> bar_to_iso(
   auto S_iso = J2d*S_bar - r1*Ci;
 
   // Compute isochoric material elasticity tensor
-  Tensor<nsd> PP = fourth_order_identity<nsd>() - (1.0/nsd) * dyadic_product<nsd>(Ci, C); // Important: using auto here causes tests to fail
-  auto CC_iso = double_dot_product<nsd>(CC_bar, {2,3}, PP, {2,3});
-  CC_iso = transpose<nsd>(CC_iso);
-  CC_iso = double_dot_product<nsd>(PP, {2,3}, CC_iso, {2,3});
+  auto CC_iso = isochoric_projection<nsd>(CC_bar, Ci, C);
   CC_iso += (-2.0/nsd) * (dyadic_product<nsd>(Ci, S_iso) + dyadic_product<nsd>(S_iso, Ci));
   CC_iso += 2.0 * r1 * symmetric_dyadic_product<nsd>(Ci, Ci) + (- 2.0*r1/nsd) * dyadic_product<nsd>(Ci, Ci);
 

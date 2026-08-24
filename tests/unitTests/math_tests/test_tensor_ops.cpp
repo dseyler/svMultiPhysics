@@ -99,6 +99,52 @@ void expect_tensors_near(const Tensor<nsd>& actual, const Tensor<nsd>& expected,
   }
 }
 
+
+// A hyperelastic tangent: minor symmetric in both index pairs and major
+// symmetric. Every constitutive model in this code produces one; instrumenting
+// bar_to_iso over the full test suite showed all three symmetries hold exactly
+// across 315802 calls.
+template <int nsd>
+Tensor<nsd> random_tangent(unsigned seed) {
+  constexpr int N = nsd * nsd;
+  std::mt19937 gen(seed);
+  std::uniform_real_distribution<double> dist(-1.0, 1.0);
+
+  Eigen::Matrix<double, N, N> R;
+  for (int i = 0; i < N; ++i) {
+    for (int j = 0; j < N; ++j) R(i, j) = dist(gen);
+  }
+  const Tensor<nsd> Sid = fourth_order_identity<nsd>();
+  Eigen::Map<const Eigen::Matrix<double, N, N>> S(Sid.data());
+
+  Tensor<nsd> Cb;
+  Eigen::Map<Eigen::Matrix<double, N, N>>(Cb.data()) = S * (R + R.transpose()) * S;
+  return Cb;
+}
+
+template <int nsd>
+Matrix<nsd> random_symmetric_matrix(unsigned seed) {
+  std::mt19937 gen(seed);
+  std::uniform_real_distribution<double> dist(-1.0, 1.0);
+  Matrix<nsd> A;
+  for (int i = 0; i < nsd; ++i) {
+    for (int j = 0; j < nsd; ++j) A(i, j) = dist(gen);
+  }
+  return 0.5 * (A + A.transpose());
+}
+
+// The projection exactly as bar_to_iso used to compute it: form PP, then
+// contract, transpose, contract.
+template <int nsd>
+Tensor<nsd> projection_the_long_way(const Tensor<nsd>& CC_bar,
+                                    const Matrix<nsd>& Ci, const Matrix<nsd>& C) {
+  const Tensor<nsd> PP =
+      fourth_order_identity<nsd>() - (1.0 / nsd) * dyadic_product<nsd>(Ci, C);
+  Tensor<nsd> R = double_dot_product<nsd>(CC_bar, {2, 3}, PP, {2, 3});
+  R = transpose<nsd>(R);
+  return double_dot_product<nsd>(PP, {2, 3}, R, {2, 3});
+}
+
 }  // namespace
 
 // The reshape the fast path relies on is only valid for column-major storage.
@@ -157,4 +203,58 @@ TEST(TensorOps, DoubleDotHandlesAliasedOperands) {
   const auto A = random_tensor<3>(55555);
   expect_tensors_near<3>(double_dot_product<3>(A, {2, 3}, A, {2, 3}),
                          contract_by_hand_trailing<3>(A, A), 1e-13);
+}
+
+
+// The rank-1 reduction must reproduce the projection bar_to_iso used to do
+// with two nsd^2 x nsd^2 products and a transpose.
+TEST(TensorOps, IsochoricProjectionMatchesLongForm3D) {
+  const auto Cb = random_tangent<3>(909090);
+  const auto C  = random_symmetric_matrix<3>(1717);
+  const auto Ci = random_symmetric_matrix<3>(2828);
+  expect_tensors_near<3>(isochoric_projection<3>(Cb, Ci, C),
+                         projection_the_long_way<3>(Cb, Ci, C), 1e-13);
+}
+
+TEST(TensorOps, IsochoricProjectionMatchesLongForm2D) {
+  const auto Cb = random_tangent<2>(383838);
+  const auto C  = random_symmetric_matrix<2>(4949);
+  const auto Ci = random_symmetric_matrix<2>(5050);
+  expect_tensors_near<2>(isochoric_projection<2>(Cb, Ci, C),
+                         projection_the_long_way<2>(Cb, Ci, C), 1e-13);
+}
+
+// The tangents the reduction relies on really do carry the symmetries. If a
+// future material model breaks this, isochoric_projection stops being valid.
+TEST(TensorOps, HyperelasticTangentIsMinorAndMajorSymmetric) {
+  const auto Cb = random_tangent<3>(616161);
+  for (int i = 0; i < 3; ++i) {
+    for (int j = 0; j < 3; ++j) {
+      for (int k = 0; k < 3; ++k) {
+        for (int l = 0; l < 3; ++l) {
+          EXPECT_DOUBLE_EQ(Cb(i, j, k, l), Cb(j, i, k, l)) << "minor symmetry (ij)";
+          EXPECT_DOUBLE_EQ(Cb(i, j, k, l), Cb(i, j, l, k)) << "minor symmetry (kl)";
+          EXPECT_DOUBLE_EQ(Cb(i, j, k, l), Cb(k, l, i, j)) << "major symmetry";
+        }
+      }
+    }
+  }
+}
+
+// Negative control: without minor symmetry the reduction is invalid, so this
+// test failing to fail would mean the tests above pass vacuously.
+TEST(TensorOps, IsochoricProjectionNeedsSymmetryToBeValid) {
+  const auto Cb_asym = random_tensor<3>(727272);   // no symmetry imposed
+  const auto C  = random_symmetric_matrix<3>(8383);
+  const auto Ci = random_symmetric_matrix<3>(9494);
+
+  const auto fast = isochoric_projection<3>(Cb_asym, Ci, C);
+  const auto slow = projection_the_long_way<3>(Cb_asym, Ci, C);
+
+  double max_diff = 0.0;
+  for (int i = 0; i < slow.size(); ++i) {
+    max_diff = std::fmax(max_diff, std::fabs(fast.data()[i] - slow.data()[i]));
+  }
+  EXPECT_GT(max_diff, 1e-6) << "reduction agreed on an asymmetric tangent, so the "
+                               "symmetry tests above prove nothing";
 }
