@@ -465,7 +465,7 @@ void Integrator::predictor()
 
   // Determine if we need to compute fiber stretch and stretch rate, by going
   // through all domains of all equations until we find one for which active
-  // stress is enabled and the active stres model needs the stretch or stretch rate.
+  // stress is enabled and the active stress model needs the stretch or stretch rate.
   //
   // have_active_stress is tracked separately from need_fiber_stretch because
   // advance_time_step() indexes both vectors for every node whether or not the
@@ -530,8 +530,8 @@ void Integrator::predictor()
           fiber_stretch_rate[mesh.gN[a]] = tmp[a];
       }
     } else {
-      // If we didn't find any domain solving for the displacement, then we set
-      // the fiber stretch rate to 0, corresponding to no movement.
+      // No domain solves for displacement, or no model reads stretch rate:
+      // Set the fiber stretch rate to 0, corresponding to no movement.
       fiber_stretch_rate = 0.0;
     }
   }
