@@ -483,9 +483,9 @@ void Integrator::predictor()
       for (const auto &dmn : eq.dmn) {
         if (dmn.active_stress != nullptr) {
           have_active_stress = true;
-          need_fiber_stretch |= dmn.active_stress->needs_fiber_stretch;
+          need_fiber_stretch |= dmn.active_stress->needs_fiber_stretch();
           need_fiber_stretch_rate |=
-              dmn.active_stress->needs_fiber_stretch_rate;
+              dmn.active_stress->needs_fiber_stretch_rate();
         }
       }
     }
