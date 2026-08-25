@@ -135,18 +135,8 @@ namespace mat_fun {
     ///   mat_mul<6, 6, 3>(Dm, Bm.rslice(b), DBm);  // no check, same arguments
     /// @endcode
     ///
-    /// The three-argument runtime overload above is a non-template, so a plain
-    /// mat_mul(A, B, C) still resolves to it; these are selected only by an
-    /// explicit template argument list.
-    ///
-    /// Array is column-major, matching Eigen's default, so the Maps alias the
-    /// caller's buffers rather than copying. That also makes a non-owning view
-    /// such as Array3::rslice() a valid operand.
-    ///
-    /// @note noalias() means the destination must not overlap either operand.
-    /// The returning mat_mul(A, B) overload allocates a fresh result, which is
-    /// what keeps self-assigning call sites such as `Bm = mat_mul(Bm, phi)`
-    /// (cmm.cpp) correct.
+    /// The generic mat_mul overload above will dispatch to this overload
+    /// when the shapes are known at compile time.
     ///
     /// @tparam M rows of A and of the result
     /// @tparam K columns of A and rows of B, the contracted dimension
