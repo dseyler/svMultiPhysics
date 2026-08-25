@@ -447,7 +447,7 @@ void struct_2d(ComMod &com_mod, CepMod &cep_mod, const int eNoN, const int nFn,
   mat_models::compute_visc_stress_and_tangent(dmn, eNoN, Nx, vx, F, Svis, Kvis_u, Kvis_v);
 
   // Elastic + Viscous stresses
-  S = S + Svis;
+  S += Svis;
 
   // Prestress
   pSl(0) = S(0,0);
@@ -455,7 +455,7 @@ void struct_2d(ComMod &com_mod, CepMod &cep_mod, const int eNoN, const int nFn,
   pSl(2) = S(0,1);
 
   // Total 2nd Piola-Kirchhoff stress
-  S = S + S0;
+  S += S0;
 
   // 1st Piola-Kirchhoff tensor (P)
   //
@@ -666,7 +666,7 @@ void struct_3d(ComMod &com_mod, CepMod &cep_mod, const int eNoN, const int nFn,
   mat_models::compute_visc_stress_and_tangent(dmn, eNoN, Nx, vx, F, Svis, Kvis_u, Kvis_v);
 
   // Elastic + Viscous stresses
-  S = S + Svis;
+  S += Svis;
 
   #ifdef debug_struct_3d 
   dmsg << "Jac: " << Jac;
