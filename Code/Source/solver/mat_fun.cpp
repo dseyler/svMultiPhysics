@@ -6,6 +6,7 @@
 #include "consts.h"
 
 #include "utils.h"
+#include "FE/Common/FEException.h"
 
 #include <math.h>
 
@@ -459,8 +460,6 @@ mat_inv_lp_eigen(const Array<double>& A, const int nd)
 }
 
 /// @brief Multiply a matrix by a vector.
-///
-/// Reproduces Fortran MATMUL.
 //
 Vector<double> 
 mat_mul(const Array<double>& A, const Vector<double>& v)
@@ -468,10 +467,10 @@ mat_mul(const Array<double>& A, const Vector<double>& v)
   int num_rows = A.nrows();
   int num_cols = A.ncols();
 
-  if (num_cols != v.size()) {
-    throw std::runtime_error("[mat_mul] The number of columns of A (" + std::to_string(num_cols) + ") does not equal the size of v (" + 
-        std::to_string(v.size()) + ").");
-  }
+  svmp::throw_if<svmp::FE::InvalidArgumentException>(
+      num_cols != v.size(),
+      "[mat_mul] The number of columns of A (" + std::to_string(num_cols) +
+          ") does not equal the size of v (" + std::to_string(v.size()) + ").");
 
   Vector<double> result(num_rows);
 
@@ -490,7 +489,8 @@ mat_mul(const Array<double>& A, const Vector<double>& v)
 
 /// @brief Multiply a matrix by a matrix.
 ///
-/// Reproduces Fortran MATMUL.
+/// Allocates the result and hands it to the in-place overload, so the two
+/// share one implementation and both reach the fixed-shape paths.
 //
 Array<double> 
 mat_mul(const Array<double>& A, const Array<double>& B)
@@ -500,14 +500,14 @@ mat_mul(const Array<double>& A, const Array<double>& B)
   int B_num_rows = B.nrows();
   int B_num_cols = B.ncols();
 
-  if (A_num_cols != B_num_rows) {
-    throw std::runtime_error("[mat_mul] The number of columns of A (" + std::to_string(A_num_cols) + ") does not equal " +
-        " the number of rows of B (" + std::to_string(B_num_rows) + ").");
-  }
+  svmp::throw_if<svmp::FE::InvalidArgumentException>(
+      A_num_cols != B_num_rows,
+      "[mat_mul] The number of columns of A (" + std::to_string(A_num_cols) +
+          ") does not equal the number of rows of B (" +
+          std::to_string(B_num_rows) + ").");
 
   Array<double> result(A_num_rows, B_num_cols);
 
-  // Delegate rather than repeat the loop, so callers of this form reach the
   // Fall back onto the overload of this function that takes the result matrix
   // as an output argument.
   mat_mul(A, B, result);
@@ -517,40 +517,9 @@ mat_mul(const Array<double>& A, const Array<double>& B)
 
 /// @brief Multiply a matrix by a matrix.
 ///
-/// Compute result directly into the passed argument.
+/// Dispatches the shapes that dominate the element loops to fixed-size Eigen
+/// products, and falls back to a general triple loop otherwise.
 //
-namespace {
-
-/// @brief Fixed-shape matrix product, C = A*B, mapped onto the existing buffers.
-///
-/// Used when sizes are known at compile time.
-template <int M, int K, int N>
-inline void mat_mul_fixed(const Array<double>& A, const Array<double>& B, Array<double>& C)
-{
-  Eigen::Map<const Eigen::Matrix<double, M, K>> a(A.data());
-  Eigen::Map<const Eigen::Matrix<double, K, N>> b(B.data());
-  Eigen::Map<Eigen::Matrix<double, M, N>>       c(C.data());
-
-  c.noalias() = a * b;
-}
-
-/// @brief As mat_mul_fixed, but with the column count known only at run time.
-///
-/// Used where the right operand has one column per element node, so its width
-/// depends on the element type. The row counts are still compile-time, which is
-/// where most of the benefit comes from.
-template <int M, int K>
-inline void mat_mul_fixed_rows(const Array<double>& A, const Array<double>& B, Array<double>& C)
-{
-  Eigen::Map<const Eigen::Matrix<double, M, K>> a(A.data());
-  Eigen::Map<const Eigen::Matrix<double, K, Eigen::Dynamic>> b(B.data(), K, B.ncols());
-  Eigen::Map<Eigen::Matrix<double, M, Eigen::Dynamic>>       c(C.data(), M, C.ncols());
-
-  c.noalias() = a * b;
-}
-
-} // namespace
-
 void mat_mul(const Array<double>& A, const Array<double>& B, Array<double>& result)
 { 
   // Fixed-shape fast paths for the products that dominate the element loops.
@@ -562,16 +531,16 @@ void mat_mul(const Array<double>& A, const Array<double>& B, Array<double>& resu
   if (A.nrows() == 3 && A.ncols() == 3 && B.nrows() == 3 &&
       result.nrows() == 3 && result.ncols() == B.ncols()) {
     if (B.ncols() == 3) {
-      mat_mul_fixed<3, 3, 3>(A, B, result);
+      mat_mul<3, 3, 3>(A, B, result);
     } else {
-      mat_mul_fixed_rows<3, 3>(A, B, result);
+      mat_mul<3, 3>(A, B, result);
     }
     return;
   }
 
   if (A.nrows() == 6 && A.ncols() == 6 && B.nrows() == 6 && B.ncols() == 3 &&
       result.nrows() == 6 && result.ncols() == 3) {
-    mat_mul_fixed<6, 6, 3>(A, B, result);
+    mat_mul<6, 6, 3>(A, B, result);
     return;
   }
 
@@ -580,10 +549,11 @@ void mat_mul(const Array<double>& A, const Array<double>& B, Array<double>& resu
   int B_num_rows = B.nrows();
   int B_num_cols = B.ncols();
   
-  if (A_num_cols != B_num_rows) {
-    throw std::runtime_error("[mat_mul] The number of columns of A (" + std::to_string(A_num_cols) + ") does not equal " +
-        " the number of rows of B (" + std::to_string(B_num_rows) + ").");
-  }
+  svmp::throw_if<svmp::FE::InvalidArgumentException>(
+      A_num_cols != B_num_rows,
+      "[mat_mul] The number of columns of A (" + std::to_string(A_num_cols) +
+          ") does not equal the number of rows of B (" +
+          std::to_string(B_num_rows) + ").");
   
   for (int i = 0; i < A_num_rows; i++) { 
     for (int j = 0; j < B_num_cols; j++) {

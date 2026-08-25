@@ -735,8 +735,11 @@ void struct_3d(ComMod &com_mod, CepMod &cep_mod, const int eNoN, const int nFn,
 
   for (int b = 0; b < eNoN; b++) {
 
-    // Material stiffness (D*B)
-    mat_mul(Dm, Bm.rslice(b), DBm);
+    // Material stiffness (D*B). Shapes are fixed by the declarations above --
+    // Dm(6,6), Bm(6,3,eNoN), DBm(6,3) -- so state them and skip the run-time
+    // shape check that the unparameterised overload would otherwise repeat on
+    // every one of these calls.
+    mat_mul<6, 6, 3>(Dm, Bm.rslice(b), DBm);
 
     for (int a = 0; a < eNoN; a++) {
 
