@@ -66,7 +66,7 @@ void compute_svol_p(const ComMod& com_mod, const CepMod& cep_mod, const stModelT
 void g_vol_pen(const ComMod& com_mod, const dmnType& lDmn, const double p, 
     double& ro, double& bt, double& dro, double& dbt, const double Ja);
 
-void compute_visc_stress_potential(const double mu, const int eNoN, const Array<double>& Nx, const double vx, const double F,
+void compute_visc_stress_potential(const double mu, const int eNoN, const Array<double>& Nx, const Array<double>& vx, const Array<double>& F,
                         Array<double>& Svis, Array3<double>& Kvis_u, Array3<double>& Kvis_v);
 
 void compute_visc_stress_newtonian(const double mu, const int eNoN, const Array<double>& Nx, const Array<double>& vx, const Array<double>& F,

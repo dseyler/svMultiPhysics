@@ -1580,61 +1580,90 @@ void g_vol_pen(const ComMod& com_mod, const dmnType& lDmn, const double p,
  * @param Kvis_u Viscous tangent matrix contribution due to displacement
  * @param Kvis_v Visous tangent matrix contribution due to velocity
  */
-void compute_visc_stress_potential(const double mu, const int eNoN, const Array<double>& Nx, const Array<double>& vx, const Array<double>& F,
+/// @brief Potential viscous stress and tangent, with the spatial dimension
+/// supplied at compile time.
+///
+/// Same treatment as compute_visc_stress_newtonian_impl: nsd is a template
+/// parameter so the tangent's inner loops unroll, and the nsd-sized
+/// intermediates are fixed-size Eigen matrices aliased over the caller's
+/// storage rather than copied.
+//
+template<int nsd>
+void compute_visc_stress_potential_impl(const double mu, const int eNoN, const Array<double>& Nx,
+                        const Array<double>& vx, const Array<double>& F,
                         Array<double>& Svis, Array3<double>& Kvis_u, Array3<double>& Kvis_v) {
+    using MatN  = mat_fun::Matrix<nsd>;
+    // Columns are sized by eNoN, which is known only at run time but is at most
+    // 27 (HEX27), as in fluid.cpp. Capping the column count at compile time
+    // keeps these on the stack: a plain Dynamic matrix heap-allocates and takes
+    // Eigen's general product path, which measured 5x slower here.
+    static constexpr int MAX_SIZE = 27;
+    using MatNX = Eigen::Matrix<double, nsd, Eigen::Dynamic, 0, nsd, MAX_SIZE>;
 
-    using namespace consts;
-    using namespace mat_fun;
-    using namespace utils;
+    Eigen::Map<const MatN> Fm(F.data());
+    Eigen::Map<const MatN> vxm(vx.data());
+    Eigen::Map<const MatNX> Nxm(Nx.data(), nsd, eNoN);
 
-    // Number of spatial dimensions
-    int nsd = F.nrows();
+    const MatN F_Ft  = Fm * Fm.transpose();
+    const MatN Ft_vx = Fm.transpose() * vxm;
+    const MatN F_vxt = Fm * vxm.transpose();
 
-    // Initialize Svis, Kvis_u, Kvis_v to zero
-    Svis = 0.0;
-    Kvis_u = 0.0;
-    Kvis_v = 0.0;
+    // F_Nx(i,a) = sum_j F(i,j) * Nx(j,a), and likewise for vx.
+    const MatNX F_Nx  = Fm  * Nxm;
+    const MatNX vx_Nx = vxm * Nxm;
 
-
-    // Required intermediate terms for stress and tangent
-    auto Ft = transpose(F);
-    auto F_Ft = mat_mul(F, Ft);
-    auto Ft_vx = mat_mul(Ft, vx);
-    auto vxt = transpose(vx);
-    auto F_vxt = mat_mul(F, vxt);
-
-    //double F_Nx[nsd][eNoN] = {0}, vx_Nx[nsd][eNoN] = {0};
-    Array<double> F_Nx(nsd,eNoN), vx_Nx(nsd,eNoN);
-    
-    for (int a = 0; a < eNoN; ++a) {
-        for (int i = 0; i < nsd; ++i) {
-            for (int j = 0; j < nsd; ++j) {
-                F_Nx(i,a) += F(i,j) * Nx(j,a);
-                vx_Nx(i,a) += vx(i,j) * Nx(j,a);
-            }
-        }
-    }
-
-    // 2nd Piola-Kirchhoff stress due to viscosity
+    // 2nd Piola-Kirchhoff stress due to viscosity,
     // Svis = mu * 1/2 * ( (F^T * dv/dX) + (F^T * dv/dX)^T )
-    Svis = mu * mat_symm(Ft_vx, nsd);
+    Eigen::Map<MatN> Svism(Svis.data());
+    Svism.noalias() = mu * mat_fun::mat_symm<nsd>(Ft_vx);
 
-    // Tangent matrix contributions due to viscosity
+    // Tangent matrix contributions due to viscosity. Every element of Kvis_u
+    // and Kvis_v is written below, so neither needs zeroing first.
+    const double half_mu = 0.5 * mu;
+
+    // Same hoisting as in the Newtonian model: the b-dependent columns are
+    // lifted out of the a loop, and both sets of columns out of the unrolled
+    // i/j bodies.
     for (int b = 0; b < eNoN; ++b) {
+        double nxb[nsd], fb[nsd];
+        for (int i = 0; i < nsd; ++i) {
+            nxb[i] = Nx(i,b);
+            fb[i]  = F_Nx(i,b);
+        }
+
         for (int a = 0; a < eNoN; ++a) {
+            double fa[nsd], vna[nsd];
             double Nx_Nx = 0.0;
             for (int i = 0; i < nsd; ++i) {
-                Nx_Nx += Nx(i,a) * Nx(i,b);
+                fa[i]  = F_Nx(i,a);
+                vna[i] = vx_Nx(i,a);
+                Nx_Nx += Nx(i,a) * nxb[i];
             }
 
             for (int i = 0; i < nsd; ++i) {
                 for (int j = 0; j < nsd; ++j) {
-                    int ii = i * nsd + j;
-                    Kvis_u(ii,a,b) = 0.5 * mu * (F_Nx(i,b) * vx_Nx(j,a) + Nx_Nx * F_vxt(i,j));
-                    Kvis_v(ii,a,b) = 0.5 * mu * (Nx_Nx * F_Ft(i,j) + F_Nx(i,b) * F_Nx(j,a));
+                    const int ii = i * nsd + j;
+                    Kvis_u(ii,a,b) = half_mu * (fb[i] * vna[j] + Nx_Nx * F_vxt(i,j));
+                    Kvis_v(ii,a,b) = half_mu * (Nx_Nx * F_Ft(i,j) + fb[i] * fa[j]);
                 }
             }
         }
+    }
+}
+
+/// @brief Dispatches on the spatial dimension. See the templated implementation.
+//
+void compute_visc_stress_potential(const double mu, const int eNoN, const Array<double>& Nx,
+                        const Array<double>& vx, const Array<double>& F,
+                        Array<double>& Svis, Array3<double>& Kvis_u, Array3<double>& Kvis_v) {
+    svmp::throw_if<svmp::FE::InvalidArgumentException>(
+        eNoN > 27, "[compute_visc_stress_potential] eNoN (" + std::to_string(eNoN) +
+                   ") exceeds the maximum supported element node count of 27.");
+
+    if (F.nrows() == 2) {
+        compute_visc_stress_potential_impl<2>(mu, eNoN, Nx, vx, F, Svis, Kvis_u, Kvis_v);
+    } else {
+        compute_visc_stress_potential_impl<3>(mu, eNoN, Nx, vx, F, Svis, Kvis_u, Kvis_v);
     }
 }
 
@@ -1659,76 +1688,112 @@ void compute_visc_stress_potential(const double mu, const int eNoN, const Array<
  * @param Kvis_u Viscous tangent matrix contribution due to displacement
  * @param Kvis_v Visous tangent matrix contribution due to velocity
  */
-void compute_visc_stress_newtonian(const double mu, const int eNoN, const Array<double>& Nx, const Array<double>& vx, const Array<double>& F,
+/// @brief Newtonian viscous stress and tangent, with the spatial dimension
+/// supplied at compile time.
+///
+/// Templating on nsd lets the innermost i/j loops of the tangent assembly
+/// unroll, turns ii = i*nsd + j into a constant per unrolled body, resolves the
+/// Kronecker delta at compile time and makes r2d a constant. The nsd-sized
+/// intermediates become fixed-size Eigen matrices held on the stack.
+///
+/// Array is column major, matching Eigen's default, so the inputs and Svis are
+/// aliased with Eigen::Map rather than copied. Kvis_u and Kvis_v stay Array3:
+/// they are nsd^2 x eNoN x eNoN, too large to copy in and out.
+//
+template<int nsd>
+void compute_visc_stress_newtonian_impl(const double mu, const int eNoN, const Array<double>& Nx,
+                           const Array<double>& vx, const Array<double>& F,
                            Array<double>& Svis, Array3<double>& Kvis_u, Array3<double>& Kvis_v) {
-    using namespace consts;
-    using namespace mat_fun;
-    using namespace utils;
+    using MatN  = mat_fun::Matrix<nsd>;
+    // Columns are sized by eNoN, which is known only at run time but is at most
+    // 27 (HEX27), as in fluid.cpp. Capping the column count at compile time
+    // keeps these on the stack: a plain Dynamic matrix heap-allocates and takes
+    // Eigen's general product path, which measured 5x slower here.
+    static constexpr int MAX_SIZE = 27;
+    using MatNX = Eigen::Matrix<double, nsd, Eigen::Dynamic, 0, nsd, MAX_SIZE>;
 
-    // Number of spatial dimensions
-    int nsd = F.nrows();
+    // Alias the caller's storage; no copies.
+    Eigen::Map<const MatN> Fm(F.data());
+    Eigen::Map<const MatN> vxm(vx.data());
+    Eigen::Map<const MatNX> Nxm(Nx.data(), nsd, eNoN);
 
-    // Initialize Svis, Kvis_u, Kvis_v to zero
-    Svis = 0.0;
-    Kvis_u = 0.0;
-    Kvis_v = 0.0;
+    const double J   = Fm.determinant();
+    const MatN   Fi  = Fm.inverse();
 
-    // Get identity matrix, Jacobian, and F^-1
-    auto Idm = mat_id(nsd);
-    auto J = mat_det(F, nsd);
-    auto Fi = mat_inv(F, nsd);
+    // vx_Fi: velocity gradient in the current configuration.
+    const MatN vx_Fi = vxm * Fi;
+    // ddev: deviatoric part of the rate of strain tensor.
+    const MatN ddev  = mat_fun::mat_dev<nsd>(mat_fun::mat_symm<nsd>(vx_Fi));
 
-    // Required intermediate terms for stress and tangent
-    // vx_Fi: Velocity gradient in current configuration          
-    auto vx_Fi = mat_mul(vx, Fi);
-    auto vx_Fi_symm = mat_symm(vx_Fi, nsd);
-    // ddev: Deviatoric part of rate of strain tensor
-    auto ddev = mat_dev(vx_Fi_symm, nsd);
-    //double Nx_Fi[nsd][eNoN] = {0}, ddev_Nx_Fi[nsd][eNoN] = {0}, vx_Fi_Nx_Fi[nsd][eNoN] = {0};
-    Array<double> Nx_Fi(nsd,eNoN), ddev_Nx_Fi(nsd,eNoN), vx_Fi_Nx_Fi(nsd,eNoN);
-    for (int a = 0; a < eNoN; ++a) {
-        for (int i = 0; i < nsd; ++i) {
-            for (int j = 0; j < nsd; ++j) {
-                Nx_Fi(i,a) += Nx(j,a) * Fi(j,i);
-            }
-        }
-    }
+    // Nx_Fi(i,a) = sum_j Nx(j,a) * Fi(j,i), which is Fi^T * Nx.
+    const MatNX Nx_Fi        = Fi.transpose() * Nxm;
+    const MatNX ddev_Nx_Fi   = ddev  * Nx_Fi;
+    const MatNX vx_Fi_Nx_Fi  = vx_Fi * Nx_Fi;
 
-    mat_mul(ddev,  Nx_Fi, ddev_Nx_Fi);
-    mat_mul(vx_Fi, Nx_Fi, vx_Fi_Nx_Fi);
+    // 2nd Piola-Kirchhoff stress due to viscosity,
+    // Svis = 2 * mu * J * F^-1 * d_dev * F^-T. Written straight into the
+    // caller's array, which it has already sized.
+    Eigen::Map<MatN> Svism(Svis.data());
+    Svism.noalias() = (2.0 * mu * J) * (Fi * ddev * Fi.transpose());
 
-    // 2nd Piola-Kirchhoff stress due to viscosity
-    // Svis = 2 * mu * J * F^-1 * d_dev * F^-T
-    auto Fit = transpose(Fi);
-    auto ddev_Fit = mat_mul(ddev, Fit);
-    auto Fi_ddev_Fit = mat_mul(Fi, ddev_Fit);
-    Svis = 2.0 * mu * J * Fi_ddev_Fit;
+    // Tangent matrix contributions due to viscosity. Every element of Kvis_u
+    // and Kvis_v is written below, so neither needs zeroing first.
+    constexpr double r2d = 2.0 / nsd;
+    const double muJ = mu * J;
 
-    // Tangent matrix contributions due to viscosity
-    double r2d = 2.0 / nsd;
+    // The b columns are invariant across the inner a loop, and the a columns
+    // across the unrolled i/j bodies, so both are copied into locals first.
+    // Reading from those instead of re-indexing the matrices lets the compiler
+    // keep them in registers.
     for (int b = 0; b < eNoN; ++b) {
+        double nb[nsd], db[nsd], vb[nsd];
+        for (int i = 0; i < nsd; ++i) {
+            nb[i] = Nx_Fi(i,b);
+            db[i] = ddev_Nx_Fi(i,b);
+            vb[i] = vx_Fi_Nx_Fi(i,b);
+        }
+
         for (int a = 0; a < eNoN; ++a) {
+            double na[nsd], da[nsd], va[nsd];
             double Nx_Fi_Nx_Fi = 0.0;
             for (int i = 0; i < nsd; ++i) {
-                Nx_Fi_Nx_Fi += Nx_Fi(i,a) * Nx_Fi(i,b);
+                na[i] = Nx_Fi(i,a);
+                da[i] = ddev_Nx_Fi(i,a);
+                va[i] = vx_Fi_Nx_Fi(i,a);
+                Nx_Fi_Nx_Fi += na[i] * nb[i];
             }
 
             for (int i = 0; i < nsd; ++i) {
                 for (int j = 0; j < nsd; ++j) {
-                    int ii = i * nsd + j;
+                    const int ii = i * nsd + j;
 
                     // Derivative of the residual w.r.t displacement
-                    Kvis_u(ii,a,b) = mu * J * (2.0 * 
-                                    (ddev_Nx_Fi(i,a) * Nx_Fi(j,b) - ddev_Nx_Fi(i,b) * Nx_Fi(j,a)) -
-                                    (Nx_Fi_Nx_Fi * vx_Fi(i,j) + Nx_Fi(i,b) * vx_Fi_Nx_Fi(j,a) -
-                                    r2d * Nx_Fi(i,a) * vx_Fi_Nx_Fi(j,b)));
+                    Kvis_u(ii,a,b) = muJ * (2.0 * (da[i] * nb[j] - db[i] * na[j]) -
+                                    (Nx_Fi_Nx_Fi * vx_Fi(i,j) + nb[i] * va[j] -
+                                    r2d * na[i] * vb[j]));
 
                     // Derivative of the residual w.r.t velocity
-                    Kvis_v(ii,a,b) = mu * J * (Nx_Fi_Nx_Fi * Idm(i,j) +
-                                    Nx_Fi(i,b) * Nx_Fi(j,a) - r2d * Nx_Fi(i,a) * Nx_Fi(j,b));
+                    Kvis_v(ii,a,b) = muJ * (Nx_Fi_Nx_Fi * (i == j ? 1.0 : 0.0) +
+                                    nb[i] * na[j] - r2d * na[i] * nb[j]);
                 }
             }
         }
+    }
+}
+
+/// @brief Dispatches on the spatial dimension. See the templated implementation.
+//
+void compute_visc_stress_newtonian(const double mu, const int eNoN, const Array<double>& Nx,
+                           const Array<double>& vx, const Array<double>& F,
+                           Array<double>& Svis, Array3<double>& Kvis_u, Array3<double>& Kvis_v) {
+    svmp::throw_if<svmp::FE::InvalidArgumentException>(
+        eNoN > 27, "[compute_visc_stress_newtonian] eNoN (" + std::to_string(eNoN) +
+                   ") exceeds the maximum supported element node count of 27.");
+
+    if (F.nrows() == 2) {
+        compute_visc_stress_newtonian_impl<2>(mu, eNoN, Nx, vx, F, Svis, Kvis_u, Kvis_v);
+    } else {
+        compute_visc_stress_newtonian_impl<3>(mu, eNoN, Nx, vx, F, Svis, Kvis_u, Kvis_v);
     }
 }
 
