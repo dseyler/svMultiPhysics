@@ -229,6 +229,10 @@ void construct_dsolid(ComMod& com_mod, CepMod& cep_mod, const mshType& lM, const
                 bfl(nsd,eNoN), fN(nsd,nFn), pS0l(nsymd,eNoN), Nx(nsd,eNoN), lR(dof,eNoN);
   Array3<double> lK(dof*dof,eNoN,eNoN);
 
+  // struct_3d's scratch buffers. Sized by nsd and eNoN, so one set serves
+  // every element and Gauss point instead of being rebuilt on each call.
+  Struct3dScratch scr(nsd, eNoN);
+
   // Loop over all elements of mesh
 
   for (int e = 0; e < lM.nEl; e++) {
@@ -307,7 +311,7 @@ void construct_dsolid(ComMod& com_mod, CepMod& cep_mod, const mshType& lM, const
 
       if (nsd == 3) {
         struct_3d(com_mod, cep_mod, eNoN, nFn, w, N, Nx, al, yl, dl, bfl, fN,
-                  pS0l, pSl, ya_l_f, ya_l_s, ya_l_n, lR, lK);
+                  pS0l, pSl, ya_l_f, ya_l_s, ya_l_n, lR, lK, scr);
 
 #if 0
         if (e == 0 && g == 0) {
@@ -545,7 +549,8 @@ void struct_3d(ComMod &com_mod, CepMod &cep_mod, const int eNoN, const int nFn,
                const Array<double> &fN, const Array<double> &pS0l,
                Vector<double> &pSl, const Vector<double> &ya_l_f,
                const Vector<double> &ya_l_s, const Vector<double> &ya_l_n,
-               Array<double> &lR, Array3<double> &lK) {
+               Array<double> &lR, Array3<double> &lK,
+               Struct3dScratch &scr) {
   using namespace consts;
   using namespace mat_fun;
 
@@ -568,9 +573,10 @@ void struct_3d(ComMod &com_mod, CepMod &cep_mod, const int eNoN, const int nFn,
   //
   double rho = dmn.prop.at(PhysicalProperyType::solid_density);
   double dmp = dmn.prop.at(PhysicalProperyType::damping);
-  Vector<double> fb({dmn.prop.at(PhysicalProperyType::f_x), 
-                     dmn.prop.at(PhysicalProperyType::f_y), 
-                     dmn.prop.at(PhysicalProperyType::f_z)});
+  Vector<double>& fb = scr.fb;
+  fb(0) = dmn.prop.at(PhysicalProperyType::f_x);
+  fb(1) = dmn.prop.at(PhysicalProperyType::f_y);
+  fb(2) = dmn.prop.at(PhysicalProperyType::f_z);
 
   double afu = eq.af * eq.beta*dt*dt;
   double afv = eq.af * eq.gam*dt;
@@ -590,8 +596,15 @@ void struct_3d(ComMod &com_mod, CepMod &cep_mod, const int eNoN, const int nFn,
 
   // Inertia, body force and deformation tensor (F)
   //
-  Array<double> F(3,3), S0(3,3), vx(3,3);
-  Vector<double> ud(3);
+  Array<double>& F  = scr.F;
+  Array<double>& S0 = scr.S0;
+  Array<double>& vx = scr.vx;
+  Vector<double>& ud = scr.ud;
+
+  // vx is accumulated into below and is the one buffer that relied on the
+  // memset in Array::allocate(). F and S0 are assigned 0.0 explicitly just
+  // below; every other scratch buffer is written in full before it is read.
+  vx = 0.0;
 
   double F_f[3][3]={}; 
   F_f[0][0] = 1.0;
@@ -653,15 +666,16 @@ void struct_3d(ComMod &com_mod, CepMod &cep_mod, const int eNoN, const int nFn,
   // 2nd Piola-Kirchhoff tensor (S) and material stiffness tensor in
   // Voigt notationa (Dm)
   //
-  Array<double> S(3,3), Dm(6,6); 
+  Array<double>& S  = scr.S;
+  Array<double>& Dm = scr.Dm;
   double Ja;
   mat_models::compute_pk2cc(com_mod, cep_mod, dmn, F, nFn, fN, ya_g_f, ya_g_s,
                             ya_g_n, S, Dm, Ja);
 
   // Viscous 2nd Piola-Kirchhoff stress and tangent contributions
-  Array<double> Svis(3,3);
-  Array3<double> Kvis_u(9, eNoN, eNoN);
-  Array3<double> Kvis_v(9, eNoN, eNoN);
+  Array<double>& Svis = scr.Svis;
+  Array3<double>& Kvis_u = scr.Kvis_u;
+  Array3<double>& Kvis_v = scr.Kvis_v;
   
   mat_models::compute_visc_stress_and_tangent(dmn, eNoN, Nx, vx, F, Svis, Kvis_u, Kvis_v);
 
@@ -689,8 +703,8 @@ void struct_3d(ComMod &com_mod, CepMod &cep_mod, const int eNoN, const int nFn,
 
   // 1st Piola-Kirchhoff tensor (P)
   //
-  Array<double> P(3,3);
-  Array3<double> Bm(6,3,eNoN); 
+  Array<double>& P = scr.P;
+  Array3<double>& Bm = scr.Bm;
   mat_fun::mat_mul(F, S, P);
 
   // Local residual
@@ -731,7 +745,7 @@ void struct_3d(ComMod &com_mod, CepMod &cep_mod, const int eNoN, const int nFn,
   // Local stiffness tensor
   double NxSNx, T1, NxNx, BmDBm, Tv;
 
-  Array<double> DBm(6,3);
+  Array<double>& DBm = scr.DBm;
 
   for (int b = 0; b < eNoN; b++) {
 
