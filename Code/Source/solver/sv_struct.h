@@ -59,7 +59,7 @@ void struct_3d(ComMod &com_mod, CepMod &cep_mod, const int eNoN, const int nFn,
                Vector<double> &pSl, const Vector<double> &ya_l_f,
                const Vector<double> &ya_l_s, const Vector<double> &ya_l_n,
                Array<double> &lR, Array3<double> &lK,
-               Struct3dScratch &scr);
+               Struct3dScratch &scr, const bool update_elem_invariants);
 };
 
 #endif

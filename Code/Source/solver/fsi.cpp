@@ -190,7 +190,10 @@ void construct_fsi(ComMod& com_mod, CepMod& cep_mod, const mshType& lM, const So
         }
       }
 
-      if (g == 0 || !fs_1[0].lShpF) {
+      // Doubles as the signal to struct_3d that its cached Nx-derived element
+      // invariants need rebuilding; see struct_3d's update_elem_invariants.
+      const bool update_elem_invariants = (g == 0 || !fs_1[0].lShpF);
+      if (update_elem_invariants) {
         auto Nx = fs_1[0].Nx.rslice(g);
         nn::gnn(fs_1[0].eNoN, nsd, nsd, Nx, xwl, Nwx, Jac, ksix);
         if (utils::is_zero(Jac)) {
@@ -224,7 +227,8 @@ void construct_fsi(ComMod& com_mod, CepMod& cep_mod, const mshType& lM, const So
             auto N0 = fs_1[0].N.col(g);
             struct_ns::struct_3d(com_mod, cep_mod, fs_1[0].eNoN, nFn, w, N0,
                                  Nwx, al, yl, dl, bfl, fN, pS0l, pSl, ya_l_f,
-                                 ya_l_s, ya_l_n, lR, lK, scr);
+                                 ya_l_s, ya_l_n, lR, lK, scr,
+                                 update_elem_invariants);
           } break;
           case Equation_lElas:
             throw std::runtime_error("[construct_fsi] LELAS3D not implemented");

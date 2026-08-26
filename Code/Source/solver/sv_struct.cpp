@@ -298,7 +298,11 @@ void construct_dsolid(ComMod& com_mod, CepMod& cep_mod, const mshType& lM, const
     Array<double> ksix(nsd,nsd);
 
     for (int g = 0; g < lM.nG; g++) {
-      if (g == 0 || !lM.lShpF) {
+      // Nx (and Jac) are recomputed only when the shape functions actually vary
+      // over the element. The same condition tells struct_3d whether the
+      // Nx-derived element invariants it caches in `scr` are still valid.
+      const bool update_elem_invariants = (g == 0 || !lM.lShpF);
+      if (update_elem_invariants) {
         auto Nx_g = lM.Nx.slice(g);
         nn::gnn(eNoN, nsd, nsd, Nx_g, xl, Nx, Jac, ksix);
         if (utils::is_zero(Jac)) {
@@ -311,7 +315,8 @@ void construct_dsolid(ComMod& com_mod, CepMod& cep_mod, const mshType& lM, const
 
       if (nsd == 3) {
         struct_3d(com_mod, cep_mod, eNoN, nFn, w, N, Nx, al, yl, dl, bfl, fN,
-                  pS0l, pSl, ya_l_f, ya_l_s, ya_l_n, lR, lK, scr);
+                  pS0l, pSl, ya_l_f, ya_l_s, ya_l_n, lR, lK, scr,
+                  update_elem_invariants);
 
 #if 0
         if (e == 0 && g == 0) {
@@ -552,7 +557,7 @@ void struct_3d(ComMod &com_mod, CepMod &cep_mod, const int eNoN, const int nFn,
                Vector<double> &pSl, const Vector<double> &ya_l_f,
                const Vector<double> &ya_l_s, const Vector<double> &ya_l_n,
                Array<double> &lR, Array3<double> &lK,
-               Struct3dScratch &scr) {
+               Struct3dScratch &scr, const bool update_elem_invariants) {
   using namespace consts;
   using namespace mat_fun;
 
@@ -603,11 +608,6 @@ void struct_3d(ComMod &com_mod, CepMod &cep_mod, const int eNoN, const int nFn,
   Array<double>& vx = scr.vx;
   Vector<double>& ud = scr.ud;
 
-  // vx is accumulated into below and is the one buffer that relied on the
-  // memset in Array::allocate(). F and S0 are assigned 0.0 explicitly just
-  // below; every other scratch buffer is written in full before it is read.
-  vx = 0.0;
-
   double F_f[3][3]={}; 
   F_f[0][0] = 1.0;
   F_f[1][1] = 1.0;
@@ -616,10 +616,6 @@ void struct_3d(ComMod &com_mod, CepMod &cep_mod, const int eNoN, const int nFn,
   for (int i = 0; i < 3; i++) {
     ud(i) = -rho*fb(i);
   }
-  F = 0.0;
-  F(0,0) = 1.0;
-  F(1,1) = 1.0;
-  F(2,2) = 1.0;
   S0 = 0.0;
 
   double ya_g_f = 0.0;
@@ -630,26 +626,6 @@ void struct_3d(ComMod &com_mod, CepMod &cep_mod, const int eNoN, const int nFn,
     ud(0) = ud(0) + N(a)*(rho*(al(i,a)-bfl(0,a)) + dmp*yl(i,a));
     ud(1) = ud(1) + N(a)*(rho*(al(j,a)-bfl(1,a)) + dmp*yl(j,a));
     ud(2) = ud(2) + N(a)*(rho*(al(k,a)-bfl(2,a)) + dmp*yl(k,a));
-
-    vx(0,0) = vx(0,0) + Nx(0,a)*yl(i,a);
-    vx(0,1) = vx(0,1) + Nx(1,a)*yl(i,a);
-    vx(0,2) = vx(0,2) + Nx(2,a)*yl(i,a);
-    vx(1,0) = vx(1,0) + Nx(0,a)*yl(j,a);
-    vx(1,1) = vx(1,1) + Nx(1,a)*yl(j,a);
-    vx(1,2) = vx(1,2) + Nx(2,a)*yl(j,a);
-    vx(2,0) = vx(2,0) + Nx(0,a)*yl(k,a);
-    vx(2,1) = vx(2,1) + Nx(1,a)*yl(k,a);
-    vx(2,2) = vx(2,2) + Nx(2,a)*yl(k,a);
-
-    F(0,0) = F(0,0) + Nx(0,a)*dl(i,a);
-    F(0,1) = F(0,1) + Nx(1,a)*dl(i,a);
-    F(0,2) = F(0,2) + Nx(2,a)*dl(i,a);
-    F(1,0) = F(1,0) + Nx(0,a)*dl(j,a);
-    F(1,1) = F(1,1) + Nx(1,a)*dl(j,a);
-    F(1,2) = F(1,2) + Nx(2,a)*dl(j,a);
-    F(2,0) = F(2,0) + Nx(0,a)*dl(k,a);
-    F(2,1) = F(2,1) + Nx(1,a)*dl(k,a);
-    F(2,2) = F(2,2) + Nx(2,a)*dl(k,a);
 
     S0(0,0) = S0(0,0) + N(a)*pS0l(0,a);
     S0(1,1) = S0(1,1) + N(a)*pS0l(1,a);
@@ -667,6 +643,44 @@ void struct_3d(ComMod &com_mod, CepMod &cep_mod, const int eNoN, const int nFn,
   S0(2,1) = S0(1,2);
   S0(0,2) = S0(2,0);
 
+  // Quantities built from Nx alone. For an element with linear shape functions
+  // Nx is constant over the element -- the caller already relies on this and
+  // evaluates Nx only when (g == 0 || !lM.lShpF) -- so F and vx come out
+  // identical at every Gauss point. update_elem_invariants mirrors that guard:
+  // these are built at the first Gauss point and reused for the rest.
+  //
+  // vx is accumulated into below and is the one buffer that relied on the
+  // memset in Array::allocate(); F is assigned 0.0 explicitly.
+  if (update_elem_invariants) {
+    vx = 0.0;
+    F = 0.0;
+    F(0,0) = 1.0;
+    F(1,1) = 1.0;
+    F(2,2) = 1.0;
+
+    for (int a = 0; a < eNoN; a++) {
+      vx(0,0) = vx(0,0) + Nx(0,a)*yl(i,a);
+      vx(0,1) = vx(0,1) + Nx(1,a)*yl(i,a);
+      vx(0,2) = vx(0,2) + Nx(2,a)*yl(i,a);
+      vx(1,0) = vx(1,0) + Nx(0,a)*yl(j,a);
+      vx(1,1) = vx(1,1) + Nx(1,a)*yl(j,a);
+      vx(1,2) = vx(1,2) + Nx(2,a)*yl(j,a);
+      vx(2,0) = vx(2,0) + Nx(0,a)*yl(k,a);
+      vx(2,1) = vx(2,1) + Nx(1,a)*yl(k,a);
+      vx(2,2) = vx(2,2) + Nx(2,a)*yl(k,a);
+
+      F(0,0) = F(0,0) + Nx(0,a)*dl(i,a);
+      F(0,1) = F(0,1) + Nx(1,a)*dl(i,a);
+      F(0,2) = F(0,2) + Nx(2,a)*dl(i,a);
+      F(1,0) = F(1,0) + Nx(0,a)*dl(j,a);
+      F(1,1) = F(1,1) + Nx(1,a)*dl(j,a);
+      F(1,2) = F(1,2) + Nx(2,a)*dl(j,a);
+      F(2,0) = F(2,0) + Nx(0,a)*dl(k,a);
+      F(2,1) = F(2,1) + Nx(1,a)*dl(k,a);
+      F(2,2) = F(2,2) + Nx(2,a)*dl(k,a);
+    }
+  }
+
   // 2nd Piola-Kirchhoff tensor (S) and material stiffness tensor in
   // Voigt notationa (Dm)
   //
@@ -681,7 +695,11 @@ void struct_3d(ComMod &com_mod, CepMod &cep_mod, const int eNoN, const int nFn,
   Array3<double>& Kvis_u = scr.Kvis_u;
   Array3<double>& Kvis_v = scr.Kvis_v;
   
-  mat_models::compute_visc_stress_and_tangent(dmn, eNoN, Nx, vx, F, Svis, Kvis_u, Kvis_v);
+  // Depends only on Nx, vx and F, so for linear shape functions it yields
+  // identical Svis/Kvis_u/Kvis_v at every Gauss point of the element.
+  if (update_elem_invariants) {
+    mat_models::compute_visc_stress_and_tangent(dmn, eNoN, Nx, vx, F, Svis, Kvis_u, Kvis_v);
+  }
 
   // Elastic + Viscous stresses
   S += Svis;
@@ -720,30 +738,33 @@ void struct_3d(ComMod &com_mod, CepMod &cep_mod, const int eNoN, const int nFn,
 
   // Auxilary quantities for computing stiffness tensor
   //
-  for (int a = 0; a < eNoN; a++) {
-    Bm(0,0,a) = Nx(0,a)*F(0,0);
-    Bm(0,1,a) = Nx(0,a)*F(1,0);
-    Bm(0,2,a) = Nx(0,a)*F(2,0);
+  // Built from Nx and F, both element invariants, so this is hoisted with them.
+  if (update_elem_invariants) {
+    for (int a = 0; a < eNoN; a++) {
+      Bm(0,0,a) = Nx(0,a)*F(0,0);
+      Bm(0,1,a) = Nx(0,a)*F(1,0);
+      Bm(0,2,a) = Nx(0,a)*F(2,0);
 
-    Bm(1,0,a) = Nx(1,a)*F(0,1);
-    Bm(1,1,a) = Nx(1,a)*F(1,1);
-    Bm(1,2,a) = Nx(1,a)*F(2,1);
+      Bm(1,0,a) = Nx(1,a)*F(0,1);
+      Bm(1,1,a) = Nx(1,a)*F(1,1);
+      Bm(1,2,a) = Nx(1,a)*F(2,1);
 
-    Bm(2,0,a) = Nx(2,a)*F(0,2);
-    Bm(2,1,a) = Nx(2,a)*F(1,2);
-    Bm(2,2,a) = Nx(2,a)*F(2,2);
+      Bm(2,0,a) = Nx(2,a)*F(0,2);
+      Bm(2,1,a) = Nx(2,a)*F(1,2);
+      Bm(2,2,a) = Nx(2,a)*F(2,2);
 
-    Bm(3,0,a) = (Nx(0,a)*F(0,1) + F(0,0)*Nx(1,a));
-    Bm(3,1,a) = (Nx(0,a)*F(1,1) + F(1,0)*Nx(1,a));
-    Bm(3,2,a) = (Nx(0,a)*F(2,1) + F(2,0)*Nx(1,a));
+      Bm(3,0,a) = (Nx(0,a)*F(0,1) + F(0,0)*Nx(1,a));
+      Bm(3,1,a) = (Nx(0,a)*F(1,1) + F(1,0)*Nx(1,a));
+      Bm(3,2,a) = (Nx(0,a)*F(2,1) + F(2,0)*Nx(1,a));
 
-    Bm(4,0,a) = (Nx(1,a)*F(0,2) + F(0,1)*Nx(2,a));
-    Bm(4,1,a) = (Nx(1,a)*F(1,2) + F(1,1)*Nx(2,a));
-    Bm(4,2,a) = (Nx(1,a)*F(2,2) + F(2,1)*Nx(2,a));
+      Bm(4,0,a) = (Nx(1,a)*F(0,2) + F(0,1)*Nx(2,a));
+      Bm(4,1,a) = (Nx(1,a)*F(1,2) + F(1,1)*Nx(2,a));
+      Bm(4,2,a) = (Nx(1,a)*F(2,2) + F(2,1)*Nx(2,a));
 
-    Bm(5,0,a) = (Nx(2,a)*F(0,0) + F(0,2)*Nx(0,a));
-    Bm(5,1,a) = (Nx(2,a)*F(1,0) + F(1,2)*Nx(0,a));
-    Bm(5,2,a) = (Nx(2,a)*F(2,0) + F(2,2)*Nx(0,a));
+      Bm(5,0,a) = (Nx(2,a)*F(0,0) + F(0,2)*Nx(0,a));
+      Bm(5,1,a) = (Nx(2,a)*F(1,0) + F(1,2)*Nx(0,a));
+      Bm(5,2,a) = (Nx(2,a)*F(2,0) + F(2,2)*Nx(0,a));
+    }
   }
 
   // Local stiffness tensor
