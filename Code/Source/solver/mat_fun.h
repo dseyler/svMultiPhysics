@@ -284,6 +284,49 @@ namespace mat_fun {
         return I;
     }
 
+    /**
+     * @brief Applies the isochoric projection PP : CC_bar : PP^T, where
+     * PP = S - (1/nsd) * dyad(Ci, C) and S is the symmetric fourth order identity.
+     *
+     * Column-major storage lets the fourth order tensors be read as NxN matrices
+     * with N = nsd^2, so the projection is two NxN products. PP is assembled
+     * directly in that view -- the dyadic product is an outer product there --
+     * rather than being built as a tensor and contracted.
+     *
+     * Makes no assumption about CC_bar.
+     *
+     * @tparam nsd, the number of spatial dimensions
+     * @param[in] CC_bar, the fictitious elasticity tensor
+     * @param[in] Ci, the inverse of the right Cauchy-Green deformation tensor
+     * @param[in] C, the right Cauchy-Green deformation tensor
+     * @return the isochoric elasticity tensor
+     */
+    template <int nsd>
+    Tensor<nsd> isochoric_projection(const Tensor<nsd>& CC_bar,
+                                     const Matrix<nsd>& Ci, const Matrix<nsd>& C) {
+        constexpr int N = nsd * nsd;
+        using MatN = Eigen::Matrix<double, N, N>;
+        using VecN = Eigen::Matrix<double, N, 1>;
+
+        // The symmetrizer does not depend on the deformation, so it is formed once.
+        static const MatN S =
+            MatN(Eigen::Map<const MatN>(fourth_order_identity<nsd>().data()));
+
+        Eigen::Map<const VecN> ci(Ci.data());
+        Eigen::Map<const VecN> c(C.data());
+        MatN pp = S;
+        pp.noalias() -= (1.0 / nsd) * ci * c.transpose();
+
+        Eigen::Map<const MatN> cc(CC_bar.data());
+        Tensor<nsd> CC_iso;
+        Eigen::Map<MatN> out(CC_iso.data());
+
+        MatN tmp;
+        tmp.noalias() = cc * pp.transpose();
+        out.noalias() = pp * tmp;
+        return CC_iso;
+    }
+
     Array<double> ten_mddot(const Tensor4<double>& A, const Array<double>& B, const int nd);
 
     Tensor4<double> ten_symm_prod(const Array<double>& A, const Array<double>& B, const int nd);
