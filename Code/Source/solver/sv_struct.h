@@ -51,6 +51,17 @@ void struct_2d(ComMod &com_mod, CepMod &cep_mod, const int eNoN, const int nFn,
                const Vector<double> &ya_l_s, const Vector<double> &ya_l_n,
                Array<double> &lR, Array3<double> &lK);
 
+void struct_3d_linear(ComMod &com_mod, CepMod &cep_mod, const int eNoN,
+                      const int nFn, const int nG, const Vector<double> &wg,
+                      const Array<double> &Ng, const double Jac,
+                      const Array<double> &Nx, const Array<double> &al,
+                      const Array<double> &yl, const Array<double> &dl,
+                      const Array<double> &bfl, const Array<double> &fN,
+                      const Array<double> &pS0l, const Vector<double> &ya_l_f,
+                      const Vector<double> &ya_l_s, const Vector<double> &ya_l_n,
+                      Array<double> &lR, Array3<double> &lK,
+                      Struct3dScratch &scr);
+
 void struct_3d(ComMod &com_mod, CepMod &cep_mod, const int eNoN, const int nFn,
                const double w, const Vector<double> &N, const Array<double> &Nx,
                const Array<double> &al, const Array<double> &yl,

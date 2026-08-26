@@ -297,6 +297,21 @@ void construct_dsolid(ComMod& com_mod, CepMod& cep_mod, const mshType& lM, const
     double Jac{0.0};
     Array<double> ksix(nsd,nsd);
 
+    // With linear shape functions Nx is constant over the element and every
+    // term the Gauss loop accumulates is linear in S, so the whole loop collapses
+    // to a single element-level evaluation. pstEq is excluded because the
+    // prestress output pSl is sampled per Gauss point below.
+    if (lM.lShpF && nsd == 3 && !pstEq) {
+      auto Nx_g = lM.Nx.slice(0);
+      nn::gnn(eNoN, nsd, nsd, Nx_g, xl, Nx, Jac, ksix);
+      if (utils::is_zero(Jac)) {
+        throw std::runtime_error("[construct_dsolid] Jacobian for element " + std::to_string(e) + " is < 0.");
+      }
+      struct_3d_linear(com_mod, cep_mod, eNoN, nFn, lM.nG, lM.w, lM.N, Jac, Nx,
+                       al, yl, dl, bfl, fN, pS0l, ya_l_f, ya_l_s, ya_l_n,
+                       lR, lK, scr);
+    } else {
+
     for (int g = 0; g < lM.nG; g++) {
       // Nx (and Jac) are recomputed only when the shape functions actually vary
       // over the element. The same condition tells struct_3d whether the
@@ -344,6 +359,7 @@ void construct_dsolid(ComMod& com_mod, CepMod& cep_mod, const mshType& lM, const
         }
       }
     } 
+    } // linear shape function branch
 
     eq.linear_algebra->assemble(com_mod, eNoN, ptr, lK, lR);
   } 
@@ -549,6 +565,278 @@ void struct_2d(ComMod &com_mod, CepMod &cep_mod, const int eNoN, const int nFn,
 }
 
 /// @brief Reproduces Fortran 'STRUCT3D' subroutine.
+/// @brief Whole-element assembly for 3D solids with linear shape functions.
+///
+/// For a linear element Nx is constant over the element, so F, vx, Bm and the
+/// viscous stress and tangent are the same at every Gauss point -- struct_3d
+/// already reuses them via update_elem_invariants. The remaining per-Gauss-point
+/// work is redundant too, because every term the Gauss loop accumulates is
+/// linear in S and the quadrature weight is constant:
+///
+///   sum_g w_g S_g      = W (S_pk2cc + Svis) + sum_a Wa(a) pS0l(:,a)
+///   sum_g w_g NxSNx(S_g) = NxSNx(sum_g w_g S_g)
+///   sum_g w_g N_g(a) N_g(b) = M(a,b)
+///
+/// with W = sum_g w_g and Wa(a) = sum_g w_g N_g(a). So the constitutive model,
+/// the D*B products and the Bt*D*B contractions run once per element rather than
+/// nG times, and only the small N-weighted sums (M, Wa) are formed per Gauss
+/// point.
+///
+/// One approximation: compute_pk2cc is evaluated at the weighted-average active
+/// tension rather than once per Gauss point. That is exact when the stress is
+/// affine in the activation, which holds for the active-stress models (they add
+/// a term proportional to ya), but not for active strain, where ya enters the
+/// deformation gradient. Callers must keep that in mind; the general path in
+/// struct_3d is still used for every non-linear element.
+void struct_3d_linear(ComMod &com_mod, CepMod &cep_mod, const int eNoN,
+                      const int nFn, const int nG, const Vector<double> &wg,
+                      const Array<double> &Ng, const double Jac,
+                      const Array<double> &Nx, const Array<double> &al,
+                      const Array<double> &yl, const Array<double> &dl,
+                      const Array<double> &bfl, const Array<double> &fN,
+                      const Array<double> &pS0l, const Vector<double> &ya_l_f,
+                      const Vector<double> &ya_l_s, const Vector<double> &ya_l_n,
+                      Array<double> &lR, Array3<double> &lK,
+                      Struct3dScratch &scr) {
+  using namespace consts;
+  using namespace mat_fun;
+
+  const int dof = com_mod.dof;
+  const int cEq = com_mod.cEq;
+  auto& eq = com_mod.eq[cEq];
+  const int cDmn = com_mod.cDmn;
+  auto& dmn = eq.dmn[cDmn];
+  const double dt = com_mod.dt;
+
+  const double rho = dmn.prop.at(PhysicalProperyType::solid_density);
+  const double dmp = dmn.prop.at(PhysicalProperyType::damping);
+  Vector<double>& fb = scr.fb;
+  fb(0) = dmn.prop.at(PhysicalProperyType::f_x);
+  fb(1) = dmn.prop.at(PhysicalProperyType::f_y);
+  fb(2) = dmn.prop.at(PhysicalProperyType::f_z);
+
+  const double afu = eq.af * eq.beta*dt*dt;
+  const double afv = eq.af * eq.gam*dt;
+  const double amd = eq.am * rho  +  eq.af * eq.gam * dt * dmp;
+
+  const int i = eq.s;
+  const int j = i + 1;
+  const int k = j + 1;
+
+  // Gauss sums of the shape functions. W is the element volume measure, Wa the
+  // integral of each shape function, M the element mass matrix.
+  double W = 0.0;
+  Vector<double> Wa(eNoN);
+  Array<double> M(eNoN,eNoN);
+  Wa = 0.0;
+  M  = 0.0;
+  for (int g = 0; g < nG; g++) {
+    const double w = wg(g) * Jac;
+    W += w;
+    for (int a = 0; a < eNoN; a++) {
+      Wa(a) = Wa(a) + w*Ng(a,g);
+      for (int b = 0; b < eNoN; b++) {
+        M(a,b) = M(a,b) + w*Ng(a,g)*Ng(b,g);
+      }
+    }
+  }
+
+  // Element invariants built from Nx alone.
+  Array<double>& F  = scr.F;
+  Array<double>& vx = scr.vx;
+  vx = 0.0;
+  F  = 0.0;
+  F(0,0) = 1.0;
+  F(1,1) = 1.0;
+  F(2,2) = 1.0;
+
+  for (int a = 0; a < eNoN; a++) {
+    vx(0,0) = vx(0,0) + Nx(0,a)*yl(i,a);
+    vx(0,1) = vx(0,1) + Nx(1,a)*yl(i,a);
+    vx(0,2) = vx(0,2) + Nx(2,a)*yl(i,a);
+    vx(1,0) = vx(1,0) + Nx(0,a)*yl(j,a);
+    vx(1,1) = vx(1,1) + Nx(1,a)*yl(j,a);
+    vx(1,2) = vx(1,2) + Nx(2,a)*yl(j,a);
+    vx(2,0) = vx(2,0) + Nx(0,a)*yl(k,a);
+    vx(2,1) = vx(2,1) + Nx(1,a)*yl(k,a);
+    vx(2,2) = vx(2,2) + Nx(2,a)*yl(k,a);
+
+    F(0,0) = F(0,0) + Nx(0,a)*dl(i,a);
+    F(0,1) = F(0,1) + Nx(1,a)*dl(i,a);
+    F(0,2) = F(0,2) + Nx(2,a)*dl(i,a);
+    F(1,0) = F(1,0) + Nx(0,a)*dl(j,a);
+    F(1,1) = F(1,1) + Nx(1,a)*dl(j,a);
+    F(1,2) = F(1,2) + Nx(2,a)*dl(j,a);
+    F(2,0) = F(2,0) + Nx(0,a)*dl(k,a);
+    F(2,1) = F(2,1) + Nx(1,a)*dl(k,a);
+    F(2,2) = F(2,2) + Nx(2,a)*dl(k,a);
+  }
+
+  // Activation at the element level: the Wa-weighted average of the nodal
+  // values, which is what a single-point evaluation of sum_g w_g ya_g gives.
+  double ya_g_f = 0.0;
+  double ya_g_s = 0.0;
+  double ya_g_n = 0.0;
+  for (int a = 0; a < eNoN; a++) {
+    ya_g_f = ya_g_f + Wa(a)*ya_l_f(a);
+    ya_g_s = ya_g_s + Wa(a)*ya_l_s(a);
+    ya_g_n = ya_g_n + Wa(a)*ya_l_n(a);
+  }
+  ya_g_f /= W;
+  ya_g_s /= W;
+  ya_g_n /= W;
+
+  Array<double>& S  = scr.S;
+  Array<double>& Dm = scr.Dm;
+  double Ja;
+  mat_models::compute_pk2cc(com_mod, cep_mod, dmn, F, nFn, fN, ya_g_f, ya_g_s,
+                            ya_g_n, S, Dm, Ja);
+
+  Array<double>& Svis = scr.Svis;
+  Array3<double>& Kvis_u = scr.Kvis_u;
+  Array3<double>& Kvis_v = scr.Kvis_v;
+  mat_models::compute_visc_stress_and_tangent(dmn, eNoN, Nx, vx, F, Svis, Kvis_u, Kvis_v);
+
+  S += Svis;
+
+  // Sw = sum_g w_g S_g. The elastic and viscous parts are constant over the
+  // element so they scale with W; the prestress is interpolated with N and so
+  // picks up Wa.
+  Array<double>& Sw = scr.S0;
+  for (int p = 0; p < 3; p++) {
+    for (int q = 0; q < 3; q++) {
+      Sw(p,q) = W*S(p,q);
+    }
+  }
+  for (int a = 0; a < eNoN; a++) {
+    Sw(0,0) = Sw(0,0) + Wa(a)*pS0l(0,a);
+    Sw(1,1) = Sw(1,1) + Wa(a)*pS0l(1,a);
+    Sw(2,2) = Sw(2,2) + Wa(a)*pS0l(2,a);
+    Sw(0,1) = Sw(0,1) + Wa(a)*pS0l(3,a);
+    Sw(1,2) = Sw(1,2) + Wa(a)*pS0l(4,a);
+    Sw(2,0) = Sw(2,0) + Wa(a)*pS0l(5,a);
+  }
+  Sw(1,0) = Sw(0,1);
+  Sw(2,1) = Sw(1,2);
+  Sw(0,2) = Sw(2,0);
+
+  // 1st Piola-Kirchhoff tensor, already carrying the quadrature weight.
+  Array<double>& P = scr.P;
+  mat_fun::mat_mul(F, Sw, P);
+
+  // Local residual. The inertia and body-force term expands to
+  //   sum_g w_g N_g(a) ud_g(i) = -rho fb(i) Wa(a) + sum_b M(a,b) c_i(b)
+  // with c the nodal acceleration/damping combination.
+  for (int a = 0; a < eNoN; a++) {
+    double r0 = -rho*fb(0)*Wa(a);
+    double r1 = -rho*fb(1)*Wa(a);
+    double r2 = -rho*fb(2)*Wa(a);
+    for (int b = 0; b < eNoN; b++) {
+      r0 = r0 + M(a,b)*(rho*(al(i,b)-bfl(0,b)) + dmp*yl(i,b));
+      r1 = r1 + M(a,b)*(rho*(al(j,b)-bfl(1,b)) + dmp*yl(j,b));
+      r2 = r2 + M(a,b)*(rho*(al(k,b)-bfl(2,b)) + dmp*yl(k,b));
+    }
+    lR(0,a) = lR(0,a) + r0 + Nx(0,a)*P(0,0) + Nx(1,a)*P(0,1) + Nx(2,a)*P(0,2);
+    lR(1,a) = lR(1,a) + r1 + Nx(0,a)*P(1,0) + Nx(1,a)*P(1,1) + Nx(2,a)*P(1,2);
+    lR(2,a) = lR(2,a) + r2 + Nx(0,a)*P(2,0) + Nx(1,a)*P(2,1) + Nx(2,a)*P(2,2);
+  }
+
+  // Auxilary quantities for computing stiffness tensor
+  Array3<double>& Bm = scr.Bm;
+  for (int a = 0; a < eNoN; a++) {
+    Bm(0,0,a) = Nx(0,a)*F(0,0);
+    Bm(0,1,a) = Nx(0,a)*F(1,0);
+    Bm(0,2,a) = Nx(0,a)*F(2,0);
+
+    Bm(1,0,a) = Nx(1,a)*F(0,1);
+    Bm(1,1,a) = Nx(1,a)*F(1,1);
+    Bm(1,2,a) = Nx(1,a)*F(2,1);
+
+    Bm(2,0,a) = Nx(2,a)*F(0,2);
+    Bm(2,1,a) = Nx(2,a)*F(1,2);
+    Bm(2,2,a) = Nx(2,a)*F(2,2);
+
+    Bm(3,0,a) = (Nx(0,a)*F(0,1) + F(0,0)*Nx(1,a));
+    Bm(3,1,a) = (Nx(0,a)*F(1,1) + F(1,0)*Nx(1,a));
+    Bm(3,2,a) = (Nx(0,a)*F(2,1) + F(2,0)*Nx(1,a));
+
+    Bm(4,0,a) = (Nx(1,a)*F(0,2) + F(0,1)*Nx(2,a));
+    Bm(4,1,a) = (Nx(1,a)*F(1,2) + F(1,1)*Nx(2,a));
+    Bm(4,2,a) = (Nx(1,a)*F(2,2) + F(2,1)*Nx(2,a));
+
+    Bm(5,0,a) = (Nx(2,a)*F(0,0) + F(0,2)*Nx(0,a));
+    Bm(5,1,a) = (Nx(2,a)*F(1,0) + F(1,2)*Nx(0,a));
+    Bm(5,2,a) = (Nx(2,a)*F(2,0) + F(2,2)*Nx(0,a));
+  }
+
+  // Local stiffness tensor. Every contribution below already carries its
+  // quadrature weight: the geometric term through Sw, the mass term through M,
+  // and the material and viscous terms through W.
+  double NxSNx, T1, BmDBm;
+  Array<double>& DBm = scr.DBm;
+  const double afuW = afu*W;
+  const double afvW = afv*W;
+
+  for (int b = 0; b < eNoN; b++) {
+    mat_mul(Dm, Bm.rslice(b), DBm);
+
+    for (int a = 0; a < eNoN; a++) {
+      NxSNx = Nx(0,a)*Sw(0,0)*Nx(0,b) + Nx(1,a)*Sw(1,0)*Nx(0,b) +
+              Nx(2,a)*Sw(2,0)*Nx(0,b) + Nx(0,a)*Sw(0,1)*Nx(1,b) +
+              Nx(1,a)*Sw(1,1)*Nx(1,b) + Nx(2,a)*Sw(2,1)*Nx(1,b) +
+              Nx(0,a)*Sw(0,2)*Nx(2,b) + Nx(1,a)*Sw(1,2)*Nx(2,b) +
+              Nx(2,a)*Sw(2,2)*Nx(2,b);
+
+      T1 = amd*M(a,b) + afu*NxSNx;
+
+      BmDBm = Bm(0,0,a)*DBm(0,0) + Bm(1,0,a)*DBm(1,0) +
+              Bm(2,0,a)*DBm(2,0) + Bm(3,0,a)*DBm(3,0) +
+              Bm(4,0,a)*DBm(4,0) + Bm(5,0,a)*DBm(5,0);
+      lK(0,a,b) = lK(0,a,b) + T1 + afuW*(BmDBm + Kvis_u(0,a,b)) + afvW*Kvis_v(0,a,b);
+
+      BmDBm = Bm(0,0,a)*DBm(0,1) + Bm(1,0,a)*DBm(1,1) +
+              Bm(2,0,a)*DBm(2,1) + Bm(3,0,a)*DBm(3,1) +
+              Bm(4,0,a)*DBm(4,1) + Bm(5,0,a)*DBm(5,1);
+      lK(1,a,b) = lK(1,a,b) + afuW*(BmDBm + Kvis_u(1,a,b)) + afvW*Kvis_v(1,a,b);
+
+      BmDBm = Bm(0,0,a)*DBm(0,2) + Bm(1,0,a)*DBm(1,2) +
+              Bm(2,0,a)*DBm(2,2) + Bm(3,0,a)*DBm(3,2) +
+              Bm(4,0,a)*DBm(4,2) + Bm(5,0,a)*DBm(5,2);
+      lK(2,a,b) = lK(2,a,b) + afuW*(BmDBm + Kvis_u(2,a,b)) + afvW*Kvis_v(2,a,b);
+
+      BmDBm = Bm(0,1,a)*DBm(0,0) + Bm(1,1,a)*DBm(1,0) +
+              Bm(2,1,a)*DBm(2,0) + Bm(3,1,a)*DBm(3,0) +
+              Bm(4,1,a)*DBm(4,0) + Bm(5,1,a)*DBm(5,0);
+      lK(dof+0,a,b) = lK(dof+0,a,b) + afuW*(BmDBm + Kvis_u(3,a,b)) + afvW*Kvis_v(3,a,b);
+
+      BmDBm = Bm(0,1,a)*DBm(0,1) + Bm(1,1,a)*DBm(1,1) +
+              Bm(2,1,a)*DBm(2,1) + Bm(3,1,a)*DBm(3,1) +
+              Bm(4,1,a)*DBm(4,1) + Bm(5,1,a)*DBm(5,1);
+      lK(dof+1,a,b) = lK(dof+1,a,b) + T1 + afuW*(BmDBm + Kvis_u(4,a,b)) + afvW*Kvis_v(4,a,b);
+
+      BmDBm = Bm(0,1,a)*DBm(0,2) + Bm(1,1,a)*DBm(1,2) +
+              Bm(2,1,a)*DBm(2,2) + Bm(3,1,a)*DBm(3,2) +
+              Bm(4,1,a)*DBm(4,2) + Bm(5,1,a)*DBm(5,2);
+      lK(dof+2,a,b) = lK(dof+2,a,b) + afuW*(BmDBm + Kvis_u(5,a,b)) + afvW*Kvis_v(5,a,b);
+
+      BmDBm = Bm(0,2,a)*DBm(0,0) + Bm(1,2,a)*DBm(1,0) +
+              Bm(2,2,a)*DBm(2,0) + Bm(3,2,a)*DBm(3,0) +
+              Bm(4,2,a)*DBm(4,0) + Bm(5,2,a)*DBm(5,0);
+      lK(2*dof+0,a,b) = lK(2*dof+0,a,b) + afuW*(BmDBm + Kvis_u(6,a,b)) + afvW*Kvis_v(6,a,b);
+
+      BmDBm = Bm(0,2,a)*DBm(0,1) + Bm(1,2,a)*DBm(1,1) +
+              Bm(2,2,a)*DBm(2,1) + Bm(3,2,a)*DBm(3,1) +
+              Bm(4,2,a)*DBm(4,1) + Bm(5,2,a)*DBm(5,1);
+      lK(2*dof+1,a,b) = lK(2*dof+1,a,b) + afuW*(BmDBm + Kvis_u(7,a,b)) + afvW*Kvis_v(7,a,b);
+
+      BmDBm = Bm(0,2,a)*DBm(0,2) + Bm(1,2,a)*DBm(1,2) +
+              Bm(2,2,a)*DBm(2,2) + Bm(3,2,a)*DBm(3,2) +
+              Bm(4,2,a)*DBm(4,2) + Bm(5,2,a)*DBm(5,2);
+      lK(2*dof+2,a,b) = lK(2*dof+2,a,b) + T1 + afuW*(BmDBm + Kvis_u(8,a,b)) + afvW*Kvis_v(8,a,b);
+    }
+  }
+}
+
 void struct_3d(ComMod &com_mod, CepMod &cep_mod, const int eNoN, const int nFn,
                const double w, const Vector<double> &N, const Array<double> &Nx,
                const Array<double> &al, const Array<double> &yl,
