@@ -279,7 +279,7 @@ void construct_dsolid(ComMod& com_mod, CepMod& cep_mod, const mshType& lM, const
       }
 
       if (pS0.size() != 0) { 
-        pS0l.set_col(a, pS0.col(Ac));
+        pS0l.set_col(a, pS0.rcol(Ac));
       }
 
       if (eq.dmn[cDmn].active_stress != nullptr) {
@@ -306,7 +306,7 @@ void construct_dsolid(ComMod& com_mod, CepMod& cep_mod, const mshType& lM, const
         }
       }
       double w = lM.w(g) * Jac;
-      N = lM.N.col(g);
+      N = lM.N.rcol(g);
       pSl = 0.0;
 
       if (nsd == 3) {
@@ -395,7 +395,9 @@ void struct_2d(ComMod &com_mod, CepMod &cep_mod, const int eNoN, const int nFn,
   Array<double> F(2,2), S0(2,2), vx(2,2);
   Vector<double> ud(2);
 
-  ud = -rho*fb;
+  for (int i = 0; i < 2; i++) {
+    ud(i) = -rho*fb(i);
+  }
   F = 0.0;
   F(0,0) = 1.0;
   F(1,1) = 1.0;
@@ -611,7 +613,9 @@ void struct_3d(ComMod &com_mod, CepMod &cep_mod, const int eNoN, const int nFn,
   F_f[1][1] = 1.0;
   F_f[2][2] = 1.0;
 
-  ud = -rho*fb;
+  for (int i = 0; i < 3; i++) {
+    ud(i) = -rho*fb(i);
+  }
   F = 0.0;
   F(0,0) = 1.0;
   F(1,1) = 1.0;
