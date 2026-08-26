@@ -30,4 +30,4 @@ tolerances.
 
 Holzapfel, Gerhard A., and Ray W. Ogden. Constitutive Modelling of Passive Myocardium: A
 Structurally Based Framework for Material Characterization. *Philosophical Transactions of the
-Royal Society A* 367, no. 1902 (2009): 3445 75. https://doi.org/10.1098/rsta.2009.0091.
+Royal Society A* 367, no. 1902 (2009): 3445–75. https://doi.org/10.1098/rsta.2009.0091.
