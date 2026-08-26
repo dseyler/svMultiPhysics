@@ -808,7 +808,7 @@ void setPreconditioner(const Teuchos::RCP<Trilinos> &trilinos_, int precondType,
 /// Edit here to try a level. Higher reuse cuts setup time but can weaken the
 /// preconditioner, which shows up as more Krylov iterations -- watch ls_iterate,
 /// not just ls_precond. An XML option can follow once a level is settled on.
-static constexpr const char* MUELU_REUSE_TYPE = "RP";
+static constexpr const char* MUELU_REUSE_TYPE = "RAP";
 
 void setMueLuPreconditioner(Teuchos::RCP<MueLu_Preconditioner> &MueLuPrec,
                             const Teuchos::RCP<Tpetra_CrsMatrix> &A,
