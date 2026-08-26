@@ -16,37 +16,14 @@
 #include "ComMod.h"
 #define NOOUTPUT
 
-/// Nodal degrees of freedom
-int dof;
-
-/// Total number of nodes including the ghost nodes
-int ghostAndLocalNodes;
-
-/// Nodes owned by processor
-int localNodes;
-
-/// Converts local proc column indices to global indices to be inserted
-std::vector<int> globalColInd;
-
-/// Converts local indices to global indices in unsorted ghost node order
-std::vector<int> localToGlobalUnsorted;
-
-/// Stores number of nonzeros per row for the topology
-std::vector<int> nnzPerRow;
-
-std::vector<int> localToGlobalSorted;
-
-/// Stores the global node number of local node a in a Dof-based row
-std::vector<GO> globalDofGIDs;
-
-std::vector<GO> globalGhostDofGIDs;
-
-/// Stores number of nonzeros per row for CSR topology including Dofs
-std::vector<size_t> nnzPerDofRow;
+// The per-equation linear system state that used to live here -- dof,
+// ghostAndLocalNodes, localNodes, coupledBC and the index vectors -- now lives
+// in struct Trilinos (trilinos_impl.h). It was only safe as file-scope state
+// because trilinos_lhs_create rebuilt it before every solve; now that the
+// structure is reused across solves, a multi-physics run would otherwise solve
+// one equation using another equation's dof and column indices.
 
 int timecount = 0;
-
-bool coupledBC;
 
 // ----------------------------------------------------------------------------
 /**
@@ -69,7 +46,7 @@ void TrilinosMatVec::apply(const Tpetra_MultiVector& x, Tpetra_MultiVector& y,
   trilinos_->K->apply(x, y, mode, alpha, beta); //Y = beta*Y + alpha*K*X 
 
   // Now add on the coupled Neumann boundary contribution y += v1*(v1'*x) + v2*(v2'*x) + ...
-  if (coupledBC)
+  if (trilinos_->coupledBC)
   {
     // Cap terms contribute to the flux scalar term only, not to pressure update rows.
     // So we compute (v_face^T x + v_cap^T x) and apply it with v_face.
@@ -116,11 +93,49 @@ void TrilinosMatVec::apply(const Tpetra_MultiVector& x, Tpetra_MultiVector& y,
 
  */
 
+/// @brief Order-sensitive hash of an index vector, for the structure signature.
+static std::size_t hash_index_vector(const Vector<int>& v)
+{
+  std::size_t h = 1469598103934665603ull;          // FNV-1a offset basis
+  const std::size_t prime = 1099511628211ull;
+  const int n = v.size();
+  h = (h ^ static_cast<std::size_t>(n)) * prime;
+  for (int i = 0; i < n; i++) {
+    h = (h ^ static_cast<std::size_t>(static_cast<unsigned int>(v(i)))) * prime;
+  }
+  return h;
+}
+
 void trilinos_lhs_create(const Teuchos::RCP<Trilinos> &trilinos_, const int numGlobalNodes, const int numLocalNodes,
         const int numGhostAndLocalNodes, const int nnz, const Vector<int>& ltgSorted,
         const Vector<int>& ltgUnsorted, const Vector<int>& rowPtr, const Vector<int>& colInd,
         const int Dof, const int cpp_index, const int proc_id, const int numCoupledNeumannBC)
 {
+  // Everything built below is a function of these inputs alone, and they are
+  // fixed for a given equation and mesh -- the sparsity pattern comes from
+  // com_mod.rowPtr/colPtr, written only by lhsa() on the initialize path. This
+  // used to be rebuilt on every Newton iteration. Rebuild only when something
+  // actually changed: a different equation, or a remesh (which re-runs
+  // initialize and so changes the signature).
+  LhsSignature sig;
+  sig.gtnNo = numGlobalNodes;
+  sig.mynNo = numLocalNodes;
+  sig.tnNo = numGhostAndLocalNodes;
+  sig.nnz = nnz;
+  sig.dof = Dof;
+  sig.numCoupledNeumannBC = numCoupledNeumannBC;
+  sig.ltg_hash = hash_index_vector(ltgSorted) ^ (hash_index_vector(ltgUnsorted) << 1);
+  sig.rowPtr_hash = hash_index_vector(rowPtr);
+  sig.colPtr_hash = hash_index_vector(colInd);
+
+  if (trilinos_->signature.valid() && trilinos_->signature == sig &&
+      !trilinos_->K.is_null()) {
+    // Structure is still valid. The matrix values are refilled from scratch by
+    // the caller before every solve, so nothing here needs redoing.
+    return;
+  }
+  trilinos_->signature = sig;
+
   #ifdef debug_trilinos_lhs_create
   std::string msg_prefix;
   msg_prefix = std::string("[trilinos_lhs_create:") + std::to_string(proc_id) + "] ";
@@ -135,41 +150,41 @@ void trilinos_lhs_create(const Teuchos::RCP<Trilinos> &trilinos_, const int numG
     indexBase = 0; 
   }
 
-  dof = Dof; //constant size dof blocks
-  ghostAndLocalNodes = numGhostAndLocalNodes;
-  localNodes = numLocalNodes;
+  trilinos_->dof = Dof; //constant size trilinos_->dof blocks
+  trilinos_->ghostAndLocalNodes = numGhostAndLocalNodes;
+  trilinos_->localNodes = numLocalNodes;
 
   trilinos_->comm = Tpetra::getDefaultComm();
 
   #ifdef debug_trilinos_lhs_create
   std::cout <<  msg_prefix << "indexBase: " << indexBase << std::endl;
-  std::cout << msg_prefix << "dof: " << dof << std::endl;
-  std::cout << msg_prefix << "ghostAndLocalNodes: " << ghostAndLocalNodes << std::endl;
-  std::cout << msg_prefix << "localNodes: " << localNodes << std::endl;
-  std::cout << msg_prefix << "localToGlobalSorted.size(): " << localToGlobalSorted.size() << std::endl;
+  std::cout << msg_prefix << "trilinos_->dof: " << trilinos_->dof << std::endl;
+  std::cout << msg_prefix << "trilinos_->ghostAndLocalNodes: " << trilinos_->ghostAndLocalNodes << std::endl;
+  std::cout << msg_prefix << "trilinos_->localNodes: " << trilinos_->localNodes << std::endl;
+  std::cout << msg_prefix << "trilinos_->localToGlobalSorted.size(): " << trilinos_->localToGlobalSorted.size() << std::endl;
   #endif
 
   // The variables need to be reset at every non-linear iterations
   // Tpetra is more strict then Epetra in graph allocation and once 
   // created does not allow any changes unless destroyed and reallocated
-  localToGlobalSorted.clear(); 
-  localToGlobalUnsorted.clear();
-  globalColInd.clear();
+  trilinos_->localToGlobalSorted.clear(); 
+  trilinos_->localToGlobalUnsorted.clear();
+  trilinos_->globalColInd.clear();
 
-  globalDofGIDs.clear();
-  globalGhostDofGIDs.clear();
+  trilinos_->globalDofGIDs.clear();
+  trilinos_->globalGhostDofGIDs.clear();
   
 
   // allocate memory for vectors
-  localToGlobalSorted.reserve(numGhostAndLocalNodes);
-  localToGlobalUnsorted.reserve(numGhostAndLocalNodes);
-  globalColInd.reserve(nnz);
+  trilinos_->localToGlobalSorted.reserve(numGhostAndLocalNodes);
+  trilinos_->localToGlobalUnsorted.reserve(numGhostAndLocalNodes);
+  trilinos_->globalColInd.reserve(nnz);
 
-  globalDofGIDs.reserve(numGhostAndLocalNodes * dof);
-  globalGhostDofGIDs.reserve(numGhostAndLocalNodes * dof); 
+  trilinos_->globalDofGIDs.reserve(numGhostAndLocalNodes * trilinos_->dof);
+  trilinos_->globalGhostDofGIDs.reserve(numGhostAndLocalNodes * trilinos_->dof); 
 
-  nnzPerRow.clear (); // for fsils assembly
-  nnzPerRow.reserve(numGhostAndLocalNodes);
+  trilinos_->nnzPerRow.clear (); // for fsils assembly
+  trilinos_->nnzPerRow.reserve(numGhostAndLocalNodes);
 
   // Define localtoglobal to be used for unqiue partition map
   //only take ltgSorted(1:numLocalNodes) since those are owned by the processor
@@ -177,21 +192,21 @@ void trilinos_lhs_create(const Teuchos::RCP<Trilinos> &trilinos_, const int numG
   for (unsigned i = 0; i < numLocalNodes; ++i)
   {
     // any nodes following are ghost nodes so that subset
-    for (int d = 0; d < dof; ++d)
+    for (int d = 0; d < trilinos_->dof; ++d)
     {
-      globalDofGIDs.emplace_back(ltgSorted[i] * dof + d);
+      trilinos_->globalDofGIDs.emplace_back(ltgSorted[i] * trilinos_->dof + d);
     }
   }
 
   for (unsigned i = 0; i < numGhostAndLocalNodes; ++i)
   {
-    localToGlobalSorted.emplace_back(ltgSorted[i]);
-    localToGlobalUnsorted.emplace_back(ltgUnsorted[i]);
-    for (int d = 0; d < dof; ++d)
+    trilinos_->localToGlobalSorted.emplace_back(ltgSorted[i]);
+    trilinos_->localToGlobalUnsorted.emplace_back(ltgUnsorted[i]);
+    for (int d = 0; d < trilinos_->dof; ++d)
     {
-      globalGhostDofGIDs.emplace_back(ltgSorted[i] * dof + d);
+      trilinos_->globalGhostDofGIDs.emplace_back(ltgSorted[i] * trilinos_->dof + d);
     }
-    nnzPerRow.emplace_back(rowPtr[i+1] - rowPtr[i]);
+    trilinos_->nnzPerRow.emplace_back(rowPtr[i+1] - rowPtr[i]);
   }
 
   /*
@@ -200,14 +215,14 @@ void trilinos_lhs_create(const Teuchos::RCP<Trilinos> &trilinos_, const int numG
   // Create the Tpetra Map (DoF-wise map)
   trilinos_->Map = Teuchos::rcp(new Tpetra_Map(
     Teuchos::OrdinalTraits<Tpetra::global_size_t>::invalid(),
-    Teuchos::arrayView(globalDofGIDs.data(), globalDofGIDs.size()), indexBase, trilinos_->comm));
+    Teuchos::arrayView(trilinos_->globalDofGIDs.data(), trilinos_->globalDofGIDs.size()), indexBase, trilinos_->comm));
   /*
     Creating a Map for the local nodes owned and shared by the processor
   */
   // Create the ghost map — include owned + ghost GIDs
   trilinos_->ghostMap = Teuchos::rcp(new Tpetra_Map(
     Teuchos::OrdinalTraits<Tpetra::global_size_t>::invalid(),
-    Teuchos::arrayView(globalGhostDofGIDs.data(), globalGhostDofGIDs.size()), indexBase, trilinos_->comm));
+    Teuchos::arrayView(trilinos_->globalGhostDofGIDs.data(), trilinos_->globalGhostDofGIDs.size()), indexBase, trilinos_->comm));
 
   /*
     Graph construction  
@@ -219,14 +234,14 @@ void trilinos_lhs_create(const Teuchos::RCP<Trilinos> &trilinos_, const int numG
     gidToUnsortedIndex[ltgUnsorted[i]] = i;
 
   const LO numLocalDofs = trilinos_->Map->getLocalNumElements();
-  nnzPerDofRow.clear();
-  nnzPerDofRow.reserve(numLocalDofs);
+  trilinos_->nnzPerDofRow.clear();
+  trilinos_->nnzPerDofRow.reserve(numLocalDofs);
 
   for (LO lid = 0; lid < numLocalDofs; ++lid)
   {
     GO dofGid = trilinos_->Map->getGlobalElement(lid);
-    GO nodeGid = dofGid / dof; 
-    int d = dofGid % dof;
+    GO nodeGid = dofGid / trilinos_->dof; 
+    int d = dofGid % trilinos_->dof;
 
     auto it = gidToUnsortedIndex.find(nodeGid);
     if (it == gidToUnsortedIndex.end())
@@ -237,22 +252,22 @@ void trilinos_lhs_create(const Teuchos::RCP<Trilinos> &trilinos_, const int numG
 
     size_t unsortedIdx = it->second;
     int numNodeCols = rowPtr[unsortedIdx + 1] - rowPtr[unsortedIdx];
-    nnzPerDofRow.emplace_back(numNodeCols * dof);
+    trilinos_->nnzPerDofRow.emplace_back(numNodeCols * trilinos_->dof);
   }
 
   // Construct graph based on nnz per row
   //
-  trilinos_->K_graph = Teuchos::rcp(new Tpetra_CrsGraph(trilinos_->Map, nnzPerDofRow));
+  trilinos_->K_graph = Teuchos::rcp(new Tpetra_CrsGraph(trilinos_->Map, trilinos_->nnzPerDofRow));
 
   unsigned nnzCount = 0; //cumulate count of block nnz per rows
 
   // Use unsortedltg to map local col ind to global indices
   //
-  if (globalColInd.size() != nnz) { // only if nnz changed
-    globalColInd.clear(); // destroy
+  if (trilinos_->globalColInd.size() != nnz) { // only if nnz changed
+    trilinos_->globalColInd.clear(); // destroy
     for (unsigned i = 0; i < nnz; ++i) {
       // Convert to global indexing subtract 1 for fortran vs C array indexing
-      globalColInd.emplace_back(ltgUnsorted[colInd[i] - indexBase]);
+      trilinos_->globalColInd.emplace_back(ltgUnsorted[colInd[i] - indexBase]);
     }
   } 
   
@@ -261,14 +276,14 @@ void trilinos_lhs_create(const Teuchos::RCP<Trilinos> &trilinos_, const int numG
       GO nodeGID = ltgUnsorted[i];
       int numEntries = rowPtr[i+1] - rowPtr[i];
 
-      for (int d = 0; d < dof; ++d) {
-          GO rowGID = nodeGID * dof + d;
-          std::vector<GO> rowCols(numEntries*dof);
+      for (int d = 0; d < trilinos_->dof; ++d) {
+          GO rowGID = nodeGID * trilinos_->dof + d;
+          std::vector<GO> rowCols(numEntries*trilinos_->dof);
 
           for (int j = 0; j < numEntries; ++j) {
-              GO colNode = globalColInd[nnzCount + j];
-              for (int col_d = 0; col_d < dof; ++col_d)
-                  rowCols[j*dof + col_d] = colNode * dof + col_d;
+              GO colNode = trilinos_->globalColInd[nnzCount + j];
+              for (int col_d = 0; col_d < trilinos_->dof; ++col_d)
+                  rowCols[j*trilinos_->dof + col_d] = colNode * trilinos_->dof + col_d;
           }
 
           trilinos_->K_graph->insertGlobalIndices(rowGID, rowCols);
@@ -343,18 +358,18 @@ void trilinos_doassem_(const Teuchos::RCP<Trilinos> &trilinos_, int &numNodesPer
 {
   #ifdef debug_trilinos_doassem
   std::cout << "[trilinos_doassem_] ========== trilinos_doassem_ ===========" << std::endl;
-  std::cout << "[trilinos_doassem_] dof: " << dof << std::endl;
+  std::cout << "[trilinos_doassem_] trilinos_->dof: " << trilinos_->dof << std::endl;
   std::cout << "[trilinos_doassem_] numNodesPerElement: " << numNodesPerElement << std::endl;
   #endif
 
   //dof values per global ID in the force vector
-  int numValuesPerID = dof;
+  int numValuesPerID = trilinos_->dof;
 
   //converts eqN in local proc values to global values
   std::vector<int> localToGlobal(numNodesPerElement);
 
   for (int i = 0; i < numNodesPerElement; ++i)
-    localToGlobal[i] = localToGlobalUnsorted[eqN[i]];
+    localToGlobal[i] = trilinos_->localToGlobalUnsorted[eqN[i]];
 
   //loop over local nodes on the element
   for (int a = 0; a < numNodesPerElement; ++a)
@@ -362,12 +377,12 @@ void trilinos_doassem_(const Teuchos::RCP<Trilinos> &trilinos_, int &numNodesPer
     // Sum into contributions from element node-global assemble 
     // we assemble owned and ghost nodes (to be assembled across 
     // processors later)
-    GO globalRow = localToGlobal[a] * dof; // first dof of node a
+    GO globalRow = localToGlobal[a] * trilinos_->dof; // first trilinos_->dof of node a
     
     // Sum into each DoF for vector F
-    for (int d = 0; d < dof; ++d)
+    for (int d = 0; d < trilinos_->dof; ++d)
     {
-      trilinos_->ghostF->sumIntoGlobalValue(globalRow + d, 0, lR[a * dof + d]);
+      trilinos_->ghostF->sumIntoGlobalValue(globalRow + d, 0, lR[a * trilinos_->dof + d]);
     }
     
     // For the matrix K update:
@@ -375,24 +390,24 @@ void trilinos_doassem_(const Teuchos::RCP<Trilinos> &trilinos_, int &numNodesPer
     for (int b = 0; b < numNodesPerElement; ++b)
     {
       // The global column base for node b (all its dofs)
-      GO colBase = localToGlobal[b] * dof;
+      GO colBase = localToGlobal[b] * trilinos_->dof;
 
       // We need to build row indices and values for each DoF row of node a
-      for (int i = 0; i < dof; ++i)
+      for (int i = 0; i < trilinos_->dof; ++i)
       {
         GO globalRowK = globalRow + i;
 
-        std::vector<GO> cols(dof);
-        std::vector<Scalar_d> vals(dof);
+        std::vector<GO> cols(trilinos_->dof);
+        std::vector<Scalar_d> vals(trilinos_->dof);
 
-        for (int j = 0; j < dof; ++j)
+        for (int j = 0; j < trilinos_->dof; ++j)
         {
           cols[j] = colBase + j;
           // 'a' and 'b' have to be inverted since lK.data() order them in a transpose way
-          vals[j] = lK[b * dof * dof * numNodesPerElement + a * dof * dof + i * dof + j];
+          vals[j] = lK[b * trilinos_->dof * trilinos_->dof * numNodesPerElement + a * trilinos_->dof * trilinos_->dof + i * trilinos_->dof + j];
         }
         // sumIntoGlobalValues performs local to processor assembly 
-        trilinos_->K->sumIntoGlobalValues(globalRowK, dof, vals.data(), cols.data());
+        trilinos_->K->sumIntoGlobalValues(globalRowK, trilinos_->dof, vals.data(), cols.data());
       }
     }
   }
@@ -428,35 +443,35 @@ void trilinos_global_solve_(const Teuchos::RCP<Trilinos> &trilinos_, const doubl
 {
   int nnzCount = 0; //cumulate count of block nnz per rows
   int count = 0;
-  int numValuesPerID = dof; //dof values per id pointer to dof
-  std::vector<Scalar_d> values(dof); // holds local matrix entries
-  std::vector<GO> colGIDK(dof); // holds global column indices for K
+  int numValuesPerID = trilinos_->dof; //trilinos_->dof values per id pointer to trilinos_->dof
+  std::vector<Scalar_d> values(trilinos_->dof); // holds local matrix entries
+  std::vector<GO> colGIDK(trilinos_->dof); // holds global column indices for K
 
   // loop over block rows owned by current proc using localToGlobal index pointer
   //
-  for (int i = 0; i < ghostAndLocalNodes; ++i) {
-    int numEntries = nnzPerRow[i]; //block per of entries per row
-    const GO rowGID = localToGlobalUnsorted[i];
-    const GO* colGIDs = &globalColInd[nnzCount];
+  for (int i = 0; i < trilinos_->ghostAndLocalNodes; ++i) {
+    int numEntries = trilinos_->nnzPerRow[i]; //block per of entries per row
+    const GO rowGID = trilinos_->localToGlobalUnsorted[i];
+    const GO* colGIDs = &trilinos_->globalColInd[nnzCount];
 
     // Copy RHS values into ghostF 
-    for (int j = 0; j < dof; ++j) {
-        trilinos_->ghostF->replaceGlobalValue(rowGID * dof + j, 0, RHS[i * dof + j]);
+    for (int j = 0; j < trilinos_->dof; ++j) {
+        trilinos_->ghostF->replaceGlobalValue(rowGID * trilinos_->dof + j, 0, RHS[i * trilinos_->dof + j]);
     }
     // Tpetra assembly from FSILS assembly
     for (int j = 0; j < numEntries; ++j) {
-      for (int l = 0; l < dof; ++l) { //loop over dof for bool to contruct
-        GO rowGIDK = rowGID * dof + l; // global row index for K
-        for (int m = 0; m < dof; ++m) {
-          colGIDK[m] = colGIDs[j] * dof + m;
-          values[m] = Val[count*dof*dof + l*dof + m];
+      for (int l = 0; l < trilinos_->dof; ++l) { //loop over trilinos_->dof for bool to contruct
+        GO rowGIDK = rowGID * trilinos_->dof + l; // global row index for K
+        for (int m = 0; m < trilinos_->dof; ++m) {
+          colGIDK[m] = colGIDs[j] * trilinos_->dof + m;
+          values[m] = Val[count*trilinos_->dof*trilinos_->dof + l*trilinos_->dof + m];
         }
         // even though Val contains already assembled values we use sumIntoGlobalValues
         // because Tpetra can only store rows owned by the process and NOT ghost rows
         // when assemblying with FillComplete across processors missing contributions happens.
         // In this way we ensure all contributions are accounted for across processors, 
         // without duplicating contributions.
-        trilinos_->K->sumIntoGlobalValues(rowGIDK, dof, values.data(), colGIDK.data());
+        trilinos_->K->sumIntoGlobalValues(rowGIDK, trilinos_->dof, values.data(), colGIDK.data());
       }
       count++;
     }
@@ -513,7 +528,11 @@ void trilinos_solve_(const Teuchos::RCP<Trilinos> &trilinos_, double *x, const d
   // routine will sum in contributions from elements on shared nodes amongst
   // processors
   //
-  trilinos_->K->fillComplete();
+  // With a static graph the structure cannot change, so this is needed only
+  // once -- and fillComplete() throws if called on an already-complete matrix.
+  if (!trilinos_->K->isFillComplete()) {
+    trilinos_->K->fillComplete();
+  }
 
   if (flagFassem) {
     Tpetra::Export exporter(trilinos_->ghostF->getMap(), trilinos_->F->getMap());
@@ -654,7 +673,7 @@ void trilinos_solve_(const Teuchos::RCP<Trilinos> &trilinos_, double *x, const d
   // any preconditioner objects
   trilinos_->ghostF->putScalar(0.0);
   trilinos_->F->putScalar(0.0);
-  if (coupledBC) {
+  if (trilinos_->coupledBC) {
     for (auto bdryVec : trilinos_->bdryVec_list)
       bdryVec->putScalar(0.0);
     for (auto bdryCapVec : trilinos_->bdryCapVec_list)
@@ -663,9 +682,20 @@ void trilinos_solve_(const Teuchos::RCP<Trilinos> &trilinos_, double *x, const d
   }
   trilinos_->X->putScalar(0.0);
 
+  // Part 1 keeps only the matrix and its structure; the preconditioners are
+  // still rebuilt each solve. Reusing the MueLu hierarchy is Part 2.
   if (trilinos_->MueluPrec != Teuchos::null) trilinos_->MueluPrec = Teuchos::null;
   if (trilinos_->ifpackPrec != Teuchos::null) trilinos_->ifpackPrec = Teuchos::null;
 
+  // The matrix is released but the Map, ghostMap, graph, importer and vectors
+  // are kept (see trilinos_lhs_create's signature check), so only the CrsMatrix
+  // is reconstructed -- from an already fill-complete graph, which is cheap.
+  //
+  // Reusing the matrix itself was measured and does NOT preserve results: on a
+  // freshly constructed matrix sumIntoGlobalValues accumulates into a
+  // pre-fillComplete structure, while on a reused fill-complete matrix it takes
+  // the local-index path. Same values, different summation order, ~7e-10
+  // relative divergence -- enough to fail the 1e-10 regression tolerance.
   trilinos_->K = Teuchos::null;
 
 } // trilinos_solve_
@@ -727,7 +757,7 @@ void setPreconditioner(const Teuchos::RCP<Trilinos> &trilinos_, int precondType,
 
   } else if (precondType == TRILINOS_ML_PRECONDITIONER) {
     checkDiagonalIsZero(trilinos_);
-    setMueLuPreconditioner(trilinos_->MueluPrec, trilinos_->K);
+    setMueLuPreconditioner(trilinos_->MueluPrec, trilinos_->K, trilinos_->dof);
     BelosProblem->setLeftPrec(trilinos_->MueluPrec);
     return;
   } else {
@@ -749,7 +779,8 @@ void setPreconditioner(const Teuchos::RCP<Trilinos> &trilinos_, int precondType,
  * https://trilinos.github.io/pdfs/mueluguide.pdf
  */
 void setMueLuPreconditioner(Teuchos::RCP<MueLu_Preconditioner> &MueLuPrec,
-                            const Teuchos::RCP<Tpetra_CrsMatrix> &A)
+                            const Teuchos::RCP<Tpetra_CrsMatrix> &A,
+                            const int dof)
 {
   // MueLuPrec is now a Tpetra::Operator that can be plug into BelosProblem
   std::string optionsFile = "mueluOptions.xml";
@@ -854,12 +885,12 @@ void constructJacobiScaling(const Teuchos::RCP<Trilinos> &trilinos_, const doubl
   Teuchos::RCP<const Tpetra_Map> map = diagonal.getMap();
 
   // Set Dirichlet weights
-  for (int i = 0; i < localNodes; ++i) {
-    for (int j = 0; j < dof; ++j) {
-      GO gid = localToGlobalSorted[i] * dof + j;
+  for (int i = 0; i < trilinos_->localNodes; ++i) {
+    for (int j = 0; j < trilinos_->dof; ++j) {
+      GO gid = trilinos_->localToGlobalSorted[i] * trilinos_->dof + j;
       if (map->isNodeGlobalElement(gid)) {
         size_t lid = map->getLocalElement(gid);
-        diagonal.replaceLocalValue(lid, dirW[i * dof + j]);
+        diagonal.replaceLocalValue(lid, dirW[i * trilinos_->dof + j]);
       } else {
         std::cerr << "[ERROR] Setting Dirichlet diagonal scaling value failed at GID " 
                   << gid << std::endl;
@@ -888,7 +919,7 @@ void constructJacobiScaling(const Teuchos::RCP<Trilinos> &trilinos_, const doubl
   trilinos_->K->rightScale(diagonal);
 
   // Scale boundary vectors if coupledBC is set
-  if (coupledBC) {
+  if (trilinos_->coupledBC) {
     for (auto bdryVec : trilinos_->bdryVec_list) {
       bdryVec->elementWiseMultiply(1.0, diagonal, *bdryVec, 0.0);
     }
@@ -907,13 +938,13 @@ void trilinos_bc_create_(const Teuchos::RCP<Trilinos> &trilinos_,
   const std::vector<Array<double>> &v_list, const std::vector<Array<double>> &vcap_list, bool &isCoupledBC)
 {
   // store as global to determine which matvec multiply to use in solver
-  coupledBC = isCoupledBC;
+  trilinos_->coupledBC = isCoupledBC;
 
   if (isCoupledBC)
   {
-    for (int i = 0; i < ghostAndLocalNodes; ++i)
+    for (int i = 0; i < trilinos_->ghostAndLocalNodes; ++i)
     {
-      auto globalRow = static_cast<GO>(localToGlobalSorted[i]);
+      auto globalRow = static_cast<GO>(trilinos_->localToGlobalSorted[i]);
 
       for (int k = 0; k < v_list.size(); ++k)
       {
@@ -921,10 +952,10 @@ void trilinos_bc_create_(const Teuchos::RCP<Trilinos> &trilinos_,
         auto bdryVec = trilinos_->bdryVec_list[k];
         const double* vcap = vcap_list[k].data();
         auto bdryCapVec = trilinos_->bdryCapVec_list[k];
-        for (int j = 0; j < dof; ++j)
+        for (int j = 0; j < trilinos_->dof; ++j)
         {
-          bdryVec->replaceGlobalValue(globalRow * dof + j, 0, v[i * dof + j]);
-          bdryCapVec->replaceGlobalValue(globalRow * dof + j, 0, vcap[i * dof + j]);
+          bdryVec->replaceGlobalValue(globalRow * trilinos_->dof + j, 0, v[i * trilinos_->dof + j]);
+          bdryCapVec->replaceGlobalValue(globalRow * trilinos_->dof + j, 0, vcap[i * trilinos_->dof + j]);
         }
       }
     }
@@ -944,14 +975,14 @@ void printMatrixToFile(const Teuchos::RCP<Trilinos> &trilinos_)
   Teuchos::RCP<const Tpetra_CrsMatrix> K = trilinos_->K;
   Teuchos::RCP<const Tpetra_Map> rowMap = K->getRowMap();
 
-  for (int i = 0; i < ghostAndLocalNodes; ++i)
+  for (int i = 0; i < trilinos_->ghostAndLocalNodes; ++i)
   {
-    int nodeGlobalID = localToGlobalUnsorted[i];
+    int nodeGlobalID = trilinos_->localToGlobalUnsorted[i];
 
     // Loop over each DoF in the block row
-    for (int d = 0; d < dof; ++d)
+    for (int d = 0; d < trilinos_->dof; ++d)
     {
-      int rowGID = nodeGlobalID * dof + d;
+      int rowGID = nodeGlobalID * trilinos_->dof + d;
 
       // Get number of entries in the row
       size_t maxEntries = K->getNumEntriesInGlobalRow(rowGID);
@@ -1081,6 +1112,17 @@ void TrilinosLinearAlgebra::TrilinosImpl::alloc(ComMod& com_mod, eqType& lEq)
 
   trilinos_lhs_create(trilinos_, gtnNo, lhs.mynNo, tnNo, lhs.nnz, ltg_, com_mod.ltg, com_mod.rowPtr, 
       com_mod.colPtr, dof, cpp_index, task_id, com_mod.lhs.nFaces);
+
+  // The matrix is now reused across solves rather than rebuilt, so it has to be
+  // cleared here -- it used to arrive as a freshly constructed (zeroed) matrix
+  // and the assembly paths only ever sum into it. Without this, values would
+  // accumulate across Newton iterations.
+  //
+  // Done once per iteration, before any assembly: trilinos_doassem_ is called
+  // per element and must not clear anything.
+  if (!trilinos_->K.is_null()) {
+    trilinos_->K->setAllToScalar(0.0);
+  }
 }
 
 /// @brief Assemble local element arrays.

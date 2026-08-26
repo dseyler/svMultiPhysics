@@ -116,7 +116,47 @@ using MueLu_Preconditioner = Tpetra_Operator;
 #define TRILINOS_RILUK1_PRECONDITIONER 707
 #define TRILINOS_ML_PRECONDITIONER 708
 
+/// @brief Identifies the linear system structure, so it can be rebuilt only when
+/// something it depends on actually changes.
+///
+/// Everything here is fixed for a given equation and mesh: the sparsity pattern
+/// comes from com_mod.rowPtr/colPtr, which are written only by lhsa() on the
+/// initialize path. Remeshing re-runs that path (main.cpp's outer loop calls
+/// read_files -> distribute -> initialize again), so a changed mesh produces a
+/// different signature and forces a rebuild with no flag to maintain.
+struct LhsSignature
+{
+  int gtnNo = -1;
+  int mynNo = -1;
+  int tnNo = -1;
+  int nnz = -1;
+  int dof = -1;
+  int numCoupledNeumannBC = -1;
+  std::size_t ltg_hash = 0;
+  std::size_t rowPtr_hash = 0;
+  std::size_t colPtr_hash = 0;
+
+  bool operator==(const LhsSignature& o) const
+  {
+    return gtnNo == o.gtnNo && mynNo == o.mynNo && tnNo == o.tnNo &&
+           nnz == o.nnz && dof == o.dof &&
+           numCoupledNeumannBC == o.numCoupledNeumannBC &&
+           ltg_hash == o.ltg_hash && rowPtr_hash == o.rowPtr_hash &&
+           colPtr_hash == o.colPtr_hash;
+  }
+  bool operator!=(const LhsSignature& o) const { return !(*this == o); }
+  bool valid() const { return dof != -1; }
+};
+
 /// @brief Initialize all Epetra types we need separate from Fortran
+///
+/// One of these exists per equation, owned by that equation's LinearAlgebra
+/// object (eqType::linear_algebra). The scalar and index data below used to be
+/// file-scope globals in trilinos_impl.cpp, refreshed by trilinos_lhs_create on
+/// every solve. That was only safe because the rebuild happened every time; now
+/// that the structure is reused across solves the state has to be per equation,
+/// or a multi-physics run would solve one equation using another's dof and
+/// column indices.
 struct Trilinos
 {
   Teuchos::RCP<const Tpetra_Map> Map;
@@ -134,6 +174,33 @@ struct Trilinos
 
   Teuchos::RCP<Tpetra_Operator> MueluPrec;
   Teuchos::RCP<Ifpack2_Preconditioner> ifpackPrec;
+
+  /// Nodal degrees of freedom
+  int dof = 0;
+  /// Total number of nodes including the ghost nodes
+  int ghostAndLocalNodes = 0;
+  /// Nodes owned by processor
+  int localNodes = 0;
+  /// Whether any coupled Neumann boundary terms are present
+  bool coupledBC = false;
+
+  /// Converts local proc column indices to global indices to be inserted
+  std::vector<int> globalColInd;
+  /// Converts local indices to global indices in unsorted ghost node order
+  std::vector<int> localToGlobalUnsorted;
+  /// Stores number of nonzeros per row for the topology
+  std::vector<int> nnzPerRow;
+  std::vector<int> localToGlobalSorted;
+  /// Stores the global node number of local node a in a Dof-based row
+  std::vector<GO> globalDofGIDs;
+  std::vector<GO> globalGhostDofGIDs;
+  /// Stores number of nonzeros per row for CSR topology including Dofs
+  std::vector<size_t> nnzPerDofRow;
+
+  /// Structure currently built. Compared on each trilinos_lhs_create call to
+  /// decide whether anything has to be rebuilt.
+  LhsSignature signature;
+
   Trilinos() : MueluPrec(nullptr), ifpackPrec(nullptr) {}
 };
 
@@ -225,7 +292,7 @@ void setPreconditioner(const Teuchos::RCP<Trilinos> &trilinos_, int precondType,
   Teuchos::RCP<Belos_LinearProblem>& BelosProblem);
 
 void setMueLuPreconditioner(Teuchos::RCP<MueLu_Preconditioner>& MueLuPrec, 
-  const Teuchos::RCP<Tpetra_CrsMatrix>& A);
+  const Teuchos::RCP<Tpetra_CrsMatrix>& A, const int dof);
 
 void checkDiagonalIsZero(const Teuchos::RCP<Trilinos> &trilinos_);
 
