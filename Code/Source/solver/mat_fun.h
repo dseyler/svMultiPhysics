@@ -211,24 +211,22 @@ namespace mat_fun {
      * @return Tensor<nsd>
      */
     template <int nsd>
-    Tensor<nsd> 
+    Tensor<nsd>
     dyadic_product(const Matrix<nsd>& A, const Matrix<nsd>& B) {
-        // Initialize the result tensor
+        constexpr int N = nsd * nsd;
+
+        // C_ijkl = A_ij * B_kl is an outer product in the NxN view of the
+        // tensor: with column-major storage the index pair (i,j) is the row
+        // and (k,l) the column, so the second order tensors read as N-vectors.
+        //
+        // Written as an index loop the innermost index is l, whose stride is
+        // nsd^3, so every innermost write lands on a different cache line and
+        // nothing vectorises. This form writes down columns instead.
         Tensor<nsd> C;
-
-        // Compute the dyadic product: C_ijkl = A_ij * B_kl
-        for (int i = 0; i < nsd; ++i) {
-            for (int j = 0; j < nsd; ++j) {
-                for (int k = 0; k < nsd; ++k) {
-                    for (int l = 0; l < nsd; ++l) {
-                        C(i,j,k,l) = A(i,j) * B(k,l);
-                    }
-                }
-            }
-        }
-        // For some reason, in this case the Eigen::Tensor contract function is 
-        // slower than the for loop implementation
-
+        Eigen::Map<const Eigen::Matrix<double, N, 1>> a(A.data());
+        Eigen::Map<const Eigen::Matrix<double, N, 1>> b(B.data());
+        Eigen::Map<Eigen::Matrix<double, N, N>> c(C.data());
+        c.noalias() = a * b.transpose();
         return C;
     }
 
@@ -274,18 +272,28 @@ namespace mat_fun {
         // Initialize the result tensor
         Tensor<nsd> C;
 
-        // Compute the symmetric product: C_ijkl = 0.5 * (A_ik * B_jl + A_il * B_jk)
-        for (int i = 0; i < nsd; ++i) {
-            for (int j = 0; j < nsd; ++j) {
-                for (int k = 0; k < nsd; ++k) {
-                    for (int l = 0; l < nsd; ++l) {
-                        C(i,j,k,l) = 0.5 * (A(i,k) * B(j,l) + A(i,l) * B(j,k));
+        // C_ijkl = 0.5 * (A_ik * B_jl + A_il * B_jk).
+        //
+        // Same ordering point as dyadic_product: with column-major storage the
+        // flat index is i + nsd*j + nsd^2*k + nsd^3*l, so iterating l innermost
+        // strides by nsd^3. Running i innermost instead makes the writes
+        // contiguous and the inner statement a vectorisable axpy, since only
+        // A(i,k) and A(i,l) vary with i.
+        double* c = C.data();
+        for (int l = 0; l < nsd; ++l) {
+            for (int k = 0; k < nsd; ++k) {
+                const double* a_k = A.data() + nsd * k;   // A(:,k)
+                const double* a_l = A.data() + nsd * l;   // A(:,l)
+                for (int j = 0; j < nsd; ++j) {
+                    const double b_jl = B(j, l);
+                    const double b_jk = B(j, k);
+                    double* out = c + nsd * j + nsd * nsd * k + nsd * nsd * nsd * l;
+                    for (int i = 0; i < nsd; ++i) {
+                        out[i] = 0.5 * (a_k[i] * b_jl + a_l[i] * b_jk);
                     }
                 }
             }
         }
-        // For some reason, in this case the for loop implementation is faster 
-        // than the Eigen::Tensor contract method
 
         // Return the symmetric product
         return C;
