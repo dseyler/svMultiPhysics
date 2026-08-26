@@ -128,13 +128,25 @@ void trilinos_lhs_create(const Teuchos::RCP<Trilinos> &trilinos_, const int numG
   sig.rowPtr_hash = hash_index_vector(rowPtr);
   sig.colPtr_hash = hash_index_vector(colInd);
 
-  if (trilinos_->signature.valid() && trilinos_->signature == sig &&
-      !trilinos_->K.is_null()) {
-    // Structure is still valid. The matrix values are refilled from scratch by
-    // the caller before every solve, so nothing here needs redoing.
+  if (trilinos_->signature.valid() && trilinos_->signature == sig) {
+    // Structure unchanged, so the Map, ghostMap, graph, importer and vectors are
+    // all still valid and the AMG hierarchy is still applicable.
+    //
+    // Only the matrix is recreated. It is released at the end of each solve
+    // because reusing it changes the order in which values are summed into the
+    // CSR (pre- versus post-fillComplete paths) and perturbs results at ~7e-10.
+    // Rebuilding it from the already fill-complete graph is the cheap part.
+    if (trilinos_->K.is_null()) {
+      trilinos_->K = Teuchos::rcp(new Tpetra_CrsMatrix(trilinos_->K_graph));
+    }
     return;
   }
   trilinos_->signature = sig;
+
+  // Anything built from the old structure is invalid, including the AMG
+  // hierarchy, whose grid transfers are tied to the graph.
+  trilinos_->MueluPrec = Teuchos::null;
+  trilinos_->ifpackPrec = Teuchos::null;
 
   #ifdef debug_trilinos_lhs_create
   std::string msg_prefix;
@@ -682,9 +694,9 @@ void trilinos_solve_(const Teuchos::RCP<Trilinos> &trilinos_, double *x, const d
   }
   trilinos_->X->putScalar(0.0);
 
-  // Part 1 keeps only the matrix and its structure; the preconditioners are
-  // still rebuilt each solve. Reusing the MueLu hierarchy is Part 2.
-  if (trilinos_->MueluPrec != Teuchos::null) trilinos_->MueluPrec = Teuchos::null;
+  // The MueLu hierarchy is kept and refreshed on the next solve; see
+  // setMueLuPreconditioner. Ifpack2 preconditioners are still dropped -- they
+  // are cheap relative to an AMG setup and hold references to matrix values.
   if (trilinos_->ifpackPrec != Teuchos::null) trilinos_->ifpackPrec = Teuchos::null;
 
   // The matrix is released but the Map, ghostMap, graph, importer and vectors
@@ -778,10 +790,43 @@ void setPreconditioner(const Teuchos::RCP<Trilinos> &trilinos_, int precondType,
  * For a complete guide, refer to the MueLu documentation:
  * https://trilinos.github.io/pdfs/mueluguide.pdf
  */
+/// How much of the AMG hierarchy to carry over between solves.
+///
+/// The matrix values change every Newton iteration but the sparsity pattern does
+/// not, so the aggregation and grid transfers -- which depend only on the graph --
+/// need not be recomputed. Accepted by MueLu: "none", "S", "tP", "RP", "emin",
+/// "RAP", "full", in increasing order of what is kept.
+///
+///   none  rebuild everything (the original behaviour)
+///   S     reuse smoothers only
+///   tP    also reuse the tentative prolongator (skips aggregation)
+///   RP    also reuse R and P (skips prolongator smoothing); coarse operators
+///         are still recomputed from the new values
+///   RAP   also reuse the coarse-grid pattern
+///   full  reuse everything
+///
+/// Edit here to try a level. Higher reuse cuts setup time but can weaken the
+/// preconditioner, which shows up as more Krylov iterations -- watch ls_iterate,
+/// not just ls_precond. An XML option can follow once a level is settled on.
+static constexpr const char* MUELU_REUSE_TYPE = "RP";
+
 void setMueLuPreconditioner(Teuchos::RCP<MueLu_Preconditioner> &MueLuPrec,
                             const Teuchos::RCP<Tpetra_CrsMatrix> &A,
                             const int dof)
 {
+  // 2c: an existing hierarchy is refreshed with the new matrix values rather
+  // than rebuilt. MueluPrec is cleared by trilinos_lhs_create whenever the
+  // structure signature changes, so a non-null value here means the pattern is
+  // unchanged and reuse is valid.
+  if (!MueLuPrec.is_null()) {
+    auto muelu_op = Teuchos::rcp_dynamic_cast<
+        MueLu::TpetraOperator<Scalar_d, LO, GO, Node>>(MueLuPrec);
+    if (!muelu_op.is_null()) {
+      MueLu::ReuseTpetraPreconditioner(A, *muelu_op);
+      return;
+    }
+  }
+
   // MueLuPrec is now a Tpetra::Operator that can be plug into BelosProblem
   std::string optionsFile = "mueluOptions.xml";
 
@@ -795,7 +840,8 @@ void setMueLuPreconditioner(Teuchos::RCP<MueLu_Preconditioner> &MueLuPrec,
 
   // Problem type
   mueluParams.set("problem: type", "unknown"); // FSI is generally nonsymmetric
-  mueluParams.set("number of equations", dof); // dof for this equation
+  mueluParams.set("reuse: type", MUELU_REUSE_TYPE);
+  mueluParams.set("number of equations", dof);   //dof for this equation
 
   // Aggregation
   mueluParams.set("aggregation: type", "uncoupled");
@@ -1255,6 +1301,28 @@ void TrilinosLinearAlgebra::TrilinosImpl::initialize(ComMod& com_mod)
 
 void TrilinosLinearAlgebra::TrilinosImpl::finalize()
 {
+  // The structure and the AMG hierarchy are now kept between solves rather than
+  // destroyed at the end of each one, so they are still alive here. They must be
+  // released before Kokkos::finalize(), or Tpetra reports execution space
+  // instances surviving past shutdown.
+  if (!trilinos_.is_null()) {
+    trilinos_->MueluPrec = Teuchos::null;
+    trilinos_->ifpackPrec = Teuchos::null;
+    trilinos_->K = Teuchos::null;
+    trilinos_->K_graph = Teuchos::null;
+    trilinos_->F = Teuchos::null;
+    trilinos_->ghostF = Teuchos::null;
+    trilinos_->X = Teuchos::null;
+    trilinos_->ghostX = Teuchos::null;
+    trilinos_->Importer = Teuchos::null;
+    trilinos_->bdryVec_list.clear();
+    trilinos_->bdryCapVec_list.clear();
+    trilinos_->Map = Teuchos::null;
+    trilinos_->ghostMap = Teuchos::null;
+    trilinos_->comm = Teuchos::null;
+    trilinos_->signature = LhsSignature();
+  }
+
   if (Kokkos::is_initialized())
   {
     Kokkos::finalize();
