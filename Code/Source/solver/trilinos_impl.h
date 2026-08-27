@@ -291,6 +291,14 @@ public:
 void setPreconditioner(const Teuchos::RCP<Trilinos> &trilinos_, int precondType, 
   Teuchos::RCP<Belos_LinearProblem>& BelosProblem);
 
+/// @brief Build or refresh the MueLu AMG preconditioner for a matrix.
+///
+/// Reuses the existing hierarchy when one is present, at the level named by
+/// MUELU_REUSE_TYPE; otherwise builds a new one.
+///
+/// @param[in,out] MueLuPrec Preconditioner to build or refresh.
+/// @param[in] A Matrix to precondition.
+/// @param[in] dof Degrees of freedom per node, passed to MueLu as the block size.
 void setMueLuPreconditioner(Teuchos::RCP<MueLu_Preconditioner>& MueLuPrec, 
   const Teuchos::RCP<Tpetra_CrsMatrix>& A, const int dof);
 
