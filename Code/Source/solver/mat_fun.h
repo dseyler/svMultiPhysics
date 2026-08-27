@@ -179,8 +179,17 @@ namespace mat_fun {
     Tensor4<double> ten_ddot_3424(const Tensor4<double>& A, const Tensor4<double>& B, const int nd);
 
     /**
-     * @brief Contracts two 4th order tensors A and B over two dimensions, 
-     * 
+     * @brief Contract two 4th order tensors over two dimensions each.
+     *
+     * Computes the tensor whose components are the sum of A and B over the
+     * index pairs named by @p dimsA and @p dimsB, leaving the remaining two
+     * indices of each operand free.
+     *
+     * @tparam nsd Number of spatial dimensions; each tensor is nsd^4.
+     * @param[in] A,B Fourth order tensors to contract.
+     * @param[in] dimsA,dimsB Zero-based indices of the two dimensions of A and
+     *   of B to contract over.
+     * @return The contracted tensor.
      */
     template <int nsd>
     Tensor<nsd>
