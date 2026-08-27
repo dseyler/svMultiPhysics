@@ -239,10 +239,9 @@ namespace mat_fun {
     /**
      * @brief Compute the dyadic product of two 2nd order tensors A and B, C_ijkl = A_ij * B_kl
      * 
-     * @tparam nsd, the number of spatial dimensions
-     * @param A, the first 2nd order tensor
-     * @param B, the second 2nd order tensor
-     * @return Tensor<nsd>
+     * @tparam nsd Number of spatial dimensions.
+     * @param[in] A,B Second order tensors.
+     * @return The resulting 4th order tensor.
      */
     template <int nsd>
     Tensor<nsd>
@@ -295,10 +294,12 @@ namespace mat_fun {
 
     Tensor4<double> ten_symm_prod(const Array<double>& A, const Array<double>& B, const int nd);
     
-    /// @brief Create a 4th order tensor from symmetric outer product of two matrices: C_ijkl = 0.5 * (A_ik * B_jl + A_il * B_jk)
+    /// @brief Symmetric dyadic product of two 2nd order tensors,
+    /// C_ijkl = 0.5 * (A_ik * B_jl + A_il * B_jk).
     ///
-    /// Reproduces 'FUNCTION TEN_SYMMPROD(A, B, nd) RESULT(C)'.
-    //
+    /// @tparam nsd Number of spatial dimensions.
+    /// @param[in] A,B Second order tensors.
+    /// @return The resulting 4th order tensor.
     template <int nsd>
     Tensor<nsd>
     symmetric_dyadic_product(const Matrix<nsd>& A, const Matrix<nsd>& B) {
