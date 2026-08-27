@@ -699,7 +699,7 @@ class Array
       return result;
     }
 
-    /// @brief Compound add assignment. 
+    /// @brief Elementwise compound add. Returns *this.
     //
     Array<T>& operator+=(const Array<T>& array)
     {
@@ -711,7 +711,7 @@ class Array
       return *this;
     }
 
-    /// @brief Compound subtract assignment. 
+    /// @brief Elementwise compound subtract. Returns *this.
     //
     Array<T>& operator-=(const Array<T>& array)
     {
@@ -723,7 +723,7 @@ class Array
       return *this;
     }
 
-    /// @brief Compound multiply assignment. 
+    /// @brief Elementwise compound multiply. Returns *this.
     //
     Array<T>& operator*=(const Array<T>& array)
     {
@@ -804,7 +804,7 @@ class Array
       return result;
     }
 
-    /// @brief Compound add assignment. 
+    /// @brief Add a scalar to every element. Returns *this.
     //
     Array<T>& operator+=(const T value)
     {
@@ -829,7 +829,7 @@ class Array
       return result;
     }
 
-    /// @brief Compound subtract assignment. 
+    /// @brief Subtract a scalar from every element. Returns *this.
     //
     Array<T>& operator-=(const T value)
     {
