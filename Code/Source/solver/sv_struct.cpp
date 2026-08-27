@@ -7,6 +7,7 @@
 // Replicates the Fortran functions in 'STRUCT.f'. 
 
 #include "sv_struct.h"
+#include "FE/Common/FEException.h"
 
 #include "all_fun.h"
 #include "consts.h"
@@ -231,7 +232,6 @@ void construct_dsolid(ComMod& com_mod, CepMod& cep_mod, const mshType& lM, const
 
   // struct_3d's scratch buffers. Sized by nsd and eNoN, so one set serves
   // every element and Gauss point instead of being rebuilt on each call.
-  Struct3dScratch scr(nsd, eNoN);
 
   // Loop over all elements of mesh
 
@@ -301,9 +301,9 @@ void construct_dsolid(ComMod& com_mod, CepMod& cep_mod, const mshType& lM, const
       if (g == 0 || !lM.lShpF) {
         auto Nx_g = lM.Nx.slice(g);
         nn::gnn(eNoN, nsd, nsd, Nx_g, xl, Nx, Jac, ksix);
-        if (utils::is_zero(Jac)) {
-          throw std::runtime_error("[construct_dsolid] Jacobian for element " + std::to_string(e) + " is < 0.");
-        }
+        svmp::throw_if<svmp::FE::InvalidArgumentException>(
+            utils::is_zero(Jac),
+            "Jacobian for element " + std::to_string(e) + " is not positive.");
       }
       double w = lM.w(g) * Jac;
       N = lM.N.rcol(g);
@@ -311,7 +311,7 @@ void construct_dsolid(ComMod& com_mod, CepMod& cep_mod, const mshType& lM, const
 
       if (nsd == 3) {
         struct_3d(com_mod, cep_mod, eNoN, nFn, w, N, Nx, al, yl, dl, bfl, fN,
-                  pS0l, pSl, ya_l_f, ya_l_s, ya_l_n, lR, lK, scr);
+                  pS0l, pSl, ya_l_f, ya_l_s, ya_l_n, lR, lK);
 
 #if 0
         if (e == 0 && g == 0) {
@@ -551,8 +551,7 @@ void struct_3d(ComMod &com_mod, CepMod &cep_mod, const int eNoN, const int nFn,
                const Array<double> &fN, const Array<double> &pS0l,
                Vector<double> &pSl, const Vector<double> &ya_l_f,
                const Vector<double> &ya_l_s, const Vector<double> &ya_l_n,
-               Array<double> &lR, Array3<double> &lK,
-               Struct3dScratch &scr) {
+               Array<double> &lR, Array3<double> &lK) {
   using namespace consts;
   using namespace mat_fun;
 
@@ -575,7 +574,10 @@ void struct_3d(ComMod &com_mod, CepMod &cep_mod, const int eNoN, const int nFn,
   //
   double rho = dmn.prop.at(PhysicalProperyType::solid_density);
   double dmp = dmn.prop.at(PhysicalProperyType::damping);
-  Vector<double>& fb = scr.fb;
+  // Stack storage behind non-owning views: the (rows, cols, T*) constructors
+  // of Array/Array3/Vector take a pointer without allocating or zeroing.
+  double fb_buf[3];
+  Vector<double> fb(3, fb_buf);
   fb(0) = dmn.prop.at(PhysicalProperyType::f_x);
   fb(1) = dmn.prop.at(PhysicalProperyType::f_y);
   fb(2) = dmn.prop.at(PhysicalProperyType::f_z);
@@ -598,10 +600,12 @@ void struct_3d(ComMod &com_mod, CepMod &cep_mod, const int eNoN, const int nFn,
 
   // Inertia, body force and deformation tensor (F)
   //
-  Array<double>& F  = scr.F;
-  Array<double>& S0 = scr.S0;
-  Array<double>& vx = scr.vx;
-  Vector<double>& ud = scr.ud;
+  // vx is accumulated into, so its buffer is zeroed here. F and S0 are assigned
+  // 0.0 below before use.
+  double F_buf[9], S0_buf[9], ud_buf[3];
+  double vx_buf[9] = {};
+  Array<double> F(3,3,F_buf), S0(3,3,S0_buf), vx(3,3,vx_buf);
+  Vector<double> ud(3, ud_buf);
 
   // vx is accumulated into below and is the one buffer that relied on the
   // memset in Array::allocate(). F and S0 are assigned 0.0 explicitly just
@@ -670,16 +674,31 @@ void struct_3d(ComMod &com_mod, CepMod &cep_mod, const int eNoN, const int nFn,
   // 2nd Piola-Kirchhoff tensor (S) and material stiffness tensor in
   // Voigt notationa (Dm)
   //
-  Array<double>& S  = scr.S;
-  Array<double>& Dm = scr.Dm;
+  double S_buf[9], Dm_buf[36];
+  Array<double> S(3,3,S_buf), Dm(6,6,Dm_buf);
   double Ja;
   mat_models::compute_pk2cc(com_mod, cep_mod, dmn, F, nFn, fN, ya_g_f, ya_g_s,
                             ya_g_n, S, Dm, Ja);
 
   // Viscous 2nd Piola-Kirchhoff stress and tangent contributions
-  Array<double>& Svis = scr.Svis;
-  Array3<double>& Kvis_u = scr.Kvis_u;
-  Array3<double>& Kvis_v = scr.Kvis_v;
+  double Svis_buf[9];
+  Array<double> Svis(3,3,Svis_buf);
+  // Kvis_u/Kvis_v hold 9*eNoN^2 entries, so the stack buffer is sized for a cap
+  // and larger elements fall back to the heap. Not zeroed: the buffer is sized
+  // for MAX_ENON_STACK, so clearing it would cost more than the memset it
+  // replaces. compute_visc_stress_and_tangent clears them when no viscosity
+  // model is active.
+  constexpr int MAX_ENON_STACK = 10;
+  double Kvu_buf[9*MAX_ENON_STACK*MAX_ENON_STACK];
+  double Kvv_buf[9*MAX_ENON_STACK*MAX_ENON_STACK];
+  const bool on_stack = (eNoN <= MAX_ENON_STACK);
+  const int view_eNoN = on_stack ? eNoN : 0;
+  Array3<double> Kvis_u_s(9, view_eNoN, view_eNoN, Kvu_buf);
+  Array3<double> Kvis_v_s(9, view_eNoN, view_eNoN, Kvv_buf);
+  Array3<double> Kvis_u_h, Kvis_v_h;
+  if (!on_stack) { Kvis_u_h.resize(9, eNoN, eNoN); Kvis_v_h.resize(9, eNoN, eNoN); }
+  Array3<double>& Kvis_u = on_stack ? Kvis_u_s : Kvis_u_h;
+  Array3<double>& Kvis_v = on_stack ? Kvis_v_s : Kvis_v_h;
   
   mat_models::compute_visc_stress_and_tangent(dmn, eNoN, Nx, vx, F, Svis, Kvis_u, Kvis_v);
 
@@ -707,8 +726,13 @@ void struct_3d(ComMod &com_mod, CepMod &cep_mod, const int eNoN, const int nFn,
 
   // 1st Piola-Kirchhoff tensor (P)
   //
-  Array<double>& P = scr.P;
-  Array3<double>& Bm = scr.Bm;
+  double P_buf[9];
+  Array<double> P(3,3,P_buf);
+  double Bm_buf[6*3*MAX_ENON_STACK];
+  Array3<double> Bm_s(6, 3, view_eNoN, Bm_buf);
+  Array3<double> Bm_h;
+  if (!on_stack) { Bm_h.resize(6, 3, eNoN); }
+  Array3<double>& Bm = on_stack ? Bm_s : Bm_h;
   mat_fun::mat_mul(F, S, P);
 
   // Local residual
@@ -749,7 +773,8 @@ void struct_3d(ComMod &com_mod, CepMod &cep_mod, const int eNoN, const int nFn,
   // Local stiffness tensor
   double NxSNx, T1, NxNx, BmDBm, Tv;
 
-  Array<double>& DBm = scr.DBm;
+  double DBm_buf[18];
+  Array<double> DBm(6,3,DBm_buf);
 
   for (int b = 0; b < eNoN; b++) {
 

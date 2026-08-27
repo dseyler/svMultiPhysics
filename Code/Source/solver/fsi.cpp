@@ -79,7 +79,6 @@ void construct_fsi(ComMod& com_mod, CepMod& cep_mod, const mshType& lM, const So
 
   // struct_3d's scratch buffers, hoisted out of the element loop. Sized with
   // the velocity space node count, which is what is passed to struct_3d.
-  struct_ns::Struct3dScratch scr(nsd, fs_1[0].eNoN);
 
   // Loop over all elements of mesh
   //
@@ -224,7 +223,7 @@ void construct_fsi(ComMod& com_mod, CepMod& cep_mod, const mshType& lM, const So
             auto N0 = fs_1[0].N.col(g);
             struct_ns::struct_3d(com_mod, cep_mod, fs_1[0].eNoN, nFn, w, N0,
                                  Nwx, al, yl, dl, bfl, fN, pS0l, pSl, ya_l_f,
-                                 ya_l_s, ya_l_n, lR, lK, scr);
+                                 ya_l_s, ya_l_n, lR, lK);
           } break;
           case Equation_lElas:
             throw std::runtime_error("[construct_fsi] LELAS3D not implemented");

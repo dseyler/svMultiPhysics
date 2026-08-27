@@ -62,6 +62,25 @@ class Array3
       active += 1;
     }
 
+    /// @brief Construct a view over storage owned by the caller.
+    ///
+    /// @param[in] num_rows,num_cols,num_slices Extents of the view.
+    /// @param[in] data Buffer holding at least num_rows*num_cols*num_slices
+    ///   elements. It is neither allocated nor freed by this class, and must
+    ///   outlive the Array3.
+    ///
+    /// Unlike the allocating constructors the buffer is not zeroed.
+    Array3(const int num_rows, const int num_cols, const int num_slices, T* data)
+    {
+      data_reference_ = true;
+      nrows_ = num_rows;
+      ncols_ = num_cols;
+      nslices_ = num_slices;
+      slice_size_ = num_rows * num_cols;
+      size_ = slice_size_ * num_slices;
+      data_ = data;
+    }
+
     /// @brief Array copy
     Array3(const Array3 &rhs)
     {
@@ -77,6 +96,10 @@ class Array3
 
     ~Array3() 
     {
+      if (data_reference_) {
+        data_ = nullptr;
+        return;
+      }
       if (data_ != nullptr) {
         memory_in_use -= sizeof(T) * size_;;
         memory_returned += sizeof(T) * size_;;
@@ -417,6 +440,7 @@ class Array3
     }
 
   private:
+    bool data_reference_ = false;
     int nrows_ = 0;
     int ncols_ = 0;
     int nslices_ = 0;
