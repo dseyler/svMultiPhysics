@@ -7,6 +7,7 @@
 //
 //   svMultiPhysics XML_FILE_NAME
 //
+#include "Profiler.h"
 #include "Simulation.h"
 #include "Integrator.h"
 
@@ -694,6 +695,12 @@ int main(int argc, char *argv[])
       auto& eq = simulation->com_mod.eq[iEq];
       finalize_linear_algebra(eq);
     }
+
+  #ifdef svmp_profiling_enabled
+  profiler::registry.report(simulation->cm_mod, simulation->com_mod.cm,
+                                        simulation->logger,
+                                        simulation->chnl_mod.appPath);
+  #endif
 
   MPI_Finalize();
   return 0;

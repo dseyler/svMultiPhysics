@@ -21,6 +21,15 @@
 #define Array_check_enabled
 #endif
 
+// If set then maintain the allocation counters declared below.
+//
+// Guard every counter update with #ifdef, never #if: this macro is defined
+// without a value, so #if would not compile, and #if on an undefined macro
+// evaluates to 0 and drops the update with no diagnostic.
+#ifdef ENABLE_PROFILING
+#define Array_gather_stats
+#endif
+
 /// @brief The Array template class implements a simple interface to 2D arrays.
 //
 template<typename T>
@@ -44,8 +53,10 @@ class Array
       ncols_ = 0;
       size_ = 0;
       data_ = nullptr;
+      #ifdef Array_gather_stats
       num_allocated += 1;
       active += 1;
+      #endif
     };
 
     Array(const int num_rows, const int num_cols)
@@ -59,8 +70,10 @@ class Array
       }
 
       allocate(num_rows, num_cols);
+      #ifdef Array_gather_stats
       num_allocated += 1;
       active += 1;
+      #endif
     }
 
     Array(const int num_rows, const int num_cols, T* data)
@@ -98,8 +111,10 @@ class Array
         row += 1;
       }
 
+      #ifdef Array_gather_stats
       num_allocated += 1;
       active += 1;
+      #endif
     }
 
     /// @brief Array copy
@@ -113,8 +128,10 @@ class Array
       allocate(rhs.nrows_, rhs.ncols_);
 
       memcpy(data_, rhs.data_, size_*sizeof(T));
+      #ifdef Array_gather_stats
       num_allocated += 1;
       active += 1;
+      #endif
     }
 
     /// @brief Array assignment 
@@ -149,12 +166,16 @@ class Array
     ~Array() 
     {
       if (data_ != nullptr) {
-        #if Array_gather_stats
-        memory_in_use -= sizeof(T)*size_;
-        memory_returned += sizeof(T)*size_;
-        active -= 1;
-        #endif
         if (!data_reference_) {
+          // Only owned data is accounted. A reference Array borrows another
+          // object's buffer and never incremented these counters, so
+          // decrementing here would drive them negative -- rslice() and rcol()
+          // manufacture such objects inside the element loops.
+          #ifdef Array_gather_stats
+          memory_in_use -= sizeof(T)*size_;
+          memory_returned += sizeof(T)*size_;
+          active -= 1;
+          #endif
           delete [] data_;
         }
         data_ = nullptr;
@@ -187,7 +208,7 @@ class Array
           throw std::runtime_error("[Array] Can't clear an Array with reference data.");
         }
         delete [] data_;
-        #if Array_gather_stats
+        #ifdef Array_gather_stats
         memory_in_use -= sizeof(T) * size_;;
         memory_returned += sizeof(T) * size_;;
         #endif
@@ -243,15 +264,16 @@ class Array
         if (data_reference_) {
           throw std::runtime_error("[Array] Can't resize an Array with reference data.");
         }
+        #ifdef Array_gather_stats
+        // Must precede the zeroing below, or it subtracts sizeof(T) * 0.
+        memory_in_use -= sizeof(T) * size_;
+        memory_returned += sizeof(T) * size_;
+        #endif
         delete [] data_;
         data_ = nullptr;
         size_ = 0;
         nrows_ = 0;
         ncols_ = 0;
-        #if Array_gather_stats
-        memory_in_use -= sizeof(T) * size_;;
-        memory_returned += sizeof(T) * size_;;
-        #endif
       }
 
       allocate(num_rows, num_cols);
@@ -922,7 +944,7 @@ class Array
       nrows_ = num_rows;
       ncols_ = num_cols;
       size_ = nrows_ * ncols_;
-      #if Array_gather_stats
+      #ifdef Array_gather_stats
       memory_in_use += sizeof(T)*size_;
       #endif
 

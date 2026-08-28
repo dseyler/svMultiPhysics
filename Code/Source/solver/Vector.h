@@ -19,6 +19,11 @@ std::string build_file_prefix(const std::string& label);
 #define Vector_check_enabled
 #endif
 
+// If set then maintain the allocation counters declared below.
+#ifdef ENABLE_PROFILING
+#define Vector_gather_stats
+#endif
+
 /// @brief The Vector template class is used for storing int and double data.
 //
 template<typename T>
@@ -39,8 +44,10 @@ class Vector
       check_type();
       size_ = 0;
       data_ = nullptr;
+      #ifdef Vector_gather_stats
       num_allocated += 1;
       active += 1;
+      #endif
     };
 
     Vector(const int size)
@@ -52,8 +59,10 @@ class Vector
       }
       check_type();
       allocate(size);
+      #ifdef Vector_gather_stats
       num_allocated += 1;
       active += 1;
+      #endif
     }
 
     Vector(const int size, T* data)
@@ -71,19 +80,25 @@ class Vector
       check_type();
       allocate(values.size());
       std::copy(values.begin(), values.end(), data_);
+      #ifdef Vector_gather_stats
       num_allocated += 1;
       active += 1;
+      #endif
     }
 
     ~Vector()
     {
       if (data_ != nullptr) {
         if (!reference_data_) { 
+          // See the note in Array's destructor: a reference Vector borrows its
+          // buffer and never incremented these, so it must not decrement them.
+          #ifdef Vector_gather_stats
+          memory_in_use -= sizeof(T)*size_;
+          memory_returned += sizeof(T)*size_;
+          active -= 1;
+          #endif
           delete[] data_; 
         }
-        memory_in_use -= sizeof(T)*size_;
-        memory_returned += sizeof(T)*size_;
-        active -= 1;
       } 
 
       size_ = 0;
@@ -100,8 +115,10 @@ class Vector
       for (int i = 0; i < rhs.size_; i++) {
         data_[i] = rhs.data_[i];
       }
+      #ifdef Vector_gather_stats
       num_allocated += 1;
       active += 1;
+      #endif
     }
   
     bool allocated() const
@@ -120,8 +137,10 @@ class Vector
           throw std::runtime_error("[Vector] Can't clear a Vector with reference data.");
         }
         delete [] data_;
+        #ifdef Vector_gather_stats
         memory_in_use -= sizeof(T) * size_;;
         memory_returned += sizeof(T) * size_;;
+        #endif
       }
 
       is_allocated_  = false;
@@ -150,8 +169,10 @@ class Vector
           throw std::runtime_error("[Vector] Can't resize a Vector with reference data.");
         }
         delete[] data_; 
+        #ifdef Vector_gather_stats
         memory_in_use -= sizeof(T) * size_;;
         memory_returned += sizeof(T) * size_;;
+        #endif
         size_ = 0;
         data_ = nullptr;
       } 
@@ -166,7 +187,9 @@ class Vector
         return;
       }
 
+      #ifdef Vector_gather_stats
       memory_in_use += sizeof(T) * size;;
+      #endif
       int new_size = size_ + size;
       T* new_data = new T [new_size];
       for (int i = 0; i < size; i++) {
@@ -591,7 +614,9 @@ class Vector
       size_ = size;
       data_ = new T [size_];
       memset(data_, 0, sizeof(T)*(size_));
+      #ifdef Vector_gather_stats
       memory_in_use += sizeof(T)*size_;
+      #endif
     }
 
     void check_index(const int i) const
