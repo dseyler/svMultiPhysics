@@ -12,7 +12,10 @@
   \brief   wrap Trilinos solver functions
 */
 
+#include <cstdlib>
+#include <Teuchos_XMLParameterListHelpers.hpp>
 #include "trilinos_impl.h"
+#include "Profiler.h"
 #include "ComMod.h"
 #define NOOUTPUT
 
@@ -109,7 +112,8 @@ static std::size_t hash_index_vector(const Vector<int>& v)
 void trilinos_lhs_create(const Teuchos::RCP<Trilinos> &trilinos_, const int numGlobalNodes, const int numLocalNodes,
         const int numGhostAndLocalNodes, const int nnz, const Vector<int>& ltgSorted,
         const Vector<int>& ltgUnsorted, const Vector<int>& rowPtr, const Vector<int>& colInd,
-        const int Dof, const int cpp_index, const int proc_id, const int numCoupledNeumannBC)
+        const int Dof, const int cpp_index, const int proc_id, const int numCoupledNeumannBC,
+        const Array<double>& nodeCoords)
 {
   // Everything built below is a function of these inputs alone, and they are
   // fixed for a given equation and mesh -- the sparsity pattern comes from
@@ -228,6 +232,61 @@ void trilinos_lhs_create(const Teuchos::RCP<Trilinos> &trilinos_, const int numG
   trilinos_->Map = Teuchos::rcp(new Tpetra_Map(
     Teuchos::OrdinalTraits<Tpetra::global_size_t>::invalid(),
     Teuchos::arrayView(trilinos_->globalDofGIDs.data(), trilinos_->globalDofGIDs.size()), indexBase, trilinos_->comm));
+  // Node-wise counterpart of Map: the same owned nodes without the dof blocking,
+  // which is the layout MueLu expects for coordinates.
+  const int nsd = nodeCoords.nrows();
+  trilinos_->nodeMap = Teuchos::rcp(new Tpetra_Map(
+    Teuchos::OrdinalTraits<Tpetra::global_size_t>::invalid(),
+    Teuchos::arrayView(ltgSorted.data(), numLocalNodes), indexBase, trilinos_->comm));
+
+  {
+    trilinos_->coords = Teuchos::rcp(new Tpetra_MultiVector(trilinos_->nodeMap, nsd));
+    auto view = trilinos_->coords->getLocalViewHost(Tpetra::Access::OverwriteAll);
+    for (int i = 0; i < numLocalNodes; i++) {
+      for (int j = 0; j < nsd; j++) {
+        view(i, j) = nodeCoords(j, i);
+      }
+    }
+  }
+
+  // Rigid body modes on the dof map. Translations are unit vectors in each
+  // component; the rotations are the linearisation of a rotation about each
+  // axis, so for a node at (x,y,z) they are (-y,x,0), (0,-z,y) and (z,0,-x).
+  // Coordinates are shifted by their mean first, which keeps the rotational
+  // modes well scaled against the translations on meshes sited far from the
+  // origin. Only offered to MueLu when SVMP_MUELU_NULLSPACE=rbm.
+  if (Dof >= nsd) {
+    const int n_modes = (nsd == 3) ? 6 : 3;
+    trilinos_->nullspace = Teuchos::rcp(new Tpetra_MultiVector(trilinos_->Map, n_modes));
+    trilinos_->nullspace->putScalar(0.0);
+
+    std::vector<double> centre(nsd, 0.0);
+    for (int j = 0; j < nsd; j++) {
+      double local_sum = 0.0;
+      for (int i = 0; i < numLocalNodes; i++) { local_sum += nodeCoords(j, i); }
+      double global_sum = 0.0;
+      long local_n = numLocalNodes, global_n = 0;
+      Teuchos::reduceAll(*trilinos_->comm, Teuchos::REDUCE_SUM, 1, &local_sum, &global_sum);
+      Teuchos::reduceAll(*trilinos_->comm, Teuchos::REDUCE_SUM, 1, &local_n, &global_n);
+      centre[j] = (global_n > 0) ? global_sum / static_cast<double>(global_n) : 0.0;
+    }
+
+    auto ns = trilinos_->nullspace->getLocalViewHost(Tpetra::Access::OverwriteAll);
+    for (int i = 0; i < numLocalNodes; i++) {
+      const double x = nodeCoords(0, i) - centre[0];
+      const double y = nodeCoords(1, i) - centre[1];
+      const double z = (nsd == 3) ? nodeCoords(2, i) - centre[2] : 0.0;
+      for (int d = 0; d < nsd; d++) { ns(i * Dof + d, d) = 1.0; }
+      if (nsd == 3) {
+        ns(i * Dof + 0, 3) = -y;  ns(i * Dof + 1, 3) =  x;
+        ns(i * Dof + 1, 4) = -z;  ns(i * Dof + 2, 4) =  y;
+        ns(i * Dof + 0, 5) =  z;  ns(i * Dof + 2, 5) = -x;
+      } else {
+        ns(i * Dof + 0, 2) = -y;  ns(i * Dof + 1, 2) =  x;
+      }
+    }
+  }
+
   /*
     Creating a Map for the local nodes owned and shared by the processor
   */
@@ -453,6 +512,12 @@ void trilinos_global_solve_(const Teuchos::RCP<Trilinos> &trilinos_, const doubl
         double &solverTime, double &dB, bool &converged, int &lsType,
         double &relTol, int &maxIters, int &kspace, int &precondType)
 {
+  // Copying the FSILS-assembled values into the Tpetra matrix. Independent of the
+  // preconditioner -- no hierarchy exists yet -- but it is a sizeable share of
+  // the solve, so it is timed rather than left unaccounted.
+  {
+  SVMP_PROFILE_PHASE("ls_fill");
+
   int nnzCount = 0; //cumulate count of block nnz per rows
   int count = 0;
   int numValuesPerID = trilinos_->dof; //trilinos_->dof values per id pointer to trilinos_->dof
@@ -490,6 +555,8 @@ void trilinos_global_solve_(const Teuchos::RCP<Trilinos> &trilinos_, const doubl
 
     nnzCount += numEntries;
   }
+  }  // ls_fill
+
   // Call solver code which assembles K and F for shared processors
   bool flagFassem = false;
 
@@ -540,6 +607,10 @@ void trilinos_solve_(const Teuchos::RCP<Trilinos> &trilinos_, double *x, const d
   // routine will sum in contributions from elements on shared nodes amongst
   // processors
   //
+  // Outlives the ls_setup scope: the solution is unscaled with it after the solve.
+  Teuchos::RCP<Tpetra_Vector> diagonal = Teuchos::rcp(new Tpetra_Vector(trilinos_->Map));
+  {
+  SVMP_PROFILE_PHASE("ls_setup");
   // With a static graph the structure cannot change, so this is needed only
   // once -- and fillComplete() throws if called on an already-complete matrix.
   if (!trilinos_->K->isFillComplete()) {
@@ -559,13 +630,13 @@ void trilinos_solve_(const Teuchos::RCP<Trilinos> &trilinos_, double *x, const d
   // Construct Jacobi scaling vector which uses dirW to take the Dirichlet BC
   // into account
   //
-  Teuchos::RCP<Tpetra_Vector> diagonal = Teuchos::rcp(new Tpetra_Vector(trilinos_->Map));
   constructJacobiScaling(trilinos_, dirW, *diagonal);
 
   // Compute norm of preconditioned multivector F
   Teuchos::Array<double> norms(1);
   trilinos_->F->norm2(norms());
   initNorm = norms[0];
+  }  // ls_setup
 
   Teuchos::RCP<TrilinosMatVec> K_bdry = Teuchos::rcp(new TrilinosMatVec(trilinos_));
 
@@ -577,7 +648,10 @@ void trilinos_solve_(const Teuchos::RCP<Trilinos> &trilinos_, double *x, const d
   */
   auto BelosProblem = Teuchos::rcp(new Belos_LinearProblem(K_bdry, trilinos_->X, trilinos_->F));
 
-  setPreconditioner(trilinos_, precondType, BelosProblem);
+  {
+    SVMP_PROFILE_PHASE("ls_precond");
+    setPreconditioner(trilinos_, precondType, BelosProblem);
+  }
 
   bool set = BelosProblem->setProblem();
   if (!set) {
@@ -640,6 +714,7 @@ void trilinos_solve_(const Teuchos::RCP<Trilinos> &trilinos_, double *x, const d
   timer.stop();
 
   solverTime = timer.totalElapsedTime();
+  SVMP_PROFILE_ADD("ls_iterate", solverTime);
 
   if (result == Belos::Converged) {
     converged = true;
@@ -666,6 +741,8 @@ void trilinos_solve_(const Teuchos::RCP<Trilinos> &trilinos_, double *x, const d
   dB = 10.0 * log10(relRes);
 
   //Right scaling so need to multiply x by diagonal
+  // Undo the right scaling and scatter the solution back to ghosted layout.
+  SVMP_PROFILE_PHASE("ls_scatter");
   trilinos_->X->elementWiseMultiply(1.0, *trilinos_->X, *diagonal, 0.0);
 
   //Fill ghost X with x communicating ghost nodes amongst processors
@@ -769,7 +846,8 @@ void setPreconditioner(const Teuchos::RCP<Trilinos> &trilinos_, int precondType,
 
   } else if (precondType == TRILINOS_ML_PRECONDITIONER) {
     checkDiagonalIsZero(trilinos_);
-    setMueLuPreconditioner(trilinos_->MueluPrec, trilinos_->K, trilinos_->dof);
+    setMueLuPreconditioner(trilinos_->MueluPrec, trilinos_->K, trilinos_->dof,
+                           trilinos_->coords, trilinos_->nullspace);
     BelosProblem->setLeftPrec(trilinos_->MueluPrec);
     return;
   } else {
@@ -812,7 +890,9 @@ static constexpr const char* MUELU_REUSE_TYPE = "RAP";
 
 void setMueLuPreconditioner(Teuchos::RCP<MueLu_Preconditioner> &MueLuPrec,
                             const Teuchos::RCP<Tpetra_CrsMatrix> &A,
-                            const int dof)
+                            const int dof,
+                            const Teuchos::RCP<Tpetra_MultiVector> &coords,
+                            const Teuchos::RCP<Tpetra_MultiVector> &nullspace)
 {
   // 2c: an existing hierarchy is refreshed with the new matrix values rather
   // than rebuilt. MueluPrec is cleared by trilinos_lhs_create whenever the
@@ -871,13 +951,51 @@ void setMueLuPreconditioner(Teuchos::RCP<MueLu_Preconditioner> &MueLuPrec,
   mueluParams.set("coarse: max size", 2000);
 
   // Create MueLu preconditioner from matrix and parameter list, as Tpetra::Operator
+  // MueLu reads these from the "user data" sublist and converts them to Xpetra
+  // itself. Without coordinates it cannot do distance-based aggregation or
+  // geometric repartitioning. The near-nullspace is opt-in: MueLu's default is
+  // one constant vector per equation, i.e. the translations only, and swapping
+  // in the six rigid body modes changes the coarse grid for every run.
+  const char* ns_env = std::getenv("SVMP_MUELU_NULLSPACE");
+  const bool use_rbm = (ns_env != nullptr && std::string(ns_env) == "rbm");
+  if (!coords.is_null()) {
+    mueluParams.sublist("user data").set("Coordinates", coords);
+  }
+  if (use_rbm && !nullspace.is_null()) {
+    mueluParams.sublist("user data").set("Nullspace", nullspace);
+  }
+
   std::ifstream ifs(optionsFile.c_str());
   if (ifs.good())
   {
     try
     {
-      MueLuPrec = MueLu::CreateTpetraPreconditioner(
-          Teuchos::rcp_static_cast<Tpetra_Operator>(A), optionsFile);
+        // Read the file into a list rather than handing MueLu the path. The path
+        // overload builds its own list, so it would silently drop everything set
+        // above -- the coordinates and near-nullspace, which the file cannot
+        // express at all, and the two run-time parameters reinstated below.
+        Teuchos::RCP<Teuchos::ParameterList> fileParams =
+            Teuchos::getParametersFromXmlFile(optionsFile);
+
+        // Deployment wiring, not AMG tuning: an options file should not have to
+        // restate either, and losing them is silent. Wrong equations-per-node
+        // costs convergence; losing reuse rebuilds the hierarchy every solve.
+        // Set only when absent, so a file that states them deliberately wins.
+        if (!fileParams->isParameter("number of equations")) {
+          fileParams->set("number of equations", dof);
+        }
+        if (!fileParams->isParameter("reuse: type")) {
+          fileParams->set("reuse: type", MUELU_REUSE_TYPE);
+        }
+        if (!coords.is_null()) {
+          fileParams->sublist("user data").set("Coordinates", coords);
+        }
+        if (use_rbm && !nullspace.is_null()) {
+          fileParams->sublist("user data").set("Nullspace", nullspace);
+        }
+
+        MueLuPrec = MueLu::CreateTpetraPreconditioner(
+            Teuchos::rcp_static_cast<Tpetra_Operator>(A), *fileParams);
     }
     catch (std::exception &e)
     {
@@ -1156,8 +1274,22 @@ void TrilinosLinearAlgebra::TrilinosImpl::alloc(ComMod& com_mod, eqType& lEq)
   int cpp_index = 1;
   int task_id = com_mod.cm.idcm();
 
+  // Nodal coordinates for the owned rows, in the same order as ltg_. That order
+  // is the solver's node numbering permuted by lhs.map(), the permutation ltg_
+  // itself is built with, so the two stay consistent.
+  const int nsd = com_mod.nsd;
+  Array<double> nodeCoords(nsd, lhs.mynNo);
+  for (int a = 0; a < tnNo; a++) {
+    const int k = com_mod.lhs.map(a);
+    if (k < lhs.mynNo) {
+      for (int j = 0; j < nsd; j++) {
+        nodeCoords(j, k) = com_mod.x(j, a);
+      }
+    }
+  }
+
   trilinos_lhs_create(trilinos_, gtnNo, lhs.mynNo, tnNo, lhs.nnz, ltg_, com_mod.ltg, com_mod.rowPtr, 
-      com_mod.colPtr, dof, cpp_index, task_id, com_mod.lhs.nFaces);
+      com_mod.colPtr, dof, cpp_index, task_id, com_mod.lhs.nFaces, nodeCoords);
 
   // The matrix is now reused across solves rather than rebuilt, so it has to be
   // cleared here -- it used to arrive as a freshly constructed (zeroed) matrix

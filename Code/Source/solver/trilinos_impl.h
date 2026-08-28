@@ -172,6 +172,21 @@ struct Trilinos
   Teuchos::RCP<const Teuchos::Comm<int>> comm;
   Teuchos::RCP<Tpetra_CrsGraph> K_graph;
 
+  /// @brief Map over owned mesh nodes, i.e. Map without the dof blocking.
+  Teuchos::RCP<const Tpetra_Map> nodeMap;
+
+  /// @brief Coordinates of the owned mesh nodes, one vector per space dimension,
+  /// laid out on nodeMap. MueLu needs them for distance-based aggregation and
+  /// geometric repartitioning, and they are what the rotational rigid body modes
+  /// are built from.
+  Teuchos::RCP<Tpetra_MultiVector> coords;
+
+  /// @brief Rigid body modes on Map, offered to MueLu as its near-nullspace.
+  /// Six vectors in 3D (three translations, three rotations), three in 2D.
+  /// MueLu's default is the translations alone, which leaves the coarse grid
+  /// unable to represent rotation.
+  Teuchos::RCP<Tpetra_MultiVector> nullspace;
+
   Teuchos::RCP<Tpetra_Operator> MueluPrec;
   Teuchos::RCP<Ifpack2_Preconditioner> ifpackPrec;
 
@@ -260,7 +275,8 @@ public:
   void trilinos_lhs_create(const Teuchos::RCP<Trilinos> &trilinos_, const int numGlobalNodes, const int numLocalNodes,
           const int numGhostAndLocalNodes, const int nnz, const Vector<int>& ltgSorted,
           const Vector<int>& ltgUnsorted, const Vector<int>& rowPtr, const Vector<int>& colInd,
-          const int dof, const int cpp_index, const int proc_id, const int numCoupledNeumannBC);
+          const int dof, const int cpp_index, const int proc_id, const int numCoupledNeumannBC,
+          const Array<double>& nodeCoords);
 
   /**
    * \param v           coeff in the scalar product
@@ -291,8 +307,23 @@ public:
 void setPreconditioner(const Teuchos::RCP<Trilinos> &trilinos_, int precondType, 
   Teuchos::RCP<Belos_LinearProblem>& BelosProblem);
 
-void setMueLuPreconditioner(Teuchos::RCP<MueLu_Preconditioner>& MueLuPrec, 
-  const Teuchos::RCP<Tpetra_CrsMatrix>& A, const int dof);
+/// @brief Build (or refresh) the MueLu preconditioner for A.
+///
+/// @param[in,out] MueLuPrec Preconditioner. A non-null value means the sparsity
+///   pattern is unchanged and the existing hierarchy is refreshed in place.
+/// @param[in] A System matrix.
+/// @param[in] dof Degrees of freedom per node, i.e. MueLu's "number of equations".
+/// @param[in] coords Nodal coordinates on the node map, or null.
+/// @param[in] nullspace Rigid body modes on the row map, or null. Replaces
+///   MueLu's default translation-only near-nullspace.
+///
+/// @note coords and nullspace are consumed only when a hierarchy is built from
+///   scratch. On the reuse path the existing hierarchy is kept, so they are not
+///   re-read -- correct, since neither changes unless the mesh does.
+void setMueLuPreconditioner(Teuchos::RCP<MueLu_Preconditioner>& MueLuPrec,
+  const Teuchos::RCP<Tpetra_CrsMatrix>& A, const int dof,
+  const Teuchos::RCP<Tpetra_MultiVector>& coords = Teuchos::null,
+  const Teuchos::RCP<Tpetra_MultiVector>& nullspace = Teuchos::null);
 
 void checkDiagonalIsZero(const Teuchos::RCP<Trilinos> &trilinos_);
 
