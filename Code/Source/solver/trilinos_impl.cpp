@@ -13,6 +13,7 @@
 */
 
 #include "trilinos_impl.h"
+#include "Profiler.h"
 #include "ComMod.h"
 #define NOOUTPUT
 
@@ -426,6 +427,9 @@ void trilinos_global_solve_(const Teuchos::RCP<Trilinos> &trilinos_, const doubl
         double &solverTime, double &dB, bool &converged, int &lsType,
         double &relTol, int &maxIters, int &kspace, int &precondType)
 {
+  {
+  SVMP_PROFILE_PHASE("ls_fill");
+
   int nnzCount = 0; //cumulate count of block nnz per rows
   int count = 0;
   int numValuesPerID = dof; //dof values per id pointer to dof
@@ -463,6 +467,8 @@ void trilinos_global_solve_(const Teuchos::RCP<Trilinos> &trilinos_, const doubl
 
     nnzCount += numEntries;
   }
+  }  // ls_fill
+
   // Call solver code which assembles K and F for shared processors
   bool flagFassem = false;
 
@@ -513,6 +519,9 @@ void trilinos_solve_(const Teuchos::RCP<Trilinos> &trilinos_, double *x, const d
   // routine will sum in contributions from elements on shared nodes amongst
   // processors
   //
+  Teuchos::RCP<Tpetra_Vector> diagonal = Teuchos::rcp(new Tpetra_Vector(trilinos_->Map));
+  {
+  SVMP_PROFILE_PHASE("ls_setup");
   trilinos_->K->fillComplete();
 
   if (flagFassem) {
@@ -528,13 +537,13 @@ void trilinos_solve_(const Teuchos::RCP<Trilinos> &trilinos_, double *x, const d
   // Construct Jacobi scaling vector which uses dirW to take the Dirichlet BC
   // into account
   //
-  Teuchos::RCP<Tpetra_Vector> diagonal = Teuchos::rcp(new Tpetra_Vector(trilinos_->Map));
   constructJacobiScaling(trilinos_, dirW, *diagonal);
 
   // Compute norm of preconditioned multivector F
   Teuchos::Array<double> norms(1);
   trilinos_->F->norm2(norms());
   initNorm = norms[0];
+  }  // ls_setup
 
   Teuchos::RCP<TrilinosMatVec> K_bdry = Teuchos::rcp(new TrilinosMatVec(trilinos_));
 
@@ -546,7 +555,10 @@ void trilinos_solve_(const Teuchos::RCP<Trilinos> &trilinos_, double *x, const d
   */
   auto BelosProblem = Teuchos::rcp(new Belos_LinearProblem(K_bdry, trilinos_->X, trilinos_->F));
 
-  setPreconditioner(trilinos_, precondType, BelosProblem);
+  {
+    SVMP_PROFILE_PHASE("ls_precond");
+    setPreconditioner(trilinos_, precondType, BelosProblem);
+  }
 
   bool set = BelosProblem->setProblem();
   if (!set) {
@@ -609,6 +621,7 @@ void trilinos_solve_(const Teuchos::RCP<Trilinos> &trilinos_, double *x, const d
   timer.stop();
 
   solverTime = timer.totalElapsedTime();
+  SVMP_PROFILE_ADD("ls_iterate", solverTime);
 
   if (result == Belos::Converged) {
     converged = true;
@@ -635,6 +648,7 @@ void trilinos_solve_(const Teuchos::RCP<Trilinos> &trilinos_, double *x, const d
   dB = 10.0 * log10(relRes);
 
   //Right scaling so need to multiply x by diagonal
+  SVMP_PROFILE_PHASE("ls_scatter");
   trilinos_->X->elementWiseMultiply(1.0, *trilinos_->X, *diagonal, 0.0);
 
   //Fill ghost X with x communicating ghost nodes amongst processors
@@ -764,7 +778,10 @@ void setMueLuPreconditioner(Teuchos::RCP<MueLu_Preconditioner> &MueLuPrec,
 
   // Problem type
   mueluParams.set("problem: type", "unknown"); // FSI is generally nonsymmetric
-  mueluParams.set("number of equations", 4);   // dof
+  // Must match the equations per node actually assembled. CoalesceDropFactory
+  // amalgamates by this value, so a 4-vs-3 mismatch indexes past the end of the
+  // row arrays and throws out of MueLu's aggregation setup.
+  mueluParams.set("number of equations", dof);
 
   // Aggregation
   mueluParams.set("aggregation: type", "uncoupled");

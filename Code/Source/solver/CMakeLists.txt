@@ -134,6 +134,10 @@ if(ENABLE_ARRAY_INDEX_CHECKING)
   ADD_DEFINITIONS(-DENABLE_ARRAY_INDEX_CHECKING)
 endif()
 
+if(ENABLE_PROFILING)
+  ADD_DEFINITIONS(-DENABLE_PROFILING)
+endif()
+
 # svMultiPhysics requires LAPACK
 find_package(BLAS REQUIRED)
 find_package(LAPACK REQUIRED)
@@ -220,6 +224,7 @@ set(CSRCS
   ChnlMod.h ChnlMod.cpp
   CmMod.h CmMod.cpp
   ComMod.h ComMod.cpp
+  Profiler.h Profiler.cpp
   Timer.h
   ArtificialNeuralNetMaterial.h ArtificialNeuralNetMaterial.cpp
 
