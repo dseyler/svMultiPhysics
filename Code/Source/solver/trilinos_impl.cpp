@@ -535,23 +535,29 @@ void trilinos_global_solve_(const Teuchos::RCP<Trilinos> &trilinos_, const doubl
     for (int j = 0; j < trilinos_->dof; ++j) {
         trilinos_->ghostF->replaceGlobalValue(rowGID * trilinos_->dof + j, 0, RHS[i * trilinos_->dof + j]);
     }
-    // Tpetra assembly from FSILS assembly
-    for (int j = 0; j < numEntries; ++j) {
-      for (int l = 0; l < trilinos_->dof; ++l) { //loop over trilinos_->dof for bool to contruct
-        GO rowGIDK = rowGID * trilinos_->dof + l; // global row index for K
-        for (int m = 0; m < trilinos_->dof; ++m) {
-          colGIDK[m] = colGIDs[j] * trilinos_->dof + m;
-          values[m] = Val[count*trilinos_->dof*trilinos_->dof + l*trilinos_->dof + m];
+    // Tpetra assembly from FSILS assembly, one call per matrix row rather than one
+    // per (block column, row): each call converts the row GID to a local index and
+    // binary-searches that row's column list, so batching pays it once per row.
+    //
+    // even though Val contains already assembled values we use sumIntoGlobalValues
+    // because Tpetra can only store rows owned by the process and NOT ghost rows
+    // when assemblying with FillComplete across processors missing contributions happens.
+    // In this way we ensure all contributions are accounted for across processors, 
+    // without duplicating contributions.
+    const int dof = trilinos_->dof;
+    values.resize(numEntries * dof);
+    colGIDK.resize(numEntries * dof);
+    for (int l = 0; l < dof; ++l) {
+      for (int j = 0; j < numEntries; ++j) {
+        for (int m = 0; m < dof; ++m) {
+          colGIDK[j*dof + m] = colGIDs[j] * dof + m;
+          values[j*dof + m] = Val[(count + j)*dof*dof + l*dof + m];
         }
-        // even though Val contains already assembled values we use sumIntoGlobalValues
-        // because Tpetra can only store rows owned by the process and NOT ghost rows
-        // when assemblying with FillComplete across processors missing contributions happens.
-        // In this way we ensure all contributions are accounted for across processors, 
-        // without duplicating contributions.
-        trilinos_->K->sumIntoGlobalValues(rowGIDK, trilinos_->dof, values.data(), colGIDK.data());
       }
-      count++;
+      trilinos_->K->sumIntoGlobalValues(rowGID * dof + l, numEntries * dof,
+                                        values.data(), colGIDK.data());
     }
+    count += numEntries;
 
     nnzCount += numEntries;
   }
@@ -617,14 +623,16 @@ void trilinos_solve_(const Teuchos::RCP<Trilinos> &trilinos_, double *x, const d
     trilinos_->K->fillComplete();
   }
 
+  // Importer runs in reverse here: doExport with an Import plan wants the plan's
+  // target map to be the source object's (ghostMap) and its source map to be
+  // this one's (Map), which is exactly how Importer was built. Constructing an
+  // Export instead rebuilt the whole communication plan on every solve.
   if (flagFassem) {
-    Tpetra::Export exporter(trilinos_->ghostF->getMap(), trilinos_->F->getMap());
-    trilinos_->F->doExport(*trilinos_->ghostF, exporter, Tpetra::ADD);
+    trilinos_->F->doExport(*trilinos_->ghostF, *trilinos_->Importer, Tpetra::ADD);
   } else { // RHS when using fsils assembly is already assembled and communicated
            // correctly among processors. REPLACE allows to create the correct
            // RHS vector of owned nodes only (no ghosts nodes)
-    Tpetra::Export exporter(trilinos_->ghostF->getMap(), trilinos_->F->getMap());
-    trilinos_->F->doExport(*trilinos_->ghostF, exporter, Tpetra::REPLACE);
+    trilinos_->F->doExport(*trilinos_->ghostF, *trilinos_->Importer, Tpetra::REPLACE);
   }
 
   // Construct Jacobi scaling vector which uses dirW to take the Dirichlet BC
@@ -1046,20 +1054,13 @@ void checkDiagonalIsZero(const Teuchos::RCP<Trilinos> &trilinos_)
  */
 void constructJacobiScaling(const Teuchos::RCP<Trilinos> &trilinos_, const double *dirW, Tpetra_Vector& diagonal)
 {
-  Teuchos::RCP<const Tpetra_Map> map = diagonal.getMap();
-
   // Set Dirichlet weights
   for (int i = 0; i < trilinos_->localNodes; ++i) {
     for (int j = 0; j < trilinos_->dof; ++j) {
-      GO gid = trilinos_->localToGlobalSorted[i] * trilinos_->dof + j;
-      if (map->isNodeGlobalElement(gid)) {
-        size_t lid = map->getLocalElement(gid);
-        diagonal.replaceLocalValue(lid, dirW[i * trilinos_->dof + j]);
-      } else {
-        std::cerr << "[ERROR] Setting Dirichlet diagonal scaling value failed at GID " 
-                  << gid << std::endl;
-        exit(1);
-      }
+      // Map is built from globalDofGIDs, filled as ltgSorted[i]*dof + j over the
+      // same i and j in the same order, so this entry's local index is i*dof + j.
+      // Looking the GID up cost two hash probes to rediscover that.
+      diagonal.replaceLocalValue(i * trilinos_->dof + j, dirW[i * trilinos_->dof + j]);
     }
   }
 
