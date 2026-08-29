@@ -443,23 +443,28 @@ void trilinos_global_solve_(const Teuchos::RCP<Trilinos> &trilinos_, const doubl
     for (int j = 0; j < dof; ++j) {
         trilinos_->ghostF->replaceGlobalValue(rowGID * dof + j, 0, RHS[i * dof + j]);
     }
-    // Tpetra assembly from FSILS assembly
-    for (int j = 0; j < numEntries; ++j) {
-      for (int l = 0; l < dof; ++l) { //loop over dof for bool to contruct
-        GO rowGIDK = rowGID * dof + l; // global row index for K
+    // Tpetra assembly from FSILS assembly, one call per matrix row rather than one
+    // per (block column, row): each call converts the row GID to a local index and
+    // binary-searches that row's column list, so batching pays it once per row.
+    //
+    // even though Val contains already assembled values we use sumIntoGlobalValues
+    // because Tpetra can only store rows owned by the process and NOT ghost rows
+    // when assemblying with FillComplete across processors missing contributions happens.
+    // In this way we ensure all contributions are accounted for across processors,
+    // without duplicating contributions.
+    values.resize(numEntries * dof);
+    colGIDK.resize(numEntries * dof);
+    for (int l = 0; l < dof; ++l) {
+      for (int j = 0; j < numEntries; ++j) {
         for (int m = 0; m < dof; ++m) {
-          colGIDK[m] = colGIDs[j] * dof + m;
-          values[m] = Val[count*dof*dof + l*dof + m];
+          colGIDK[j*dof + m] = colGIDs[j] * dof + m;
+          values[j*dof + m] = Val[(count + j)*dof*dof + l*dof + m];
         }
-        // even though Val contains already assembled values we use sumIntoGlobalValues
-        // because Tpetra can only store rows owned by the process and NOT ghost rows
-        // when assemblying with FillComplete across processors missing contributions happens.
-        // In this way we ensure all contributions are accounted for across processors, 
-        // without duplicating contributions.
-        trilinos_->K->sumIntoGlobalValues(rowGIDK, dof, values.data(), colGIDK.data());
       }
-      count++;
+      trilinos_->K->sumIntoGlobalValues(rowGID * dof + l, numEntries * dof,
+                                        values.data(), colGIDK.data());
     }
+    count += numEntries;
 
     nnzCount += numEntries;
   }
