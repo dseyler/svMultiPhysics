@@ -37,6 +37,10 @@
 #include <cmath>
 #include <fstream>
 
+#ifdef WITH_TRILINOS
+#include <Teuchos_TimeMonitor.hpp>
+#endif
+
 //------------------------
 // add_eq_linear_algebra
 //------------------------
@@ -700,6 +704,16 @@ int main(int argc, char *argv[])
   profiler::registry.report(simulation->cm_mod, simulation->com_mod.cm,
                                         simulation->logger,
                                         simulation->chnl_mod.appPath);
+  #endif
+
+  #ifdef WITH_TRILINOS
+  // MEASUREMENT: Belos and MueLu register their own Teuchos timers. These break
+  // the Belos iteration into preconditioner apply, matvec and orthogonalisation,
+  // which the phase timers deliberately do not reach into.
+  if (std::getenv("SVMP_TRILINOS_TIMERS") != nullptr) {
+    Teuchos::TimeMonitor::summarize(std::cout, false, true, false,
+                                    Teuchos::Union, "", true);
+  }
   #endif
 
   MPI_Finalize();

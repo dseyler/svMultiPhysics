@@ -921,7 +921,10 @@ void setMueLuPreconditioner(Teuchos::RCP<MueLu_Preconditioner> &MueLuPrec,
   // The following built-in parameters proved to be generally good for big FSI problems
   Teuchos::ParameterList mueluParams;
 
-  mueluParams.set("verbosity", "none");
+  // MEASUREMENT: "high" prints the level-by-level row/nnz table and the
+  // smoother chosen per level.
+  const char* vb_env = std::getenv("SVMP_MUELU_VERBOSITY");
+  mueluParams.set("verbosity", vb_env ? vb_env : "none");
   mueluParams.set("max levels", 6);   // number of multigrid levels
   mueluParams.set("cycle type", "V"); // V-cycle is standard
   mueluParams.set("fuse prolongation and update", true);
