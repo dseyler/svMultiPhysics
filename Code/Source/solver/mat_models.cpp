@@ -1582,12 +1582,6 @@ void g_vol_pen(const ComMod& com_mod, const dmnType& lDmn, const double p,
  */
 /// @brief Potential viscous stress and tangent, with the spatial dimension
 /// supplied at compile time.
-///
-/// Same treatment as compute_visc_stress_newtonian_impl: nsd is a template
-/// parameter so the tangent's inner loops unroll, and the nsd-sized
-/// intermediates are fixed-size Eigen matrices aliased over the caller's
-/// storage rather than copied.
-//
 template<int nsd>
 void compute_visc_stress_potential_impl(const double mu, const int eNoN, const Array<double>& Nx,
                         const Array<double>& vx, const Array<double>& F,
@@ -1595,8 +1589,7 @@ void compute_visc_stress_potential_impl(const double mu, const int eNoN, const A
     using MatN  = mat_fun::Matrix<nsd>;
     // Columns are sized by eNoN, which is known only at run time but is at most
     // 27 (HEX27), as in fluid.cpp. Capping the column count at compile time
-    // keeps these on the stack: a plain Dynamic matrix heap-allocates and takes
-    // Eigen's general product path, which measured 5x slower here.
+    // keeps these on the stack.
     static constexpr int MAX_SIZE = 27;
     using MatNX = Eigen::Matrix<double, nsd, Eigen::Dynamic, 0, nsd, MAX_SIZE>;
 
@@ -1621,9 +1614,7 @@ void compute_visc_stress_potential_impl(const double mu, const int eNoN, const A
     // and Kvis_v is written below, so neither needs zeroing first.
     const double half_mu = 0.5 * mu;
 
-    // Same hoisting as in the Newtonian model: the b-dependent columns are
-    // lifted out of the a loop, and both sets of columns out of the unrolled
-    // i/j bodies.
+    // The b columns are invariant across the a loop, so they are read once.
     for (int b = 0; b < eNoN; ++b) {
         double nxb[nsd], fb[nsd];
         for (int i = 0; i < nsd; ++i) {
@@ -1651,8 +1642,7 @@ void compute_visc_stress_potential_impl(const double mu, const int eNoN, const A
     }
 }
 
-/// @brief Dispatches on the spatial dimension. See the templated implementation.
-//
+/// @brief Dispatches on the spatial dimension.
 void compute_visc_stress_potential(const double mu, const int eNoN, const Array<double>& Nx,
                         const Array<double>& vx, const Array<double>& F,
                         Array<double>& Svis, Array3<double>& Kvis_u, Array3<double>& Kvis_v) {
@@ -1691,15 +1681,9 @@ void compute_visc_stress_potential(const double mu, const int eNoN, const Array<
 /// @brief Newtonian viscous stress and tangent, with the spatial dimension
 /// supplied at compile time.
 ///
-/// Templating on nsd lets the innermost i/j loops of the tangent assembly
-/// unroll, turns ii = i*nsd + j into a constant per unrolled body, resolves the
-/// Kronecker delta at compile time and makes r2d a constant. The nsd-sized
-/// intermediates become fixed-size Eigen matrices held on the stack.
-///
 /// Array is column major, matching Eigen's default, so the inputs and Svis are
 /// aliased with Eigen::Map rather than copied. Kvis_u and Kvis_v stay Array3:
 /// they are nsd^2 x eNoN x eNoN, too large to copy in and out.
-//
 template<int nsd>
 void compute_visc_stress_newtonian_impl(const double mu, const int eNoN, const Array<double>& Nx,
                            const Array<double>& vx, const Array<double>& F,
@@ -1707,8 +1691,7 @@ void compute_visc_stress_newtonian_impl(const double mu, const int eNoN, const A
     using MatN  = mat_fun::Matrix<nsd>;
     // Columns are sized by eNoN, which is known only at run time but is at most
     // 27 (HEX27), as in fluid.cpp. Capping the column count at compile time
-    // keeps these on the stack: a plain Dynamic matrix heap-allocates and takes
-    // Eigen's general product path, which measured 5x slower here.
+    // keeps these on the stack.
     static constexpr int MAX_SIZE = 27;
     using MatNX = Eigen::Matrix<double, nsd, Eigen::Dynamic, 0, nsd, MAX_SIZE>;
 
@@ -1741,10 +1724,8 @@ void compute_visc_stress_newtonian_impl(const double mu, const int eNoN, const A
     constexpr double r2d = 2.0 / nsd;
     const double muJ = mu * J;
 
-    // The b columns are invariant across the inner a loop, and the a columns
-    // across the unrolled i/j bodies, so both are copied into locals first.
-    // Reading from those instead of re-indexing the matrices lets the compiler
-    // keep them in registers.
+    // The b columns are invariant across the a loop, and the a columns across
+    // the i/j bodies, so both are read into locals once.
     for (int b = 0; b < eNoN; ++b) {
         double nb[nsd], db[nsd], vb[nsd];
         for (int i = 0; i < nsd; ++i) {
@@ -1781,8 +1762,7 @@ void compute_visc_stress_newtonian_impl(const double mu, const int eNoN, const A
     }
 }
 
-/// @brief Dispatches on the spatial dimension. See the templated implementation.
-//
+/// @brief Dispatches on the spatial dimension.
 void compute_visc_stress_newtonian(const double mu, const int eNoN, const Array<double>& Nx,
                            const Array<double>& vx, const Array<double>& F,
                            Array<double>& Svis, Array3<double>& Kvis_u, Array3<double>& Kvis_v) {
