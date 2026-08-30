@@ -179,11 +179,7 @@ namespace mat_fun {
     Tensor4<double> ten_ddot_3424(const Tensor4<double>& A, const Tensor4<double>& B, const int nd);
 
     /**
-     * @brief Contract two 4th order tensors over two dimensions each.
-     *
-     * Computes the tensor whose components are the sum of A and B over the
-     * index pairs named by @p dimsA and @p dimsB, leaving the remaining two
-     * indices of each operand free.
+     * @brief Contracts two 4th order tensors A and B over two dimensions. 
      *
      * @tparam nsd Number of spatial dimensions; each tensor is nsd^4.
      * @param[in] A,B Fourth order tensors to contract.
@@ -193,24 +189,10 @@ namespace mat_fun {
      */
     template <int nsd>
     Tensor<nsd>
-    double_dot_product(const Tensor<nsd>& A, const std::array<int, 2>& dimsA,
+    double_dot_product(const Tensor<nsd>& A, const std::array<int, 2>& dimsA, 
                         const Tensor<nsd>& B, const std::array<int, 2>& dimsB) {
-
-        // Fast path for contraction over the two trailing dimensions,
-        // C_ijmn = A_ijkl * B_mnkl, which is every call in the element loops.
-        //
-        // Tensor<nsd> is column major, so the linear index of (i,j,k,l) is
-        // i + n*j + n^2*k + n^3*l. Viewed as an NxN column-major matrix with
-        // N = nsd^2, row i + n*j and column k + n*l give that same index, so
-        // the free pair indexes rows and the contracted pair indexes columns
-        // with no copy or permutation. The contraction is then A * B^T.
-        //
-        // contract() reaches the same result, and both routes end in Eigen's
-        // blocked GEMM. The difference is how the operands are read while
-        // being packed: contract() goes through TensorContractionSubMapper,
-        // which indirects through the tensor evaluator on every element, while
-        // the matrix path uses a plain strided pointer mapper. Measured at
-        // 1.8x for nsd = 3, with bitwise identical results.
+        
+        // Fast path for dimsA = dimsB = {2,3}: C_ijmn = A_ijkl * B_mnkl.
         if (dimsA[0] == 2 && dimsA[1] == 3 && dimsB[0] == 2 && dimsB[1] == 3) {
             constexpr int N = nsd * nsd;
             Tensor<nsd> C;
@@ -229,9 +211,6 @@ namespace mat_fun {
 
         // Return the double dot product
         return A.contract(B, contractionDims);
-
-        // For some reason, in this case the Eigen::Tensor contract function is
-        // faster than a for loop implementation.
     }
 
     Tensor4<double> ten_dyad_prod(const Array<double>& A, const Array<double>& B, const int nd);
@@ -239,23 +218,18 @@ namespace mat_fun {
     /**
      * @brief Compute the dyadic product of two 2nd order tensors A and B, C_ijkl = A_ij * B_kl
      * 
-     * @tparam nsd Number of spatial dimensions.
-     * @param[in] A,B Second order tensors.
-     * @return The resulting 4th order tensor.
+     * @tparam nsd, the number of spatial dimensions
+     * @param A, the first 2nd order tensor
+     * @param B, the second 2nd order tensor
+     * @return Tensor<nsd>
      */
     template <int nsd>
-    Tensor<nsd>
+    Tensor<nsd> 
     dyadic_product(const Matrix<nsd>& A, const Matrix<nsd>& B) {
+        // Initialize the result tensor
+        Tensor<nsd> C;
         constexpr int N = nsd * nsd;
 
-        // C_ijkl = A_ij * B_kl is an outer product in the NxN view of the
-        // tensor: with column-major storage the index pair (i,j) is the row
-        // and (k,l) the column, so the second order tensors read as N-vectors.
-        //
-        // Written as an index loop the innermost index is l, whose stride is
-        // nsd^3, so every innermost write lands on a different cache line and
-        // nothing vectorises. This form writes down columns instead.
-        Tensor<nsd> C;
         Eigen::Map<const Eigen::Matrix<double, N, 1>> a(A.data());
         Eigen::Map<const Eigen::Matrix<double, N, 1>> b(B.data());
         Eigen::Map<Eigen::Matrix<double, N, N>> c(C.data());
@@ -294,8 +268,7 @@ namespace mat_fun {
 
     Tensor4<double> ten_symm_prod(const Array<double>& A, const Array<double>& B, const int nd);
     
-    /// @brief Symmetric dyadic product of two 2nd order tensors,
-    /// C_ijkl = 0.5 * (A_ik * B_jl + A_il * B_jk).
+    /// @brief Create a 4th order tensor from symmetric outer product of two matrices: C_ijkl = 0.5 * (A_ik * B_jl + A_il * B_jk)
     ///
     /// @tparam nsd Number of spatial dimensions.
     /// @param[in] A,B Second order tensors.
@@ -307,26 +280,12 @@ namespace mat_fun {
         // Initialize the result tensor
         Tensor<nsd> C;
 
-        // C_ijkl = 0.5 * (A_ik * B_jl + A_il * B_jk).
-        //
-        // Same ordering point as dyadic_product: with column-major storage the
-        // flat index is i + nsd*j + nsd^2*k + nsd^3*l, so iterating l innermost
-        // strides by nsd^3. Running i innermost instead makes the writes
-        // contiguous and the inner statement a vectorisable axpy, since only
-        // A(i,k) and A(i,l) vary with i.
-        double* c = C.data();
+        // Compute the symmetric product: C_ijkl = 0.5 * (A_ik * B_jl + A_il * B_jk)
         for (int l = 0; l < nsd; ++l) {
             for (int k = 0; k < nsd; ++k) {
-                const double* a_k = A.data() + nsd * k;   // A(:,k)
-                const double* a_l = A.data() + nsd * l;   // A(:,l)
-                for (int j = 0; j < nsd; ++j) {
-                    const double b_jl = B(j, l);
-                    const double b_jk = B(j, k);
-                    double* out = c + nsd * j + nsd * nsd * k + nsd * nsd * nsd * l;
-                    for (int i = 0; i < nsd; ++i) {
-                        out[i] = 0.5 * (a_k[i] * b_jl + a_l[i] * b_jk);
-                    }
-                }
+                Eigen::Map<Eigen::Matrix<double, nsd, nsd>> blk(C.data() + nsd * nsd * (k + nsd * l));
+                blk.noalias() = 0.5 * (A.col(k) * B.col(l).transpose()
+                                     + A.col(l) * B.col(k).transpose());
             }
         }
 
