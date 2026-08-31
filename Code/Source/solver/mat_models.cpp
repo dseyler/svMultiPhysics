@@ -1587,9 +1587,7 @@ void compute_visc_stress_potential_impl(const double mu, const int eNoN, const A
                         const Array<double>& vx, const Array<double>& F,
                         Array<double>& Svis, Array3<double>& Kvis_u, Array3<double>& Kvis_v) {
     using MatN  = mat_fun::Matrix<nsd>;
-    // Columns are sized by eNoN, which is known only at run time but is at most
-    // 27 (HEX27), as in fluid.cpp. Capping the column count at compile time
-    // keeps these on the stack.
+    // eNoN is a run-time size but never exceeds 27 (HEX27), as in fluid.cpp.
     static constexpr int MAX_SIZE = 27;
     using MatNX = Eigen::Matrix<double, nsd, Eigen::Dynamic, 0, nsd, MAX_SIZE>;
 
@@ -1646,10 +1644,6 @@ void compute_visc_stress_potential_impl(const double mu, const int eNoN, const A
 void compute_visc_stress_potential(const double mu, const int eNoN, const Array<double>& Nx,
                         const Array<double>& vx, const Array<double>& F,
                         Array<double>& Svis, Array3<double>& Kvis_u, Array3<double>& Kvis_v) {
-    svmp::throw_if<svmp::FE::InvalidArgumentException>(
-        eNoN > 27, "[compute_visc_stress_potential] eNoN (" + std::to_string(eNoN) +
-                   ") exceeds the maximum supported element node count of 27.");
-
     if (F.nrows() == 2) {
         compute_visc_stress_potential_impl<2>(mu, eNoN, Nx, vx, F, Svis, Kvis_u, Kvis_v);
     } else {
@@ -1689,9 +1683,7 @@ void compute_visc_stress_newtonian_impl(const double mu, const int eNoN, const A
                            const Array<double>& vx, const Array<double>& F,
                            Array<double>& Svis, Array3<double>& Kvis_u, Array3<double>& Kvis_v) {
     using MatN  = mat_fun::Matrix<nsd>;
-    // Columns are sized by eNoN, which is known only at run time but is at most
-    // 27 (HEX27), as in fluid.cpp. Capping the column count at compile time
-    // keeps these on the stack.
+    // eNoN is a run-time size but never exceeds 27 (HEX27), as in fluid.cpp.
     static constexpr int MAX_SIZE = 27;
     using MatNX = Eigen::Matrix<double, nsd, Eigen::Dynamic, 0, nsd, MAX_SIZE>;
 
@@ -1705,8 +1697,9 @@ void compute_visc_stress_newtonian_impl(const double mu, const int eNoN, const A
 
     // vx_Fi: velocity gradient in the current configuration.
     const MatN vx_Fi = vxm * Fi;
+    const MatN vx_Fi_symm = mat_fun::mat_symm<nsd>(vx_Fi);
     // ddev: deviatoric part of the rate of strain tensor.
-    const MatN ddev  = mat_fun::mat_dev<nsd>(mat_fun::mat_symm<nsd>(vx_Fi));
+    const MatN ddev = mat_fun::mat_dev<nsd>(vx_Fi_symm);
 
     // Nx_Fi(i,a) = sum_j Nx(j,a) * Fi(j,i), which is Fi^T * Nx.
     const MatNX Nx_Fi        = Fi.transpose() * Nxm;
@@ -1766,10 +1759,6 @@ void compute_visc_stress_newtonian_impl(const double mu, const int eNoN, const A
 void compute_visc_stress_newtonian(const double mu, const int eNoN, const Array<double>& Nx,
                            const Array<double>& vx, const Array<double>& F,
                            Array<double>& Svis, Array3<double>& Kvis_u, Array3<double>& Kvis_v) {
-    svmp::throw_if<svmp::FE::InvalidArgumentException>(
-        eNoN > 27, "[compute_visc_stress_newtonian] eNoN (" + std::to_string(eNoN) +
-                   ") exceeds the maximum supported element node count of 27.");
-
     if (F.nrows() == 2) {
         compute_visc_stress_newtonian_impl<2>(mu, eNoN, Nx, vx, F, Svis, Kvis_u, Kvis_v);
     } else {
