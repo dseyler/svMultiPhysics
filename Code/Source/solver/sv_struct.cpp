@@ -19,6 +19,28 @@
 
 namespace struct_ns {
 
+void SolidScratch::resize(const int nsd, const int num_element_nodes)
+{
+  const int eNoN = num_element_nodes;
+  const int nsymd = (nsd == 3) ? 6 : 3;
+
+  F.resize(nsd, nsd);
+  S0.resize(nsd, nsd);
+  vx.resize(nsd, nsd);
+  S.resize(nsd, nsd);
+  Dm.resize(nsymd, nsymd);
+  Svis.resize(nsd, nsd);
+  P.resize(nsd, nsd);
+  DBm.resize(nsymd, nsd);
+
+  Kvis_u.resize(nsd*nsd, eNoN, eNoN);
+  Kvis_v.resize(nsd*nsd, eNoN, eNoN);
+  Bm.resize(nsymd, nsd, eNoN);
+
+  ud.resize(nsd);
+  fb.resize(nsd);
+}
+
 void b_struct_2d(const ComMod& com_mod, const int eNoN, const double w, const Vector<double>& N, 
     const Array<double>& Nx, const Array<double>& dl, const Vector<double>& hl, const Vector<double>& nV, 
     Array<double>& lR, Array3<double>& lK)
@@ -229,6 +251,14 @@ void construct_dsolid(ComMod& com_mod, CepMod& cep_mod, const mshType& lM, const
                 bfl(nsd,eNoN), fN(nsd,nFn), pS0l(nsymd,eNoN), Nx(nsd,eNoN), lR(dof,eNoN);
   Array3<double> lK(dof*dof,eNoN,eNoN);
 
+  // Grouped for the kernel calls below; these reference the arrays above.
+  const SolidElementInput element{eNoN, nFn, al, yl, dl, bfl, fN, pS0l,
+                                  ya_l_f, ya_l_s, ya_l_n};
+
+  // Sized once here and reused for every element and Gauss point.
+  SolidScratch scratch;
+  scratch.resize(nsd, eNoN);
+
   // Loop over all elements of mesh
 
   for (int e = 0; e < lM.nEl; e++) {
@@ -306,8 +336,7 @@ void construct_dsolid(ComMod& com_mod, CepMod& cep_mod, const mshType& lM, const
       pSl = 0.0;
 
       if (nsd == 3) {
-        struct_3d(com_mod, cep_mod, eNoN, nFn, w, N, Nx, al, yl, dl, bfl, fN,
-                  pS0l, pSl, ya_l_f, ya_l_s, ya_l_n, lR, lK);
+        struct_3d(com_mod, cep_mod, element, w, N, Nx, scratch, pSl, lR, lK);
 
 #if 0
         if (e == 0 && g == 0) {
@@ -320,8 +349,7 @@ void construct_dsolid(ComMod& com_mod, CepMod& cep_mod, const mshType& lM, const
 #endif
 
       } else if (nsd == 2) {
-        struct_2d(com_mod, cep_mod, eNoN, nFn, w, N, Nx, al, yl, dl, bfl, fN,
-                  pS0l, pSl, ya_l_f, ya_l_s, ya_l_n, lR, lK);
+        struct_2d(com_mod, cep_mod, element, w, N, Nx, scratch, pSl, lR, lK);
       }
 
       // Prestress
@@ -342,14 +370,38 @@ void construct_dsolid(ComMod& com_mod, CepMod& cep_mod, const mshType& lM, const
 
 /// @brief Reproduces Fortran 'STRUCT2D' subroutine.
 //
-void struct_2d(ComMod &com_mod, CepMod &cep_mod, const int eNoN, const int nFn,
-               const double w, const Vector<double> &N, const Array<double> &Nx,
-               const Array<double> &al, const Array<double> &yl,
-               const Array<double> &dl, const Array<double> &bfl,
-               const Array<double> &fN, const Array<double> &pS0l,
-               Vector<double> &pSl, const Vector<double> &ya_l_f,
-               const Vector<double> &ya_l_s, const Vector<double> &ya_l_n,
+void struct_2d(ComMod &com_mod, CepMod &cep_mod,
+               const SolidElementInput &element, const double w,
+               const Vector<double> &N, const Array<double> &Nx,
+               SolidScratch &scratch, Vector<double> &pSl,
                Array<double> &lR, Array3<double> &lK) {
+  // Unpacked here so that the assembly below reads exactly as it did when
+  // these were parameters and locals.
+  const int eNoN = element.eNoN;
+  const int nFn = element.nFn;
+  const Array<double> &al = element.al;
+  const Array<double> &yl = element.yl;
+  const Array<double> &dl = element.dl;
+  const Array<double> &bfl = element.bfl;
+  const Array<double> &fN = element.fN;
+  const Array<double> &pS0l = element.pS0l;
+  const Vector<double> &ya_l_f = element.ya_l_f;
+  const Vector<double> &ya_l_s = element.ya_l_s;
+  const Vector<double> &ya_l_n = element.ya_l_n;
+
+  Array<double> &F = scratch.F;
+  Array<double> &S0 = scratch.S0;
+  Array<double> &vx = scratch.vx;
+  Array<double> &S = scratch.S;
+  Array<double> &Dm = scratch.Dm;
+  Array<double> &Svis = scratch.Svis;
+  Array<double> &P = scratch.P;
+  Array<double> &DBm = scratch.DBm;
+  Array3<double> &Kvis_u = scratch.Kvis_u;
+  Array3<double> &Kvis_v = scratch.Kvis_v;
+  Array3<double> &Bm = scratch.Bm;
+  Vector<double> &ud = scratch.ud;
+  Vector<double> &fb = scratch.fb;
   using namespace consts;
   using namespace mat_fun;
 
@@ -370,7 +422,8 @@ void struct_2d(ComMod &com_mod, CepMod &cep_mod, const int eNoN, const int nFn,
   //
   double rho = dmn.prop.at(PhysicalProperyType::solid_density);
   double dmp = dmn.prop.at(PhysicalProperyType::damping);
-  Vector<double> fb({dmn.prop.at(PhysicalProperyType::f_x), dmn.prop.at(PhysicalProperyType::f_y)});
+  fb(0) = dmn.prop.at(PhysicalProperyType::f_x);
+  fb(1) = dmn.prop.at(PhysicalProperyType::f_y);
   double afu = eq.af * eq.beta*dt*dt;
   double afv = eq.af * eq.gam*dt;
   double amd = eq.am * rho  +  eq.af * eq.gam * dt * dmp;
@@ -388,8 +441,6 @@ void struct_2d(ComMod &com_mod, CepMod &cep_mod, const int eNoN, const int nFn,
 
   // Inertia, body force and deformation tensor (F)
   //
-  Array<double> F(2,2), S0(2,2), vx(2,2);
-  Vector<double> ud(2);
 
   ud = -rho*fb;
   F = 0.0;
@@ -434,15 +485,11 @@ void struct_2d(ComMod &com_mod, CepMod &cep_mod, const int eNoN, const int nFn,
   S0(1,0) = S0(0,1);
 
   // 2nd Piola-Kirchhoff stress (S) and material stiffness tensor in Voight notation (Dm)
-  Array<double> S(2,2), Dm(3,3);
   double Ja;
   mat_models::compute_pk2cc(com_mod, cep_mod, dmn, F, nFn, fN, ya_g_f, ya_g_s,
                             ya_g_n, S, Dm, Ja);
 
   // Viscous 2nd Piola-Kirchhoff stress and tangent contributions
-  Array<double> Svis(2,2);
-  Array3<double> Kvis_u(4, eNoN, eNoN);
-  Array3<double> Kvis_v(4, eNoN, eNoN);
 
   mat_models::compute_visc_stress_and_tangent(dmn, eNoN, Nx, vx, F, Svis, Kvis_u, Kvis_v);
 
@@ -459,8 +506,6 @@ void struct_2d(ComMod &com_mod, CepMod &cep_mod, const int eNoN, const int nFn,
 
   // 1st Piola-Kirchhoff tensor (P)
   //
-  Array<double> P(2,2), DBm(3,2);
-  Array3<double> Bm(3,2,eNoN);
   P = mat_fun::mat_mul(F, S);
   #ifdef debug_struct_2d 
   dmsg << "P: " << P(0,0) << " " << P(0,1);
@@ -486,7 +531,6 @@ void struct_2d(ComMod &com_mod, CepMod &cep_mod, const int eNoN, const int nFn,
     Bm(2,1,a) = (Nx(0,a)*F(1,1) + F(1,0)*Nx(1,a));
   }
 
-  Array<double> NxFi(2,eNoN), DdNx(2,eNoN), VxNx(2,eNoN);
 
   // Local stiffness tensor
   double T1, NxNx, NxSNx, BmDBm;
@@ -538,14 +582,38 @@ void struct_2d(ComMod &com_mod, CepMod &cep_mod, const int eNoN, const int nFn,
 }
 
 /// @brief Reproduces Fortran 'STRUCT3D' subroutine.
-void struct_3d(ComMod &com_mod, CepMod &cep_mod, const int eNoN, const int nFn,
-               const double w, const Vector<double> &N, const Array<double> &Nx,
-               const Array<double> &al, const Array<double> &yl,
-               const Array<double> &dl, const Array<double> &bfl,
-               const Array<double> &fN, const Array<double> &pS0l,
-               Vector<double> &pSl, const Vector<double> &ya_l_f,
-               const Vector<double> &ya_l_s, const Vector<double> &ya_l_n,
+void struct_3d(ComMod &com_mod, CepMod &cep_mod,
+               const SolidElementInput &element, const double w,
+               const Vector<double> &N, const Array<double> &Nx,
+               SolidScratch &scratch, Vector<double> &pSl,
                Array<double> &lR, Array3<double> &lK) {
+  // Unpacked here so that the assembly below reads exactly as it did when
+  // these were parameters and locals.
+  const int eNoN = element.eNoN;
+  const int nFn = element.nFn;
+  const Array<double> &al = element.al;
+  const Array<double> &yl = element.yl;
+  const Array<double> &dl = element.dl;
+  const Array<double> &bfl = element.bfl;
+  const Array<double> &fN = element.fN;
+  const Array<double> &pS0l = element.pS0l;
+  const Vector<double> &ya_l_f = element.ya_l_f;
+  const Vector<double> &ya_l_s = element.ya_l_s;
+  const Vector<double> &ya_l_n = element.ya_l_n;
+
+  Array<double> &F = scratch.F;
+  Array<double> &S0 = scratch.S0;
+  Array<double> &vx = scratch.vx;
+  Array<double> &S = scratch.S;
+  Array<double> &Dm = scratch.Dm;
+  Array<double> &Svis = scratch.Svis;
+  Array<double> &P = scratch.P;
+  Array<double> &DBm = scratch.DBm;
+  Array3<double> &Kvis_u = scratch.Kvis_u;
+  Array3<double> &Kvis_v = scratch.Kvis_v;
+  Array3<double> &Bm = scratch.Bm;
+  Vector<double> &ud = scratch.ud;
+  Vector<double> &fb = scratch.fb;
   using namespace consts;
   using namespace mat_fun;
 
@@ -568,9 +636,9 @@ void struct_3d(ComMod &com_mod, CepMod &cep_mod, const int eNoN, const int nFn,
   //
   double rho = dmn.prop.at(PhysicalProperyType::solid_density);
   double dmp = dmn.prop.at(PhysicalProperyType::damping);
-  Vector<double> fb({dmn.prop.at(PhysicalProperyType::f_x), 
-                     dmn.prop.at(PhysicalProperyType::f_y), 
-                     dmn.prop.at(PhysicalProperyType::f_z)});
+  fb(0) = dmn.prop.at(PhysicalProperyType::f_x);
+  fb(1) = dmn.prop.at(PhysicalProperyType::f_y);
+  fb(2) = dmn.prop.at(PhysicalProperyType::f_z);
 
   double afu = eq.af * eq.beta*dt*dt;
   double afv = eq.af * eq.gam*dt;
@@ -590,8 +658,6 @@ void struct_3d(ComMod &com_mod, CepMod &cep_mod, const int eNoN, const int nFn,
 
   // Inertia, body force and deformation tensor (F)
   //
-  Array<double> F(3,3), S0(3,3), vx(3,3);
-  Vector<double> ud(3);
 
   double F_f[3][3]={}; 
   F_f[0][0] = 1.0;
@@ -653,15 +719,11 @@ void struct_3d(ComMod &com_mod, CepMod &cep_mod, const int eNoN, const int nFn,
   // 2nd Piola-Kirchhoff tensor (S) and material stiffness tensor in
   // Voigt notationa (Dm)
   //
-  Array<double> S(3,3), Dm(6,6); 
   double Ja;
   mat_models::compute_pk2cc(com_mod, cep_mod, dmn, F, nFn, fN, ya_g_f, ya_g_s,
                             ya_g_n, S, Dm, Ja);
 
   // Viscous 2nd Piola-Kirchhoff stress and tangent contributions
-  Array<double> Svis(3,3);
-  Array3<double> Kvis_u(9, eNoN, eNoN);
-  Array3<double> Kvis_v(9, eNoN, eNoN);
   
   mat_models::compute_visc_stress_and_tangent(dmn, eNoN, Nx, vx, F, Svis, Kvis_u, Kvis_v);
 
@@ -689,8 +751,6 @@ void struct_3d(ComMod &com_mod, CepMod &cep_mod, const int eNoN, const int nFn,
 
   // 1st Piola-Kirchhoff tensor (P)
   //
-  Array<double> P(3,3);
-  Array3<double> Bm(6,3,eNoN); 
   mat_fun::mat_mul(F, S, P);
 
   // Local residual
@@ -731,7 +791,6 @@ void struct_3d(ComMod &com_mod, CepMod &cep_mod, const int eNoN, const int nFn,
   // Local stiffness tensor
   double NxSNx, T1, NxNx, BmDBm, Tv;
 
-  Array<double> DBm(6,3);
 
   for (int b = 0; b < eNoN; b++) {
 

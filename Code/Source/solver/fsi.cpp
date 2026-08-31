@@ -71,8 +71,19 @@ void construct_fsi(ComMod& com_mod, CepMod& cep_mod, const mshType& lM, const So
       fN(nsd,nFn), pS0l(nsymd,eNoN), lR(dof,eNoN);
   Vector<double> pSl(nsymd), ya_l_f(eNoN), ya_l_s(eNoN), ya_l_n(eNoN);
 
+
   std::array<fsType,2> fs_1;
   fs::get_thood_fs(com_mod, fs_1, lM, vmsStab, 1);
+
+  // Grouped for the solid kernel calls below; these reference the arrays above,
+  // which are also passed to the fluid and ustruct kernels. The node count is
+  // the velocity space's, as passed to the kernels previously.
+  const struct_ns::SolidElementInput element{fs_1[0].eNoN, nFn, al, yl, dl, bfl,
+                                             fN, pS0l, ya_l_f, ya_l_s, ya_l_n};
+
+  // Sized once here and reused for every element and Gauss point.
+  struct_ns::SolidScratch scratch;
+  scratch.resize(nsd, fs_1[0].eNoN);
 
   std::array<fsType,2> fs_2;
   fs::get_thood_fs(com_mod, fs_2, lM, vmsStab, 2);
@@ -218,9 +229,8 @@ void construct_fsi(ComMod& com_mod, CepMod& cep_mod, const mshType& lM, const So
 
           case Equation_struct: {
             auto N0 = fs_1[0].N.col(g);
-            struct_ns::struct_3d(com_mod, cep_mod, fs_1[0].eNoN, nFn, w, N0,
-                                 Nwx, al, yl, dl, bfl, fN, pS0l, pSl, ya_l_f,
-                                 ya_l_s, ya_l_n, lR, lK);
+            struct_ns::struct_3d(com_mod, cep_mod, element, w, N0, Nwx,
+                                 scratch, pSl, lR, lK);
           } break;
           case Equation_lElas:
             throw std::runtime_error("[construct_fsi] LELAS3D not implemented");
@@ -254,9 +264,8 @@ void construct_fsi(ComMod& com_mod, CepMod& cep_mod, const mshType& lM, const So
 
           case Equation_struct: {
             auto N0 = fs_1[0].N.col(g);
-            struct_ns::struct_2d(com_mod, cep_mod, fs_1[0].eNoN, nFn, w, N0,
-                                 Nwx, al, yl, dl, bfl, fN, pS0l, pSl, ya_l_f,
-                                 ya_l_s, ya_l_n, lR, lK);
+            struct_ns::struct_2d(com_mod, cep_mod, element, w, N0, Nwx,
+                                 scratch, pSl, lR, lK);
           } break;
 
           case Equation_ustruct:
