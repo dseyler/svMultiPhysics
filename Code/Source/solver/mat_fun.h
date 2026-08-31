@@ -175,7 +175,9 @@ namespace mat_fun {
      *
      * Fixed-size overload for the Eigen matrices used by the element kernels.
      *
-     * @tparam nsd, the number of spatial dimensions
+     * @tparam nsd Number of spatial dimensions.
+     * @param[in] A Second order tensor.
+     * @return The symmetric part of A.
      */
     template <int nsd>
     Matrix<nsd> mat_symm(const Matrix<nsd>& A) {
@@ -187,11 +189,13 @@ namespace mat_fun {
      *
      * Fixed-size overload for the Eigen matrices used by the element kernels.
      *
-     * @tparam nsd, the number of spatial dimensions
+     * @tparam nsd Number of spatial dimensions.
+     * @param[in] A Second order tensor.
+     * @return The deviatoric part of A.
      */
     template <int nsd>
     Matrix<nsd> mat_dev(const Matrix<nsd>& A) {
-        return A - (A.trace() / static_cast<double>(nsd)) * Matrix<nsd>::Identity();
+        return A - (A.trace() / nsd) * Matrix<nsd>::Identity();
     }
 
     Array<double> mat_symm_prod(const Vector<double>& u, const Vector<double>& v, const int nd);

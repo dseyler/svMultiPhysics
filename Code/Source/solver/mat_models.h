@@ -86,9 +86,8 @@ void compute_visc_stress_newtonian(const double mu, const int eNoN, const Array<
 
 /// @brief Dispatch to the viscosity model configured for the domain.
 ///
-/// Writes zeros to @p Svis, @p Kvis_u and @p Kvis_v when the domain has no
-/// viscosity model, so that callers reusing these buffers do not observe the
-/// previous element's values.
+/// Leaves @p Svis, @p Kvis_u and @p Kvis_v untouched when the domain has no
+/// viscosity model, so callers must not rely on them being cleared here.
 ///
 /// @param[in] lDmn Domain, supplying the viscosity model and its parameters.
 /// @param[in] eNoN,Nx,vx,F As for compute_visc_stress_newtonian().

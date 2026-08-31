@@ -1559,6 +1559,18 @@ void g_vol_pen(const ComMod& com_mod, const dmnType& lDmn, const double p,
   }
 }
 
+namespace {
+
+/// @brief Largest element node count the fixed-size views below allow (HEX27).
+constexpr int MAX_ELEMENT_NODES = 27;
+
+/// @brief An nsd x eNoN matrix whose column count is bounded at compile time,
+/// so that it is held on the stack rather than heap allocated.
+template <int nsd>
+using MatNodes = Eigen::Matrix<double, nsd, Eigen::Dynamic, 0, nsd, MAX_ELEMENT_NODES>;
+
+} // namespace
+
 /**
  * @brief Get the viscous PK2 stress and corresponding tangent matrix contributions for a solid
  * with a viscous pseudo-potential model.
@@ -1570,70 +1582,60 @@ void g_vol_pen(const ComMod& com_mod, const dmnType& lDmn, const double p,
  *   = mu * 1/2 * F^T * (grad(v) + grad(v)^T) * F
  *   = mu * 1/2 * ( (F^T * Grad(v)) + (F^T * Grad(v))^T )
  * 
- * @tparam nsd Number of spatial dimensions
- * @param mu Solid viscosity parameter
- * @param eNoN Number of nodes in an element
- * @param Nx Shape function gradient w.r.t. reference configuration coordinates (dN/dX)
- * @param vx Velocity gradient matrix w.r.t reference configuration coordinates (dv/dX)
- * @param F Deformation gradient matrix
- * @param Svis Viscous 2nd Piola-Kirchhoff stress matrix
- * @param Kvis_u Viscous tangent matrix contribution due to displacement
- * @param Kvis_v Visous tangent matrix contribution due to velocity
+ * Arguments are documented in mat_models.h. Array is column major, matching
+ * Eigen's default, so the inputs and Svis are aliased with Eigen::Map rather
+ * than copied.
+ *
+ * @tparam nsd Number of spatial dimensions, supplied at compile time.
  */
-/// @brief Potential viscous stress and tangent, with the spatial dimension
-/// supplied at compile time.
-template<int nsd>
+template <int nsd>
 void compute_visc_stress_potential_impl(const double mu, const int eNoN, const Array<double>& Nx,
                         const Array<double>& vx, const Array<double>& F,
                         Array<double>& Svis, Array3<double>& Kvis_u, Array3<double>& Kvis_v) {
-    using MatN  = mat_fun::Matrix<nsd>;
-    // eNoN is a run-time size but never exceeds 27 (HEX27), as in fluid.cpp.
-    static constexpr int MAX_SIZE = 27;
-    using MatNX = Eigen::Matrix<double, nsd, Eigen::Dynamic, 0, nsd, MAX_SIZE>;
+    using MatNsd = mat_fun::Matrix<nsd>;
 
-    Eigen::Map<const MatN> Fm(F.data());
-    Eigen::Map<const MatN> vxm(vx.data());
-    Eigen::Map<const MatNX> Nxm(Nx.data(), nsd, eNoN);
+    Eigen::Map<const MatNsd> F_map(F.data());
+    Eigen::Map<const MatNsd> vx_map(vx.data());
+    Eigen::Map<const MatNodes<nsd>> Nx_map(Nx.data(), nsd, eNoN);
 
-    const MatN F_Ft  = Fm * Fm.transpose();
-    const MatN Ft_vx = Fm.transpose() * vxm;
-    const MatN F_vxt = Fm * vxm.transpose();
+    const MatNsd F_Ft  = F_map * F_map.transpose();
+    const MatNsd Ft_vx = F_map.transpose() * vx_map;
+    const MatNsd F_vxt = F_map * vx_map.transpose();
 
     // F_Nx(i,a) = sum_j F(i,j) * Nx(j,a), and likewise for vx.
-    const MatNX F_Nx  = Fm  * Nxm;
-    const MatNX vx_Nx = vxm * Nxm;
+    const MatNodes<nsd> F_Nx  = F_map  * Nx_map;
+    const MatNodes<nsd> vx_Nx = vx_map * Nx_map;
 
     // 2nd Piola-Kirchhoff stress due to viscosity,
     // Svis = mu * 1/2 * ( (F^T * dv/dX) + (F^T * dv/dX)^T )
-    Eigen::Map<MatN> Svism(Svis.data());
-    Svism.noalias() = mu * mat_fun::mat_symm<nsd>(Ft_vx);
+    Eigen::Map<MatNsd> Svis_map(Svis.data());
+    Svis_map.noalias() = mu * mat_fun::mat_symm<nsd>(Ft_vx);
 
     // Tangent matrix contributions due to viscosity. Every element of Kvis_u
     // and Kvis_v is written below, so neither needs zeroing first.
-    const double half_mu = 0.5 * mu;
 
     // The b columns are invariant across the a loop, so they are read once.
     for (int b = 0; b < eNoN; ++b) {
-        double nxb[nsd], fb[nsd];
+        double Nx_b[nsd], F_Nx_b[nsd];
         for (int i = 0; i < nsd; ++i) {
-            nxb[i] = Nx(i,b);
-            fb[i]  = F_Nx(i,b);
+            Nx_b[i]   = Nx(i,b);
+            F_Nx_b[i] = F_Nx(i,b);
         }
 
         for (int a = 0; a < eNoN; ++a) {
-            double fa[nsd], vna[nsd];
+            double F_Nx_a[nsd], vx_Nx_a[nsd];
             double Nx_Nx = 0.0;
             for (int i = 0; i < nsd; ++i) {
-                fa[i]  = F_Nx(i,a);
-                vna[i] = vx_Nx(i,a);
-                Nx_Nx += Nx(i,a) * nxb[i];
+                F_Nx_a[i]  = F_Nx(i,a);
+                vx_Nx_a[i] = vx_Nx(i,a);
+                Nx_Nx += Nx(i,a) * Nx_b[i];
             }
 
             for (int i = 0; i < nsd; ++i) {
                 for (int j = 0; j < nsd; ++j) {
-                    const int ii = i * nsd + j;
-                    Kvis_u(ii,a,b) = half_mu * (fb[i] * vna[j] + Nx_Nx * F_vxt(i,j));
-                    Kvis_v(ii,a,b) = half_mu * (Nx_Nx * F_Ft(i,j) + fb[i] * fa[j]);
+                    int ii = i * nsd + j;
+                    Kvis_u(ii,a,b) = 0.5 * mu * (F_Nx_b[i] * vx_Nx_a[j] + Nx_Nx * F_vxt(i,j));
+                    Kvis_v(ii,a,b) = 0.5 * mu * (Nx_Nx * F_Ft(i,j) + F_Nx_b[i] * F_Nx_a[j]);
                 }
             }
         }
@@ -1641,13 +1643,12 @@ void compute_visc_stress_potential_impl(const double mu, const int eNoN, const A
 }
 
 /// @brief Dispatches on the spatial dimension.
-void compute_visc_stress_potential(const double mu, const int eNoN, const Array<double>& Nx,
-                        const Array<double>& vx, const Array<double>& F,
+void compute_visc_stress_potential(const double mu, const int eNoN, const Array<double>& Nx, const Array<double>& vx, const Array<double>& F,
                         Array<double>& Svis, Array3<double>& Kvis_u, Array3<double>& Kvis_v) {
-    if (F.nrows() == 2) {
-        compute_visc_stress_potential_impl<2>(mu, eNoN, Nx, vx, F, Svis, Kvis_u, Kvis_v);
-    } else {
+    if (F.nrows() == 3) {
         compute_visc_stress_potential_impl<3>(mu, eNoN, Nx, vx, F, Svis, Kvis_u, Kvis_v);
+    } else if (F.nrows() == 2) {
+        compute_visc_stress_potential_impl<2>(mu, eNoN, Nx, vx, F, Svis, Kvis_u, Kvis_v);
     }
 }
 
@@ -1662,93 +1663,82 @@ void compute_visc_stress_potential(const double mu, const int eNoN, const Array<
  * 
  * Note, there is likely an error/bug in the tangent contributions that leads to suboptimal nonlinear convergence
  * 
- * @tparam nsd Number of spatial dimensions
- * @param mu Solid viscosity parameter
- * @param eNoN Number of nodes in an element
- * @param Nx Shape function gradient w.r.t. reference configuration coordinates (dN/dX)
- * @param vx Velocity gradient matrix w.r.t reference configuration coordinates (dv/dX)
- * @param F Deformation gradient matrix
- * @param Svis Viscous 2nd Piola-Kirchhoff stress matrix
- * @param Kvis_u Viscous tangent matrix contribution due to displacement
- * @param Kvis_v Visous tangent matrix contribution due to velocity
+ * Arguments are documented in mat_models.h. Array is column major, matching
+ * Eigen's default, so the inputs and Svis are aliased with Eigen::Map rather
+ * than copied. Kvis_u and Kvis_v stay Array3: they are nsd^2 x eNoN x eNoN,
+ * too large to copy in and out.
+ *
+ * @tparam nsd Number of spatial dimensions, supplied at compile time.
  */
-/// @brief Newtonian viscous stress and tangent, with the spatial dimension
-/// supplied at compile time.
-///
-/// Array is column major, matching Eigen's default, so the inputs and Svis are
-/// aliased with Eigen::Map rather than copied. Kvis_u and Kvis_v stay Array3:
-/// they are nsd^2 x eNoN x eNoN, too large to copy in and out.
-template<int nsd>
+template <int nsd>
 void compute_visc_stress_newtonian_impl(const double mu, const int eNoN, const Array<double>& Nx,
                            const Array<double>& vx, const Array<double>& F,
                            Array<double>& Svis, Array3<double>& Kvis_u, Array3<double>& Kvis_v) {
-    using MatN  = mat_fun::Matrix<nsd>;
-    // eNoN is a run-time size but never exceeds 27 (HEX27), as in fluid.cpp.
-    static constexpr int MAX_SIZE = 27;
-    using MatNX = Eigen::Matrix<double, nsd, Eigen::Dynamic, 0, nsd, MAX_SIZE>;
+    using MatNsd = mat_fun::Matrix<nsd>;
 
     // Alias the caller's storage; no copies.
-    Eigen::Map<const MatN> Fm(F.data());
-    Eigen::Map<const MatN> vxm(vx.data());
-    Eigen::Map<const MatNX> Nxm(Nx.data(), nsd, eNoN);
+    Eigen::Map<const MatNsd> F_map(F.data());
+    Eigen::Map<const MatNsd> vx_map(vx.data());
+    Eigen::Map<const MatNodes<nsd>> Nx_map(Nx.data(), nsd, eNoN);
 
-    const double J   = Fm.determinant();
-    const MatN   Fi  = Fm.inverse();
+    const double J  = F_map.determinant();
+    const MatNsd Fi = F_map.inverse();
 
     // vx_Fi: velocity gradient in the current configuration.
-    const MatN vx_Fi = vxm * Fi;
-    const MatN vx_Fi_symm = mat_fun::mat_symm<nsd>(vx_Fi);
+    const MatNsd vx_Fi = vx_map * Fi;
+    const MatNsd vx_Fi_symm = mat_fun::mat_symm<nsd>(vx_Fi);
     // ddev: deviatoric part of the rate of strain tensor.
-    const MatN ddev = mat_fun::mat_dev<nsd>(vx_Fi_symm);
+    const MatNsd ddev = mat_fun::mat_dev<nsd>(vx_Fi_symm);
 
     // Nx_Fi(i,a) = sum_j Nx(j,a) * Fi(j,i), which is Fi^T * Nx.
-    const MatNX Nx_Fi        = Fi.transpose() * Nxm;
-    const MatNX ddev_Nx_Fi   = ddev  * Nx_Fi;
-    const MatNX vx_Fi_Nx_Fi  = vx_Fi * Nx_Fi;
+    const MatNodes<nsd> Nx_Fi       = Fi.transpose() * Nx_map;
+    const MatNodes<nsd> ddev_Nx_Fi  = ddev  * Nx_Fi;
+    const MatNodes<nsd> vx_Fi_Nx_Fi = vx_Fi * Nx_Fi;
 
     // 2nd Piola-Kirchhoff stress due to viscosity,
     // Svis = 2 * mu * J * F^-1 * d_dev * F^-T. Written straight into the
     // caller's array, which it has already sized.
-    Eigen::Map<MatN> Svism(Svis.data());
-    Svism.noalias() = (2.0 * mu * J) * (Fi * ddev * Fi.transpose());
+    Eigen::Map<MatNsd> Svis_map(Svis.data());
+    Svis_map.noalias() = (2.0 * mu * J) * (Fi * ddev * Fi.transpose());
 
     // Tangent matrix contributions due to viscosity. Every element of Kvis_u
     // and Kvis_v is written below, so neither needs zeroing first.
     constexpr double r2d = 2.0 / nsd;
-    const double muJ = mu * J;
+    const MatNsd Idm = MatNsd::Identity();
 
     // The b columns are invariant across the a loop, and the a columns across
     // the i/j bodies, so both are read into locals once.
     for (int b = 0; b < eNoN; ++b) {
-        double nb[nsd], db[nsd], vb[nsd];
+        double Nx_Fi_b[nsd], ddev_Nx_Fi_b[nsd], vx_Fi_Nx_Fi_b[nsd];
         for (int i = 0; i < nsd; ++i) {
-            nb[i] = Nx_Fi(i,b);
-            db[i] = ddev_Nx_Fi(i,b);
-            vb[i] = vx_Fi_Nx_Fi(i,b);
+            Nx_Fi_b[i]       = Nx_Fi(i,b);
+            ddev_Nx_Fi_b[i]  = ddev_Nx_Fi(i,b);
+            vx_Fi_Nx_Fi_b[i] = vx_Fi_Nx_Fi(i,b);
         }
 
         for (int a = 0; a < eNoN; ++a) {
-            double na[nsd], da[nsd], va[nsd];
+            double Nx_Fi_a[nsd], ddev_Nx_Fi_a[nsd], vx_Fi_Nx_Fi_a[nsd];
             double Nx_Fi_Nx_Fi = 0.0;
             for (int i = 0; i < nsd; ++i) {
-                na[i] = Nx_Fi(i,a);
-                da[i] = ddev_Nx_Fi(i,a);
-                va[i] = vx_Fi_Nx_Fi(i,a);
-                Nx_Fi_Nx_Fi += na[i] * nb[i];
+                Nx_Fi_a[i]       = Nx_Fi(i,a);
+                ddev_Nx_Fi_a[i]  = ddev_Nx_Fi(i,a);
+                vx_Fi_Nx_Fi_a[i] = vx_Fi_Nx_Fi(i,a);
+                Nx_Fi_Nx_Fi += Nx_Fi_a[i] * Nx_Fi_b[i];
             }
 
             for (int i = 0; i < nsd; ++i) {
                 for (int j = 0; j < nsd; ++j) {
-                    const int ii = i * nsd + j;
+                    int ii = i * nsd + j;
 
                     // Derivative of the residual w.r.t displacement
-                    Kvis_u(ii,a,b) = muJ * (2.0 * (da[i] * nb[j] - db[i] * na[j]) -
-                                    (Nx_Fi_Nx_Fi * vx_Fi(i,j) + nb[i] * va[j] -
-                                    r2d * na[i] * vb[j]));
+                    Kvis_u(ii,a,b) = mu * J * (2.0 * (ddev_Nx_Fi_a[i] * Nx_Fi_b[j] -
+                                    ddev_Nx_Fi_b[i] * Nx_Fi_a[j]) -
+                                    (Nx_Fi_Nx_Fi * vx_Fi(i,j) + Nx_Fi_b[i] * vx_Fi_Nx_Fi_a[j] -
+                                    r2d * Nx_Fi_a[i] * vx_Fi_Nx_Fi_b[j]));
 
                     // Derivative of the residual w.r.t velocity
-                    Kvis_v(ii,a,b) = muJ * (Nx_Fi_Nx_Fi * (i == j ? 1.0 : 0.0) +
-                                    nb[i] * na[j] - r2d * na[i] * nb[j]);
+                    Kvis_v(ii,a,b) = mu * J * (Nx_Fi_Nx_Fi * Idm(i,j) +
+                                    Nx_Fi_b[i] * Nx_Fi_a[j] - r2d * Nx_Fi_a[i] * Nx_Fi_b[j]);
                 }
             }
         }
@@ -1756,13 +1746,12 @@ void compute_visc_stress_newtonian_impl(const double mu, const int eNoN, const A
 }
 
 /// @brief Dispatches on the spatial dimension.
-void compute_visc_stress_newtonian(const double mu, const int eNoN, const Array<double>& Nx,
-                           const Array<double>& vx, const Array<double>& F,
+void compute_visc_stress_newtonian(const double mu, const int eNoN, const Array<double>& Nx, const Array<double>& vx, const Array<double>& F,
                            Array<double>& Svis, Array3<double>& Kvis_u, Array3<double>& Kvis_v) {
-    if (F.nrows() == 2) {
-        compute_visc_stress_newtonian_impl<2>(mu, eNoN, Nx, vx, F, Svis, Kvis_u, Kvis_v);
-    } else {
+    if (F.nrows() == 3) {
         compute_visc_stress_newtonian_impl<3>(mu, eNoN, Nx, vx, F, Svis, Kvis_u, Kvis_v);
+    } else if (F.nrows() == 2) {
+        compute_visc_stress_newtonian_impl<2>(mu, eNoN, Nx, vx, F, Svis, Kvis_u, Kvis_v);
     }
 }
 
