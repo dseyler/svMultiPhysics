@@ -443,6 +443,10 @@ void struct_2d(ComMod &com_mod, CepMod &cep_mod,
   //
 
   ud = -rho*fb;
+  // vx is accumulated into below, and the scratch is reused across Gauss
+  // points, so it must be cleared here.
+  vx = 0.0;
+
   F = 0.0;
   F(0,0) = 1.0;
   F(1,1) = 1.0;
@@ -665,6 +669,10 @@ void struct_3d(ComMod &com_mod, CepMod &cep_mod,
   F_f[2][2] = 1.0;
 
   ud = -rho*fb;
+  // vx is accumulated into below, and the scratch is reused across Gauss
+  // points, so it must be cleared here.
+  vx = 0.0;
+
   F = 0.0;
   F(0,0) = 1.0;
   F(1,1) = 1.0;

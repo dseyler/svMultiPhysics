@@ -1759,6 +1759,15 @@ void compute_visc_stress_and_tangent(const dmnType& lDmn, const int eNoN, const 
       case consts::SolidViscosityModelType::viscType_Potential:
         compute_visc_stress_potential(lDmn.solid_visc.mu, eNoN, Nx, vx, F, Svis, Kvis_u, Kvis_v);
       break;
+
+      default:
+        // No viscosity model, so nothing above writes these. Callers reuse
+        // these buffers across elements, so they are cleared here rather than
+        // left holding the previous element's values.
+        Svis = 0.0;
+        Kvis_u = 0.0;
+        Kvis_v = 0.0;
+      break;
     }
 }
 
