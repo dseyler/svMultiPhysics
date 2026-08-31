@@ -701,7 +701,7 @@ class Array
 
     /// @brief Compound add assignment. 
     //
-    Array<T> operator+=(const Array<T>& array) const
+    Array<T>& operator+=(const Array<T>& array)
     {
       for (int j = 0; j < ncols_; j++) {
         for (int i = 0; i < nrows_; i++) {
@@ -713,7 +713,7 @@ class Array
 
     /// @brief Compound subtract assignment. 
     //
-    Array<T> operator-=(const Array<T>& array) const
+    Array<T>& operator-=(const Array<T>& array)
     {
       for (int j = 0; j < ncols_; j++) {
         for (int i = 0; i < nrows_; i++) {
@@ -725,7 +725,7 @@ class Array
 
     /// @brief Compound multiply assignment. 
     //
-    Array<T> operator*=(const Array<T>& array) const
+    Array<T>& operator*=(const Array<T>& array)
     {
       for (int j = 0; j < ncols_; j++) {
         for (int i = 0; i < nrows_; i++) {
@@ -806,7 +806,7 @@ class Array
 
     /// @brief Compound add assignment. 
     //
-    Array<T> operator+=(const T value) const
+    Array<T>& operator+=(const T value)
     {
       for (int j = 0; j < ncols_; j++) {
         for (int i = 0; i < nrows_; i++) {
@@ -831,7 +831,7 @@ class Array
 
     /// @brief Compound subtract assignment. 
     //
-    Array<T> operator-=(const T value) const
+    Array<T>& operator-=(const T value)
     {
       for (int j = 0; j < ncols_; j++) {
         for (int i = 0; i < nrows_; i++) {

@@ -1004,7 +1004,7 @@ void ustruct_2d_m(ComMod &com_mod, CepMod &cep_mod, const bool vmsFlag,
   }
 
   // Total isochoric 2nd Piola-Kirchhoff stress (Elastic + Viscous)
-  Siso = Siso + Svis;
+  Siso += Svis;
 
   // Deviatoric 1st Piola-Kirchhoff tensor (P)
   //
@@ -1316,7 +1316,7 @@ void ustruct_3d_m(ComMod &com_mod, CepMod &cep_mod, const bool vmsFlag,
   }
 
   // Total isochoric 2nd Piola-Kirchhoff stress (Elastic + Viscous)
-  Siso = Siso + Svis;
+  Siso += Svis;
 
   // Deviatoric 1st Piola-Kirchhoff tensor (P)
   //
