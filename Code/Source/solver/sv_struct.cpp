@@ -305,7 +305,7 @@ void construct_dsolid(ComMod& com_mod, CepMod& cep_mod, const mshType& lM, const
       }
 
       if (pS0.size() != 0) { 
-        pS0l.set_col(a, pS0.col(Ac));
+        pS0l.set_col(a, pS0.rcol(Ac));
       }
 
       if (eq.dmn[cDmn].active_stress != nullptr) {
@@ -332,7 +332,7 @@ void construct_dsolid(ComMod& com_mod, CepMod& cep_mod, const mshType& lM, const
         }
       }
       double w = lM.w(g) * Jac;
-      N = lM.N.col(g);
+      N = lM.N.rcol(g);
       pSl = 0.0;
 
       if (nsd == 3) {
