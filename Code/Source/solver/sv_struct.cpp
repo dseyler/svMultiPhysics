@@ -510,7 +510,7 @@ void struct_2d(ComMod &com_mod, CepMod &cep_mod,
 
   // 1st Piola-Kirchhoff tensor (P)
   //
-  P = mat_fun::mat_mul(F, S);
+  mat_fun::mat_mul(F, S, P);
   #ifdef debug_struct_2d 
   dmsg << "P: " << P(0,0) << " " << P(0,1);
   dmsg << "   " << P(1,0) << " " << P(1,1);
