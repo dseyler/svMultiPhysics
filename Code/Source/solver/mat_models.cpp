@@ -1564,135 +1564,137 @@ namespace {
 /// @brief Largest element node count the fixed-size views below allow (HEX27).
 constexpr int MAX_ELEMENT_NODES = 27;
 
-/// @brief An nsd x eNoN matrix whose column count is bounded at compile time,
-/// so that it is held on the stack rather than heap allocated.
+/// @brief An nsd x eNoN matrix whose column count is bounded at compile time.
 template <int nsd>
 using MatNodes = Eigen::Matrix<double, nsd, Eigen::Dynamic, 0, nsd, MAX_ELEMENT_NODES>;
 
 } // namespace
 
 /**
- * @brief Get the viscous PK2 stress and corresponding tangent matrix contributions for a solid
- * with a viscous pseudo-potential model.
+ * @brief Viscous PK2 stress and tangent contributions for the viscous
+ * pseudo-potential model.
+ *
  * This is defined by a viscous pseuo-potential
  * Psi = mu/2 * tr(E_dot^2)
  * The viscous 2nd Piola-Kirchhoff stress is given by
- * Svis = dPsi/dE_dot 
+ * Svis = dPsi/dE_dot
  *   = mu * E_dot
  *   = mu * 1/2 * F^T * (grad(v) + grad(v)^T) * F
  *   = mu * 1/2 * ( (F^T * Grad(v)) + (F^T * Grad(v))^T )
- * 
+ *
  * @tparam nsd Number of spatial dimensions
+ * @param[in] mu Solid viscosity parameter
+ * @param[in] eNoN Number of nodes in an element
+ * @param[in] Nx Shape function gradient w.r.t. reference configuration coordinates (dN/dX)
+ * @param[in] vx Velocity gradient matrix w.r.t. reference configuration coordinates (dv/dX)
+ * @param[in] F Deformation gradient matrix
+ * @param[out] Svis Viscous 2nd Piola-Kirchhoff stress matrix
+ * @param[out] Kvis_u Viscous tangent matrix contribution due to displacement
+ * @param[out] Kvis_v Viscous tangent matrix contribution due to velocity
  */
 template <int nsd>
-void compute_visc_stress_potential_impl(const double mu, const int eNoN, const Array<double>& Nx,
-                        const Array<double>& vx, const Array<double>& F,
-                        Array<double>& Svis, Array3<double>& Kvis_u, Array3<double>& Kvis_v) {
-    using MatNsd = mat_fun::Matrix<nsd>;
-
-    // Initialize Svis, Kvis_u, Kvis_v to zero
-    Svis = 0.0;
-    Kvis_u = 0.0;
-    Kvis_v = 0.0;
-
-    Eigen::Map<const MatNsd> F_map(F.data());
-    Eigen::Map<const MatNsd> vx_map(vx.data());
+void compute_visc_stress_potential(const double mu, const int eNoN, const Array<double>& Nx,
+                           const Array<double>& vx, const Array<double>& F,
+                           Array<double>& Svis, Array3<double>& Kvis_u, Array3<double>& Kvis_v) {
+    // Alias the caller's storage; no copies. Svis, Kvis_u and Kvis_v are
+    // written in full below, so they are not zeroed first.
+    Eigen::Map<const Matrix<nsd>> F_map(F.data());
+    Eigen::Map<const Matrix<nsd>> vx_map(vx.data());
     Eigen::Map<const MatNodes<nsd>> Nx_map(Nx.data(), nsd, eNoN);
 
-    const MatNsd F_Ft  = F_map * F_map.transpose();
-    const MatNsd Ft_vx = F_map.transpose() * vx_map;
-    const MatNsd F_vxt = F_map * vx_map.transpose();
+    const Matrix<nsd> Ft_vx = F_map.transpose() * vx_map;
+
+    // 2nd Piola-Kirchhoff stress due to viscosity,
+    // Svis = mu * 1/2 * ( (F^T * dv/dX) + (F^T * dv/dX)^T )
+    Eigen::Map<Matrix<nsd>> Svis_map(Svis.data());
+    Svis_map.noalias() = mu * mat_fun::mat_symm<nsd>(Ft_vx);
+
+    // The tangent scales every term by 1/2 mu, so fold it in once here rather
+    // than repeating it for every node pair and component.
+    const Matrix<nsd> hF_Ft  = (0.5 * mu) * (F_map * F_map.transpose());
+    const Matrix<nsd> hF_vxt = (0.5 * mu) * (F_map * vx_map.transpose());
 
     // F_Nx(i,a) = sum_j F(i,j) * Nx(j,a), and likewise for vx.
     const MatNodes<nsd> F_Nx  = F_map  * Nx_map;
     const MatNodes<nsd> vx_Nx = vx_map * Nx_map;
+    const MatNodes<nsd> hF_Nx = (0.5 * mu) * F_Nx;
 
-    // 2nd Piola-Kirchhoff stress due to viscosity,
-    // Svis = mu * 1/2 * ( (F^T * dv/dX) + (F^T * dv/dX)^T )
-    Eigen::Map<MatNsd> Svis_map(Svis.data());
-    Svis_map.noalias() = mu * mat_fun::mat_symm<nsd>(Ft_vx);
+    // Kvis stores the nsd^2 components at a node pair contiguously, indexed by
+    // ii = i*nsd + j, so each pair's block is a row major nsd x nsd matrix
+    using KvisBlock = Eigen::Matrix<double, nsd, nsd, Eigen::RowMajor>;
 
-    // Tangent matrix contributions due to viscosity
     for (int b = 0; b < eNoN; ++b) {
         for (int a = 0; a < eNoN; ++a) {
-            double Nx_Nx = 0.0;
-            for (int i = 0; i < nsd; ++i) {
-                Nx_Nx += Nx(i,a) * Nx(i,b);
-            }
+            const double Nx_Nx = Nx_map.col(a).dot(Nx_map.col(b));
 
-            for (int i = 0; i < nsd; ++i) {
-                for (int j = 0; j < nsd; ++j) {
-                    int ii = i * nsd + j;
-                    Kvis_u(ii,a,b) = 0.5 * mu * (F_Nx(i,b) * vx_Nx(j,a) + Nx_Nx * F_vxt(i,j));
-                    Kvis_v(ii,a,b) = 0.5 * mu * (Nx_Nx * F_Ft(i,j) + F_Nx(i,b) * F_Nx(j,a));
-                }
-            }
+            Eigen::Map<KvisBlock> Kvis_u_ab(&Kvis_u(0,a,b));
+            Eigen::Map<KvisBlock> Kvis_v_ab(&Kvis_v(0,a,b));
+
+            Kvis_u_ab.noalias() = hF_Nx.col(b) * vx_Nx.col(a).transpose() + Nx_Nx * hF_vxt;
+            Kvis_v_ab.noalias() = Nx_Nx * hF_Ft + hF_Nx.col(b) * F_Nx.col(a).transpose();
         }
     }
 }
 
-/// @brief Dispatches on the spatial dimension.
-void compute_visc_stress_potential(const double mu, const int eNoN, const Array<double>& Nx, const Array<double>& vx, const Array<double>& F,
-                        Array<double>& Svis, Array3<double>& Kvis_u, Array3<double>& Kvis_v) {
-    if (F.nrows() == 3) {
-        compute_visc_stress_potential_impl<3>(mu, eNoN, Nx, vx, F, Svis, Kvis_u, Kvis_v);
-    } else if (F.nrows() == 2) {
-        compute_visc_stress_potential_impl<2>(mu, eNoN, Nx, vx, F, Svis, Kvis_u, Kvis_v);
-    }
-}
-
 /**
- * @brief Get the viscous PK2 stress and corresponding tangent matrix contributions for a solid
- * with a Newtonian fluid-like viscosity model.
+ * @brief Viscous PK2 stress and tangent contributions for a solid with a
+ * Newtonian fluid-like viscosity model.
+ *
  * The viscous deviatoric Cauchy stress is given by
  * sigma_vis_dev = 2 * mu * d_dev
  * where d_dev = 1/2 * (grad(v) + grad(v)^T) - 1/3 * (div(v)) * I
  * The viscous 2nd Piola-Kirchhoff stress is given by a pull-back operation
  * Svis = 2 * mu * J * F^-1 * d_dev * F^-T
- * 
- * Note, there is likely an error/bug in the tangent contributions that leads to suboptimal nonlinear convergence
- * 
+ *
+ * Note, there is likely an error/bug in the tangent contributions
+ * that leads to suboptimal nonlinear convergence.
+ *
  * @tparam nsd Number of spatial dimensions
+ * @param[in] mu Solid viscosity parameter
+ * @param[in] eNoN Number of nodes in an element
+ * @param[in] Nx Shape function gradient w.r.t. reference configuration coordinates (dN/dX)
+ * @param[in] vx Velocity gradient matrix w.r.t. reference configuration coordinates (dv/dX)
+ * @param[in] F Deformation gradient matrix
+ * @param[out] Svis Viscous 2nd Piola-Kirchhoff stress matrix
+ * @param[out] Kvis_u Viscous tangent matrix contribution due to displacement
+ * @param[out] Kvis_v Viscous tangent matrix contribution due to velocity
  */
 template <int nsd>
-void compute_visc_stress_newtonian_impl(const double mu, const int eNoN, const Array<double>& Nx,
+void compute_visc_stress_newtonian(const double mu, const int eNoN, const Array<double>& Nx,
                            const Array<double>& vx, const Array<double>& F,
                            Array<double>& Svis, Array3<double>& Kvis_u, Array3<double>& Kvis_v) {
-    using MatNsd = mat_fun::Matrix<nsd>;
-
-    // Initialize Svis, Kvis_u, Kvis_v to zero
-    Svis = 0.0;
-    Kvis_u = 0.0;
-    Kvis_v = 0.0;
-
-    // Alias the caller's storage; no copies.
-    Eigen::Map<const MatNsd> F_map(F.data());
-    Eigen::Map<const MatNsd> vx_map(vx.data());
+    // Alias the caller's storage; no copies. Svis, Kvis_u and Kvis_v are
+    // written in full below, so they are not zeroed first.
+    Eigen::Map<const Matrix<nsd>> F_map(F.data());
+    Eigen::Map<const Matrix<nsd>> vx_map(vx.data());
     Eigen::Map<const MatNodes<nsd>> Nx_map(Nx.data(), nsd, eNoN);
 
-    const double J  = F_map.determinant();
-    const MatNsd Fi = F_map.inverse();
+    // Get Jacobian and F^-1
+    const double J = F_map.determinant();
+    const double mu_J = mu * J;
+    const Matrix<nsd> Fi = F_map.inverse();
 
-    // vx_Fi: velocity gradient in the current configuration.
-    const MatNsd vx_Fi = vx_map * Fi;
-    const MatNsd vx_Fi_symm = mat_fun::mat_symm<nsd>(vx_Fi);
-    // ddev: deviatoric part of the rate of strain tensor.
-    const MatNsd ddev = mat_fun::mat_dev<nsd>(vx_Fi_symm);
-
-    // Nx_Fi(i,a) = sum_j Nx(j,a) * Fi(j,i), which is Fi^T * Nx.
-    const MatNodes<nsd> Nx_Fi       = Fi.transpose() * Nx_map;
-    const MatNodes<nsd> ddev_Nx_Fi  = ddev  * Nx_Fi;
-    const MatNodes<nsd> vx_Fi_Nx_Fi = vx_Fi * Nx_Fi;
+    // vx_Fi: Velocity gradient in current configuration
+    const Matrix<nsd> vx_Fi = vx_map * Fi;
+    const Matrix<nsd> vx_Fi_symm = mat_fun::mat_symm<nsd>(vx_Fi);
+    // ddev: Deviatoric part of rate of strain tensor
+    const Matrix<nsd> ddev = mat_fun::mat_dev<nsd>(vx_Fi_symm);
 
     // 2nd Piola-Kirchhoff stress due to viscosity,
-    // Svis = 2 * mu * J * F^-1 * d_dev * F^-T. Written straight into the
-    // caller's array, which it has already sized.
-    Eigen::Map<MatNsd> Svis_map(Svis.data());
-    Svis_map.noalias() = (2.0 * mu * J) * (Fi * ddev * Fi.transpose());
+    // Svis = 2 * mu * J * F^-1 * d_dev * F^-T
+    Eigen::Map<Matrix<nsd>> Svis_map(Svis.data());
+    Svis_map.noalias() = (2.0 * mu_J) * (Fi * ddev * Fi.transpose());
 
-    // Tangent matrix contributions due to viscosity
+    // The tangent scales every term by mu * J, so fold it in once here.
+    const Matrix<nsd> mJ_vx_Fi = mu_J * vx_Fi;
+
+    // Nx_Fi(i,a) = sum_j Nx(j,a) * Fi(j,i), which is Fi^T * Nx.
+    const MatNodes<nsd> Nx_Fi          = Fi.transpose() * Nx_map;
+    const MatNodes<nsd> mJ2_ddev_Nx_Fi = (2.0 * mu_J) * (ddev * Nx_Fi);
+    const MatNodes<nsd> mJ_vx_Fi_Nx_Fi = mJ_vx_Fi * Nx_Fi;
+    const MatNodes<nsd> mJ_Nx_Fi       = mu_J * Nx_Fi;
+
     constexpr double r2d = 2.0 / nsd;
-    const MatNsd Idm = MatNsd::Identity();
 
     for (int b = 0; b < eNoN; ++b) {
         for (int a = 0; a < eNoN; ++a) {
@@ -1706,37 +1708,25 @@ void compute_visc_stress_newtonian_impl(const double mu, const int eNoN, const A
                     int ii = i * nsd + j;
 
                     // Derivative of the residual w.r.t displacement
-                    Kvis_u(ii,a,b) = mu * J * (2.0 * 
-                                    (ddev_Nx_Fi(i,a) * Nx_Fi(j,b) - ddev_Nx_Fi(i,b) * Nx_Fi(j,a)) -
-                                    (Nx_Fi_Nx_Fi * vx_Fi(i,j) + Nx_Fi(i,b) * vx_Fi_Nx_Fi(j,a) -
-                                    r2d * Nx_Fi(i,a) * vx_Fi_Nx_Fi(j,b)));
+                    Kvis_u(ii,a,b) = (mJ2_ddev_Nx_Fi(i,a) * Nx_Fi(j,b) -
+                                      mJ2_ddev_Nx_Fi(i,b) * Nx_Fi(j,a)) -
+                                     (Nx_Fi_Nx_Fi * mJ_vx_Fi(i,j) + Nx_Fi(i,b) * mJ_vx_Fi_Nx_Fi(j,a) -
+                                    r2d * Nx_Fi(i,a) * mJ_vx_Fi_Nx_Fi(j,b));
 
                     // Derivative of the residual w.r.t velocity
-                    Kvis_v(ii,a,b) = mu * J * (Nx_Fi_Nx_Fi * Idm(i,j) +
-                                    Nx_Fi(i,b) * Nx_Fi(j,a) - r2d * Nx_Fi(i,a) * Nx_Fi(j,b));
+                    Kvis_v(ii,a,b) = (i == j ? Nx_Fi_Nx_Fi * mu_J : 0.0) +
+                                     mJ_Nx_Fi(i,b) * Nx_Fi(j,a) - r2d * mJ_Nx_Fi(i,a) * Nx_Fi(j,b);
                 }
             }
         }
     }
 }
 
-/// @brief Dispatches on the spatial dimension.
-void compute_visc_stress_newtonian(const double mu, const int eNoN, const Array<double>& Nx, const Array<double>& vx, const Array<double>& F,
-                           Array<double>& Svis, Array3<double>& Kvis_u, Array3<double>& Kvis_v) {
-    if (F.nrows() == 3) {
-        compute_visc_stress_newtonian_impl<3>(mu, eNoN, Nx, vx, F, Svis, Kvis_u, Kvis_v);
-    } else if (F.nrows() == 2) {
-        compute_visc_stress_newtonian_impl<2>(mu, eNoN, Nx, vx, F, Svis, Kvis_u, Kvis_v);
-    }
-}
-
-
 /**
  * @brief Get the solid viscous PK2 stress and corresponding tangent matrix contributions
- * Calls the appropriate function based on the viscosity type, either viscous 
+ * Calls the appropriate function based on the viscosity type, either viscous
  * pseudo-potential or Newtonian viscosity model.
- * 
- * @tparam nsd Number of spatial dimensions
+ *
  * @param[in] lDmn Domain object
  * @param[in] eNoN Number of nodes in an element
  * @param[in] Nx Shape function gradient w.r.t. reference configuration coordinates (dN/dX)
@@ -1751,11 +1741,19 @@ void compute_visc_stress_and_tangent(const dmnType& lDmn, const int eNoN, const 
 
     switch (lDmn.solid_visc.viscType) {
       case consts::SolidViscosityModelType::viscType_Newtonian:
-        compute_visc_stress_newtonian(lDmn.solid_visc.mu, eNoN, Nx, vx, F, Svis, Kvis_u, Kvis_v);
+        if (F.nrows() == 3) {
+          compute_visc_stress_newtonian<3>(lDmn.solid_visc.mu, eNoN, Nx, vx, F, Svis, Kvis_u, Kvis_v);
+        } else if (F.nrows() == 2) {
+          compute_visc_stress_newtonian<2>(lDmn.solid_visc.mu, eNoN, Nx, vx, F, Svis, Kvis_u, Kvis_v);
+        }
       break;
 
       case consts::SolidViscosityModelType::viscType_Potential:
-        compute_visc_stress_potential(lDmn.solid_visc.mu, eNoN, Nx, vx, F, Svis, Kvis_u, Kvis_v);
+        if (F.nrows() == 3) {
+          compute_visc_stress_potential<3>(lDmn.solid_visc.mu, eNoN, Nx, vx, F, Svis, Kvis_u, Kvis_v);
+        } else if (F.nrows() == 2) {
+          compute_visc_stress_potential<2>(lDmn.solid_visc.mu, eNoN, Nx, vx, F, Svis, Kvis_u, Kvis_v);
+        }
       break;
     }
 }

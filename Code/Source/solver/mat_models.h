@@ -66,32 +66,17 @@ void compute_svol_p(const ComMod& com_mod, const CepMod& cep_mod, const stModelT
 void g_vol_pen(const ComMod& com_mod, const dmnType& lDmn, const double p, 
     double& ro, double& bt, double& dro, double& dbt, const double Ja);
 
-/// @brief Viscous 2nd Piola-Kirchhoff stress and tangent for a potential-based solid.
-///
-/// Arguments are as for compute_visc_stress_newtonian().
-void compute_visc_stress_potential(const double mu, const int eNoN, const Array<double>& Nx, const Array<double>& vx, const Array<double>& F,
-                        Array<double>& Svis, Array3<double>& Kvis_u, Array3<double>& Kvis_v);
 
-/// @brief Viscous 2nd Piola-Kirchhoff stress and tangent for a Newtonian solid.
+/// @brief Computes viscous PK2 stress and tangent
+/// for the viscosity model configured for the domain.
 ///
-/// @param[in] mu Dynamic viscosity.
+/// @param[in] lDmn Domain, supplying the viscosity model and its parameters.
 /// @param[in] eNoN Number of element nodes.
 /// @param[in] Nx Shape function spatial derivatives.
 /// @param[in] vx Velocity gradient.
 /// @param[in] F Deformation gradient.
 /// @param[out] Svis Viscous 2nd Piola-Kirchhoff stress.
 /// @param[out] Kvis_u,Kvis_v Tangent contributions w.r.t. displacement and velocity.
-void compute_visc_stress_newtonian(const double mu, const int eNoN, const Array<double>& Nx, const Array<double>& vx, const Array<double>& F,
-                        Array<double>& Svis, Array3<double>& Kvis_u, Array3<double>& Kvis_v);
-
-/// @brief Dispatch to the viscosity model configured for the domain.
-///
-/// Leaves @p Svis, @p Kvis_u and @p Kvis_v untouched when the domain has no
-/// viscosity model, so callers must not rely on them being cleared here.
-///
-/// @param[in] lDmn Domain, supplying the viscosity model and its parameters.
-/// @param[in] eNoN,Nx,vx,F As for compute_visc_stress_newtonian().
-/// @param[out] Svis,Kvis_u,Kvis_v As for compute_visc_stress_newtonian().
 void compute_visc_stress_and_tangent(const dmnType& lDmn, const int eNoN, const Array<double>& Nx, const  Array<double>& vx, const  Array<double>& F,
                         Array<double>& Svis, Array3<double>& Kvis_u, Array3<double>& Kvis_v);
 };
