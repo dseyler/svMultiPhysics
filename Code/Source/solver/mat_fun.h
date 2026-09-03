@@ -208,14 +208,30 @@ namespace mat_fun {
     Tensor4<double> ten_ddot_3424(const Tensor4<double>& A, const Tensor4<double>& B, const int nd);
 
     /**
-     * @brief Contracts two 4th order tensors A and B over two dimensions, 
-     * 
+     * @brief Contracts two 4th order tensors A and B over two dimensions. 
+     *
+     * @tparam nsd Number of spatial dimensions; each tensor is nsd^4.
+     * @param[in] A,B Fourth order tensors to contract.
+     * @param[in] dimsA,dimsB Zero-based indices of the two dimensions of A and
+     *   of B to contract over.
+     * @return The contracted tensor.
      */
     template <int nsd>
     Tensor<nsd>
     double_dot_product(const Tensor<nsd>& A, const std::array<int, 2>& dimsA, 
                         const Tensor<nsd>& B, const std::array<int, 2>& dimsB) {
         
+        // Fast path for dimsA = dimsB = {2,3}: C_ijmn = A_ijkl * B_mnkl.
+        if (dimsA[0] == 2 && dimsA[1] == 3 && dimsB[0] == 2 && dimsB[1] == 3) {
+            constexpr int N = nsd * nsd;
+            Tensor<nsd> C;
+            Eigen::Map<const Eigen::Matrix<double, N, N>> a(A.data());
+            Eigen::Map<const Eigen::Matrix<double, N, N>> b(B.data());
+            Eigen::Map<Eigen::Matrix<double, N, N>> c(C.data());
+            c.noalias() = a * b.transpose();
+            return C;
+        }
+
         // Define the contraction dimensions
         Eigen::array<Eigen::IndexPair<int>, 2> contractionDims = {
             Eigen::IndexPair<int>(dimsA[0], dimsB[0]), // Contract A's dimsA[0] with B's dimsB[0]
@@ -224,9 +240,6 @@ namespace mat_fun {
 
         // Return the double dot product
         return A.contract(B, contractionDims);
-
-        // For some reason, in this case the Eigen::Tensor contract function is
-        // faster than a for loop implementation.
     }
 
     Tensor4<double> ten_dyad_prod(const Array<double>& A, const Array<double>& B, const int nd);
@@ -244,20 +257,12 @@ namespace mat_fun {
     dyadic_product(const Matrix<nsd>& A, const Matrix<nsd>& B) {
         // Initialize the result tensor
         Tensor<nsd> C;
+        constexpr int N = nsd * nsd;
 
-        // Compute the dyadic product: C_ijkl = A_ij * B_kl
-        for (int i = 0; i < nsd; ++i) {
-            for (int j = 0; j < nsd; ++j) {
-                for (int k = 0; k < nsd; ++k) {
-                    for (int l = 0; l < nsd; ++l) {
-                        C(i,j,k,l) = A(i,j) * B(k,l);
-                    }
-                }
-            }
-        }
-        // For some reason, in this case the Eigen::Tensor contract function is 
-        // slower than the for loop implementation
-
+        Eigen::Map<const Eigen::Matrix<double, N, 1>> a(A.data());
+        Eigen::Map<const Eigen::Matrix<double, N, 1>> b(B.data());
+        Eigen::Map<Eigen::Matrix<double, N, N>> c(C.data());
+        c.noalias() = a * b.transpose();
         return C;
     }
 
@@ -294,8 +299,9 @@ namespace mat_fun {
     
     /// @brief Create a 4th order tensor from symmetric outer product of two matrices: C_ijkl = 0.5 * (A_ik * B_jl + A_il * B_jk)
     ///
-    /// Reproduces 'FUNCTION TEN_SYMMPROD(A, B, nd) RESULT(C)'.
-    //
+    /// @tparam nsd Number of spatial dimensions.
+    /// @param[in] A,B Second order tensors.
+    /// @return The resulting 4th order tensor.
     template <int nsd>
     Tensor<nsd>
     symmetric_dyadic_product(const Matrix<nsd>& A, const Matrix<nsd>& B) {
@@ -304,17 +310,13 @@ namespace mat_fun {
         Tensor<nsd> C;
 
         // Compute the symmetric product: C_ijkl = 0.5 * (A_ik * B_jl + A_il * B_jk)
-        for (int i = 0; i < nsd; ++i) {
-            for (int j = 0; j < nsd; ++j) {
-                for (int k = 0; k < nsd; ++k) {
-                    for (int l = 0; l < nsd; ++l) {
-                        C(i,j,k,l) = 0.5 * (A(i,k) * B(j,l) + A(i,l) * B(j,k));
-                    }
-                }
+        for (int l = 0; l < nsd; ++l) {
+            for (int k = 0; k < nsd; ++k) {
+                Eigen::Map<Eigen::Matrix<double, nsd, nsd>> blk(C.data() + nsd * nsd * (k + nsd * l));
+                blk.noalias() = 0.5 * (A.col(k) * B.col(l).transpose()
+                                     + A.col(l) * B.col(k).transpose());
             }
         }
-        // For some reason, in this case the for loop implementation is faster 
-        // than the Eigen::Tensor contract method
 
         // Return the symmetric product
         return C;
