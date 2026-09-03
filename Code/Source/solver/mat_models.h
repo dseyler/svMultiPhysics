@@ -17,6 +17,14 @@
 
 namespace mat_models {
 
+// Define templated type aliases for Eigen matrices and 4th order tensors for convenience
+template<size_t nsd>
+using Matrix = Eigen::Matrix<double, nsd, nsd>;
+
+template<size_t nsd>
+using Tensor = Eigen::TensorFixedSize<double, Eigen::Sizes<nsd, nsd, nsd, nsd>>;
+
+
 void actv_strain(const ComMod& com_mod, const CepMod& cep_mod, const double gf, 
     const int nfd, const Array<double>& fl, Array<double>& Fa);
 
@@ -46,6 +54,18 @@ void voigt_to_cc(const int nsd, const Array<double>& Dm, Tensor4<double>& CC);
  *
  * @return None, but modifies S, Dm, and Ja in place.
  */
+/// @brief Compute the 2nd Piola-Kirchhoff stress and material stiffness for a
+/// caller that knows the spatial dimension at compile time.
+template <size_t nsd>
+void compute_pk2cc(const ComMod &com_mod, const CepMod &cep_mod,
+                   const dmnType &lDmn, const Eigen::Ref<const Matrix<nsd>> &F,
+                   const int nfd,
+                   const Eigen::Ref<const Eigen::Matrix<double, nsd, Eigen::Dynamic>> &fl,
+                   const double ya_f, const double ya_s, const double ya_n,
+                   Eigen::Ref<Matrix<nsd>> S, Eigen::Ref<Matrix<3 * (nsd - 1)>> Dm,
+                   double &Ja);
+
+/// @brief Array-based overload, for callers whose dimension is a run-time value.
 void compute_pk2cc(const ComMod &com_mod, const CepMod &cep_mod,
                    const dmnType &lDmn, const Array<double> &F, const int nfd,
                    const Array<double> &fl, const double ya_f,
@@ -78,7 +98,10 @@ void g_vol_pen(const ComMod& com_mod, const dmnType& lDmn, const double p,
 /// @param[out] Svis Viscous 2nd Piola-Kirchhoff stress.
 /// @param[out] Kvis_u,Kvis_v Tangent contributions w.r.t. displacement and velocity.
 /// @param[in] recompute False when the outputs are still valid from the previous call.
-void compute_visc_stress_and_tangent(const dmnType& lDmn, const int eNoN, const Array<double>& Nx, const  Array<double>& vx, const  Array<double>& F,
+template <int nsd>
+void compute_visc_stress_and_tangent(const dmnType& lDmn, const int eNoN, const Array<double>& Nx,
+                        const Eigen::Ref<const Matrix<nsd>>& vx,
+                        const Eigen::Ref<const Matrix<nsd>>& F,
                         Array<double>& Svis, Array3<double>& Kvis_u, Array3<double>& Kvis_v,
                         const bool recompute_visc);
 };

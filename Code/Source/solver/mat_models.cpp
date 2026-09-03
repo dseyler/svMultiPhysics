@@ -14,12 +14,6 @@
 
 namespace mat_models {
 
-// Define templated type aliases for Eigen matrices and 4th order tensors for convenience
-template<size_t nsd>
-using Matrix = Eigen::Matrix<double, nsd, nsd>;
-
-template<size_t nsd>
-using Tensor = Eigen::TensorFixedSize<double, Eigen::Sizes<nsd, nsd, nsd, nsd>>;
 
 
 
@@ -102,7 +96,7 @@ void cc_to_voigt(const int nsd, const Tensor4<double>& CC, Array<double>& Dm)
 }
 
 template <int nsd>
-void cc_to_voigt_eigen(const Tensor<nsd>& CC, Matrix<3*(nsd-1)>& Dm)
+void cc_to_voigt_eigen(const Tensor<nsd>& CC, Eigen::Ref<Matrix<3*(nsd-1)>> Dm)
 {
   if (nsd == 3) {
     Dm(0,0) = CC(0,0,0,0);
@@ -267,7 +261,8 @@ std::pair<Matrix<nsd>, Tensor<nsd>> bar_to_iso(
  * @throws std::runtime_error if directions are parallel or if called in 2D.
  */
 template<size_t nsd>
-Eigen::Matrix<double, nsd, 1> compute_sheet_normal(const Eigen::Matrix<double, nsd, Eigen::Dynamic>& fl)
+Eigen::Matrix<double, nsd, 1> compute_sheet_normal(
+    const Eigen::Ref<const Eigen::Matrix<double, nsd, Eigen::Dynamic>>& fl)
 {
   using namespace mat_fun;
   
@@ -289,10 +284,12 @@ Eigen::Matrix<double, nsd, 1> compute_sheet_normal(const Eigen::Matrix<double, n
 
 template <size_t nsd>
 void compute_pk2cc(const ComMod &com_mod, const CepMod &cep_mod,
-                   const dmnType &lDmn, const Matrix<nsd> &F, const int nfd,
-                   const Eigen::Matrix<double, nsd, Eigen::Dynamic> fl,
+                   const dmnType &lDmn, const Eigen::Ref<const Matrix<nsd>> &F,
+                   const int nfd,
+                   const Eigen::Ref<const Eigen::Matrix<double, nsd, Eigen::Dynamic>> &fl,
                    const double ya_f, const double ya_s, const double ya_n,
-                   Matrix<nsd> &S, Matrix<3 * (nsd - 1)> &Dm, double &Ja) {
+                   Eigen::Ref<Matrix<nsd>> S, Eigen::Ref<Matrix<3 * (nsd - 1)>> Dm,
+                   double &Ja) {
   using namespace consts;
   using namespace mat_fun;
   using namespace utils;
@@ -822,57 +819,36 @@ void compute_pk2cc(const ComMod &com_mod, const CepMod &cep_mod,
  * This is a wrapper function for the templated function compute_pk2cc.
  * 
  */
+namespace {
+
+/// @brief Run the templated implementation on views of the caller's arrays.
+///
+/// Array is column major, which is Eigen's default, so every operand maps in
+/// place and nothing is copied.
+template <size_t nsd>
+void compute_pk2cc_mapped(const ComMod &com_mod, const CepMod &cep_mod, const dmnType &lDmn,
+    const Array<double> &F, const int nfd, const Array<double> &fl,
+    const double ya_f, const double ya_s, const double ya_n,
+    Array<double> &S, Array<double> &Dm, double &Ja)
+{
+  constexpr int n = static_cast<int>(nsd);
+  compute_pk2cc<nsd>(com_mod, cep_mod, lDmn,
+      Eigen::Map<const Matrix<nsd>>(F.data()), nfd,
+      Eigen::Map<const Eigen::Matrix<double, nsd, Eigen::Dynamic>>(fl.data(), n, nfd),
+      ya_f, ya_s, ya_n,
+      Eigen::Map<Matrix<nsd>>(S.data()),
+      Eigen::Map<Matrix<3 * (nsd - 1)>>(Dm.data()), Ja);
+}
+
+} // namespace
+
 void compute_pk2cc(const ComMod& com_mod, const CepMod& cep_mod, const dmnType& lDmn, const Array<double>& F, const int nfd,
     const Array<double>& fl, const double ya_f, const double ya_s, const double ya_n, Array<double>& S, Array<double>& Dm, double& Ja)
 {
-    // Number of spatial dimensions
-    int nsd = com_mod.nsd;
-
-    if (nsd == 2) {
-        // Copy deformation gradient to Eigen matrix
-        auto F_2D = mat_fun::convert_to_eigen_matrix<Eigen::Matrix2d>(F);
-        
-        // Copy fiber directions to Eigen matrix
-        Eigen::Matrix<double, 2, Eigen::Dynamic> fl_2D(2, nfd);
-        for (int i = 0; i < nfd; i++) {
-            fl_2D(0, i) = fl(0, i);
-            fl_2D(1, i) = fl(1, i);
-        }
-
-        // Initialize stress and elasticity tensors
-        Eigen::Matrix2d S_2D = Eigen::Matrix2d::Zero();
-        Eigen::Matrix3d Dm_2D = Eigen::Matrix3d::Zero();
-
-        // Call templated function
-        compute_pk2cc<2>(com_mod, cep_mod, lDmn, F_2D, nfd, fl_2D, ya_f, ya_s, ya_n, S_2D, Dm_2D, Ja);
-
-        // Copy results back
-        mat_fun::convert_to_array(S_2D, S);
-        mat_fun::copy_Dm(Dm_2D, Dm);
-
-    } else if (nsd == 3) {
-        // Copy deformation gradient to Eigen matrix
-        auto F_3D = mat_fun::convert_to_eigen_matrix<Eigen::Matrix3d>(F);
-
-        // Copy fiber directions to Eigen matrix
-        Eigen::Matrix<double, 3, Eigen::Dynamic> fl_3D(3, nfd);
-        for (int i = 0; i < nfd; i++) {
-            fl_3D(0, i) = fl(0, i);
-            fl_3D(1, i) = fl(1, i);
-            fl_3D(2, i) = fl(2, i);
-        }
-
-        // Initialize stress and elasticity tensors
-        Eigen::Matrix3d S_3D = Eigen::Matrix3d::Zero();
-        Eigen::Matrix<double, 6, 6> Dm_3D;
-        Dm_3D.setZero();
-
-        // Call templated function
-        compute_pk2cc<3>(com_mod, cep_mod, lDmn, F_3D, nfd, fl_3D, ya_f, ya_s, ya_n, S_3D, Dm_3D, Ja);
-
-        // Copy results back
-        mat_fun::convert_to_array(S_3D, S);
-        mat_fun::copy_Dm(Dm_3D, Dm);
+    if (com_mod.nsd == 2) {
+        compute_pk2cc_mapped<2>(com_mod, cep_mod, lDmn, F, nfd, fl, ya_f, ya_s, ya_n, S, Dm, Ja);
+    } else if (com_mod.nsd == 3) {
+        compute_pk2cc_mapped<3>(com_mod, cep_mod, lDmn, F, nfd, fl, ya_f, ya_s, ya_n, S, Dm, Ja);
     }
 }
 
@@ -1594,12 +1570,11 @@ using MatNodes = Eigen::Matrix<double, nsd, Eigen::Dynamic, 0, nsd, MAX_ELEMENT_
  */
 template <int nsd>
 void compute_visc_stress_potential(const double mu, const int eNoN, const Array<double>& Nx,
-                           const Array<double>& vx, const Array<double>& F,
+                           const Eigen::Ref<const Matrix<nsd>>& vx_map,
+                           const Eigen::Ref<const Matrix<nsd>>& F_map,
                            Array<double>& Svis, Array3<double>& Kvis_u, Array3<double>& Kvis_v) {
     // Alias the caller's storage; no copies. Svis, Kvis_u and Kvis_v are
     // written in full below, so they are not zeroed first.
-    Eigen::Map<const Matrix<nsd>> F_map(F.data());
-    Eigen::Map<const Matrix<nsd>> vx_map(vx.data());
     Eigen::Map<const MatNodes<nsd>> Nx_map(Nx.data(), nsd, eNoN);
 
     const Matrix<nsd> Ft_vx = F_map.transpose() * vx_map;
@@ -1661,12 +1636,11 @@ void compute_visc_stress_potential(const double mu, const int eNoN, const Array<
  */
 template <int nsd>
 void compute_visc_stress_newtonian(const double mu, const int eNoN, const Array<double>& Nx,
-                           const Array<double>& vx, const Array<double>& F,
+                           const Eigen::Ref<const Matrix<nsd>>& vx_map,
+                           const Eigen::Ref<const Matrix<nsd>>& F_map,
                            Array<double>& Svis, Array3<double>& Kvis_u, Array3<double>& Kvis_v) {
     // Alias the caller's storage; no copies. Svis, Kvis_u and Kvis_v are
     // written in full below, so they are not zeroed first.
-    Eigen::Map<const Matrix<nsd>> F_map(F.data());
-    Eigen::Map<const Matrix<nsd>> vx_map(vx.data());
     Eigen::Map<const MatNodes<nsd>> Nx_map(Nx.data(), nsd, eNoN);
 
     // Get Jacobian and F^-1
@@ -1736,7 +1710,10 @@ void compute_visc_stress_newtonian(const double mu, const int eNoN, const Array<
  * @param[out] Kvis_u Viscous tangent matrix contribution due to displacement
  * @param[out] Kvis_v Viscous tangent matrix contribution due to velocity
  */
-void compute_visc_stress_and_tangent(const dmnType& lDmn, const int eNoN, const Array<double>& Nx, const  Array<double>& vx, const  Array<double>& F,
+template <int nsd>
+void compute_visc_stress_and_tangent(const dmnType& lDmn, const int eNoN, const Array<double>& Nx,
+                                 const Eigen::Ref<const Matrix<nsd>>& vx,
+                                 const Eigen::Ref<const Matrix<nsd>>& F,
                                  Array<double>& Svis, Array3<double>& Kvis_u, Array3<double>& Kvis_v,
                                  const bool recompute_visc) {
 
@@ -1746,11 +1723,7 @@ void compute_visc_stress_and_tangent(const dmnType& lDmn, const int eNoN, const 
         if (!recompute_visc) {
           return;
         }
-        if (F.nrows() == 3) {
-          compute_visc_stress_newtonian<3>(lDmn.solid_visc.mu, eNoN, Nx, vx, F, Svis, Kvis_u, Kvis_v);
-        } else if (F.nrows() == 2) {
-          compute_visc_stress_newtonian<2>(lDmn.solid_visc.mu, eNoN, Nx, vx, F, Svis, Kvis_u, Kvis_v);
-        }
+        compute_visc_stress_newtonian<nsd>(lDmn.solid_visc.mu, eNoN, Nx, vx, F, Svis, Kvis_u, Kvis_v);
       break;
 
       case consts::SolidViscosityModelType::viscType_Potential:
@@ -1758,11 +1731,7 @@ void compute_visc_stress_and_tangent(const dmnType& lDmn, const int eNoN, const 
         if (!recompute_visc) {
           return;
         }
-        if (F.nrows() == 3) {
-          compute_visc_stress_potential<3>(lDmn.solid_visc.mu, eNoN, Nx, vx, F, Svis, Kvis_u, Kvis_v);
-        } else if (F.nrows() == 2) {
-          compute_visc_stress_potential<2>(lDmn.solid_visc.mu, eNoN, Nx, vx, F, Svis, Kvis_u, Kvis_v);
-        }
+        compute_visc_stress_potential<nsd>(lDmn.solid_visc.mu, eNoN, Nx, vx, F, Svis, Kvis_u, Kvis_v);
       break;
 
       default:
@@ -1773,5 +1742,28 @@ void compute_visc_stress_and_tangent(const dmnType& lDmn, const int eNoN, const 
       break;
     }
 }
+
+
+// The element routines know their dimension at compile time and call these
+// directly, so instantiate the dimensions the solver supports.
+template void compute_pk2cc<2>(const ComMod&, const CepMod&, const dmnType&,
+    const Eigen::Ref<const Matrix<2>>&, const int,
+    const Eigen::Ref<const Eigen::Matrix<double, 2, Eigen::Dynamic>>&,
+    const double, const double, const double,
+    Eigen::Ref<Matrix<2>>, Eigen::Ref<Matrix<3>>, double&);
+
+template void compute_pk2cc<3>(const ComMod&, const CepMod&, const dmnType&,
+    const Eigen::Ref<const Matrix<3>>&, const int,
+    const Eigen::Ref<const Eigen::Matrix<double, 3, Eigen::Dynamic>>&,
+    const double, const double, const double,
+    Eigen::Ref<Matrix<3>>, Eigen::Ref<Matrix<6>>, double&);
+
+template void compute_visc_stress_and_tangent<2>(const dmnType&, const int, const Array<double>&,
+    const Eigen::Ref<const Matrix<2>>&, const Eigen::Ref<const Matrix<2>>&,
+    Array<double>&, Array3<double>&, Array3<double>&, const bool);
+
+template void compute_visc_stress_and_tangent<3>(const dmnType&, const int, const Array<double>&,
+    const Eigen::Ref<const Matrix<3>>&, const Eigen::Ref<const Matrix<3>>&,
+    Array<double>&, Array3<double>&, Array3<double>&, const bool);
 
 };

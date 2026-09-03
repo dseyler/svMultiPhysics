@@ -983,12 +983,18 @@ void ustruct_2d_m(ComMod &com_mod, CepMod &cep_mod, const bool vmsFlag,
   // isochoric elasticity tensor in Voigt notation (Dm)
   Array<double> Siso(2,2), Dm(3,3);
   double Ja = 0;
-  mat_models::compute_pk2cc(com_mod, cep_mod, eq.dmn[cDmn], F, nFn, fN, ya_g_f,
-                            ya_g_s, ya_g_n, Siso, Dm, Ja);
+  mat_models::compute_pk2cc<2>(com_mod, cep_mod, eq.dmn[cDmn],
+                                Eigen::Map<const mat_models::Matrix<2>>(F.data()), nFn,
+                                Eigen::Map<const Eigen::Matrix<double, 2, Eigen::Dynamic>>(fN.data(), 2, nFn),
+                                ya_g_f, ya_g_s, ya_g_n,
+                                Eigen::Map<mat_models::Matrix<2>>(Siso.data()),
+                                Eigen::Map<mat_models::Matrix<3>>(Dm.data()), Ja);
 
   // Viscous 2nd Piola-Kirchhoff stress and tangent contributions
-  mat_models::compute_visc_stress_and_tangent(dmn, eNoNw, Nwx, vx, F, Svis, Kvis_u, Kvis_v,
-                                              recompute_visc);
+  mat_models::compute_visc_stress_and_tangent<2>(dmn, eNoNw, Nwx,
+                                Eigen::Map<const mat_models::Matrix<2>>(vx.data()),
+                                Eigen::Map<const mat_models::Matrix<2>>(F.data()),
+                                Svis, Kvis_u, Kvis_v, recompute_visc);
 
   // Compute rho and beta depending on the volumetric penalty model
   //
@@ -1293,12 +1299,18 @@ void ustruct_3d_m(ComMod &com_mod, CepMod &cep_mod, const bool vmsFlag,
   //
   Array<double> Siso(3,3), Dm(6,6);
   double Ja = 0;
-  mat_models::compute_pk2cc(com_mod, cep_mod, eq.dmn[cDmn], F, nFn, fN, ya_g_f,
-                            ya_g_s, ya_g_n, Siso, Dm, Ja);
+  mat_models::compute_pk2cc<3>(com_mod, cep_mod, eq.dmn[cDmn],
+                                Eigen::Map<const mat_models::Matrix<3>>(F.data()), nFn,
+                                Eigen::Map<const Eigen::Matrix<double, 3, Eigen::Dynamic>>(fN.data(), 3, nFn),
+                                ya_g_f, ya_g_s, ya_g_n,
+                                Eigen::Map<mat_models::Matrix<3>>(Siso.data()),
+                                Eigen::Map<mat_models::Matrix<6>>(Dm.data()), Ja);
 
   // Viscous 2nd Piola-Kirchhoff stress and tangent contributions
-  mat_models::compute_visc_stress_and_tangent(dmn, eNoNw, Nwx, vx, F, Svis, Kvis_u, Kvis_v,
-                                              recompute_visc);
+  mat_models::compute_visc_stress_and_tangent<3>(dmn, eNoNw, Nwx,
+                                Eigen::Map<const mat_models::Matrix<3>>(vx.data()),
+                                Eigen::Map<const mat_models::Matrix<3>>(F.data()),
+                                Svis, Kvis_u, Kvis_v, recompute_visc);
 
 
   // Compute rho and beta depending on the volumetric penalty model

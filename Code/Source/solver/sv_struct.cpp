@@ -19,6 +19,12 @@
 
 namespace struct_ns {
 
+/// @brief Largest element node count the fixed-capacity views below allow (HEX27).
+/// Bounding the column count keeps Bm on the stack instead of heap allocating it
+/// on every Gauss point.
+constexpr int MAX_ELEMENT_NODES = 27;
+
+
 void b_struct_2d(const ComMod& com_mod, const int eNoN, const double w, const Vector<double>& N, 
     const Array<double>& Nx, const Array<double>& dl, const Vector<double>& hl, const Vector<double>& nV, 
     Array<double>& lR, Array3<double>& lK)
@@ -398,14 +404,16 @@ void struct_2d(ComMod &com_mod, CepMod &cep_mod, const int eNoN, const int nFn,
 
   // Inertia, body force and deformation tensor (F)
   //
-  Array<double> F(2,2), S0(2,2), vx(2,2);
+  mat_models::Matrix<2> F, S0, vx;
   Vector<double> ud(2);
 
   ud = -rho*fb;
-  F = 0.0;
+  F.setZero();
   F(0,0) = 1.0;
   F(1,1) = 1.0;
-  S0 = 0.0;
+  S0.setZero();
+  // Array zeroed its storage on construction; Eigen does not.
+  vx.setZero();
 
   double ya_g_f = 0.0;
   double ya_g_s = 0.0;
@@ -444,17 +452,20 @@ void struct_2d(ComMod &com_mod, CepMod &cep_mod, const int eNoN, const int nFn,
   S0(1,0) = S0(0,1);
 
   // 2nd Piola-Kirchhoff stress (S) and material stiffness tensor in Voight notation (Dm)
-  Array<double> S(2,2), Dm(3,3);
+  mat_models::Matrix<2> S;
+  mat_models::Matrix<3> Dm;
   double Ja;
-  mat_models::compute_pk2cc(com_mod, cep_mod, dmn, F, nFn, fN, ya_g_f, ya_g_s,
-                            ya_g_n, S, Dm, Ja);
+  mat_models::compute_pk2cc<2>(com_mod, cep_mod, dmn, F, nFn,
+                               Eigen::Map<const Eigen::Matrix<double, 2, Eigen::Dynamic>>(fN.data(), 2, nFn),
+                               ya_g_f, ya_g_s, ya_g_n, S,
+                               Dm, Ja);
 
   // Viscous 2nd Piola-Kirchhoff stress and tangent contributions
-  mat_models::compute_visc_stress_and_tangent(dmn, eNoN, Nx, vx, F, Svis, Kvis_u, Kvis_v,
-                                              recompute_visc);
+  mat_models::compute_visc_stress_and_tangent<2>(dmn, eNoN, Nx, vx, F, Svis, Kvis_u, Kvis_v,
+                                                recompute_visc);
 
   // Elastic + Viscous stresses
-  S = S + Svis;
+  S += Eigen::Map<const mat_models::Matrix<2>>(Svis.data());
 
   // Prestress
   pSl(0) = S(0,0);
@@ -466,9 +477,11 @@ void struct_2d(ComMod &com_mod, CepMod &cep_mod, const int eNoN, const int nFn,
 
   // 1st Piola-Kirchhoff tensor (P)
   //
-  Array<double> P(2,2), DBm(3,2);
-  Array3<double> Bm(3,2,eNoN);
-  P = mat_fun::mat_mul(F, S);
+  mat_models::Matrix<2> P;
+  Eigen::Matrix<double, 3, 2> DBm;
+  // Bm holds an 3 x 2 block per node; node a is in columns 2*a .. 2*a+1.
+  Eigen::Matrix<double, 3, Eigen::Dynamic, 0, 3, 2*MAX_ELEMENT_NODES> Bm(3, 2*eNoN);
+  P.noalias() = F * S;
   #ifdef debug_struct_2d 
   dmsg << "P: " << P(0,0) << " " << P(0,1);
   dmsg << "   " << P(1,0) << " " << P(1,1);
@@ -483,14 +496,14 @@ void struct_2d(ComMod &com_mod, CepMod &cep_mod, const int eNoN, const int nFn,
   // Auxilary quantities for computing stiffness tensor
   //
   for (int a = 0; a < eNoN; a++) {
-    Bm(0,0,a) = Nx(0,a)*F(0,0);
-    Bm(0,1,a) = Nx(0,a)*F(1,0);
+    Bm(0, 2*a+0) = Nx(0,a)*F(0,0);
+    Bm(0, 2*a+1) = Nx(0,a)*F(1,0);
 
-    Bm(1,0,a) = Nx(1,a)*F(0,1);
-    Bm(1,1,a) = Nx(1,a)*F(1,1);
+    Bm(1, 2*a+0) = Nx(1,a)*F(0,1);
+    Bm(1, 2*a+1) = Nx(1,a)*F(1,1);
 
-    Bm(2,0,a) = (Nx(0,a)*F(0,1) + F(0,0)*Nx(1,a));
-    Bm(2,1,a) = (Nx(0,a)*F(1,1) + F(1,0)*Nx(1,a));
+    Bm(2, 2*a+0) = (Nx(0,a)*F(0,1) + F(0,0)*Nx(1,a));
+    Bm(2, 2*a+1) = (Nx(0,a)*F(1,1) + F(1,0)*Nx(1,a));
   }
 
   Array<double> NxFi(2,eNoN), DdNx(2,eNoN), VxNx(2,eNoN);
@@ -498,46 +511,44 @@ void struct_2d(ComMod &com_mod, CepMod &cep_mod, const int eNoN, const int nFn,
   // Local stiffness tensor
   double T1, NxNx, NxSNx, BmDBm;
 
+  Eigen::Map<const Eigen::Matrix<double, 2, Eigen::Dynamic>> Nx_m(Nx.data(), 2, eNoN);
+
   for (int b = 0; b < eNoN; b++) { 
+
+    // Material stiffness, D*B for node b.  
+    DBm.noalias() = Dm * Bm.middleCols<2>(2*b);
+
+    // Geometric stiffness needs S * Nx(:,b), which does not depend on a.
+    const Eigen::Matrix<double, 2, 1> SNx_b = S * Nx_m.col(b);
+
     for (int a = 0; a < eNoN; a++) { 
 
       // Geometric stiffness
-      NxSNx = Nx(0,a)*S(0,0)*Nx(0,b) + Nx(1,a)*S(1,0)*Nx(0,b) +
-              Nx(0,a)*S(0,1)*Nx(1,b) + Nx(1,a)*S(1,1)*Nx(1,b);
+      NxSNx = Nx_m.col(a).dot(SNx_b);
       T1 = amd*N(a)*N(b) + afu*NxSNx;
-
-      // Material stiffness (Bt*D*B)
-      DBm(0,0) = Dm(0,0)*Bm(0,0,b) + Dm(0,1)*Bm(1,0,b) + Dm(0,2)*Bm(2,0,b);
-      DBm(0,1) = Dm(0,0)*Bm(0,1,b) + Dm(0,1)*Bm(1,1,b) + Dm(0,2)*Bm(2,1,b);
-
-      DBm(1,0) = Dm(1,0)*Bm(0,0,b) + Dm(1,1)*Bm(1,0,b) + Dm(1,2)*Bm(2,0,b);
-      DBm(1,1) = Dm(1,0)*Bm(0,1,b) + Dm(1,1)*Bm(1,1,b) + Dm(1,2)*Bm(2,1,b);
-
-      DBm(2,0) = Dm(2,0)*Bm(0,0,b) + Dm(2,1)*Bm(1,0,b) + Dm(2,2)*Bm(2,0,b);
-      DBm(2,1) = Dm(2,0)*Bm(0,1,b) + Dm(2,1)*Bm(1,1,b) + Dm(2,2)*Bm(2,1,b);
 
 
       // dM1/du1
       // Material stiffness: Bt*D*B
-      BmDBm = Bm(0,0,a)*DBm(0,0) + Bm(1,0,a)*DBm(1,0) + Bm(2,0,a)*DBm(2,0);
+      BmDBm = Bm.col(2*a+0).dot(DBm.col(0));
 
       lK(0,a,b) = lK(0,a,b) + w*( T1 + afu*(BmDBm + Kvis_u(0,a,b)) + afv*Kvis_v(0,a,b) );
 
       // dM1/du2
       // Material stiffness: Bt*D*B
-      BmDBm = Bm(0,0,a)*DBm(0,1) + Bm(1,0,a)*DBm(1,1) + Bm(2,0,a)*DBm(2,1);
+      BmDBm = Bm.col(2*a+0).dot(DBm.col(1));
 
       lK(1,a,b) = lK(1,a,b) + w*( afu*(BmDBm + Kvis_u(1,a,b)) + afv*Kvis_v(1,a,b) );
 
       // dM2/du1
       // Material stiffness: Bt*D*B
-      BmDBm = Bm(0,1,a)*DBm(0,0) + Bm(1,1,a)*DBm(1,0) + Bm(2,1,a)*DBm(2,0);
+      BmDBm = Bm.col(2*a+1).dot(DBm.col(0));
 
       lK(dof+0,a,b) = lK(dof+0,a,b) + w*( afu*(BmDBm + Kvis_u(2,a,b)) + afv*Kvis_v(2,a,b) );
 
       // dM2/du2
       // Material stiffness: Bt*D*B
-      BmDBm = Bm(0,1,a)*DBm(0,1) + Bm(1,1,a)*DBm(1,1) + Bm(2,1,a)*DBm(2,1);
+      BmDBm = Bm.col(2*a+1).dot(DBm.col(1));
 
       lK(dof+1,a,b) = lK(dof+1,a,b) + w*( T1 + afu*(BmDBm + Kvis_u(3,a,b)) + afv*Kvis_v(3,a,b) );
     }
@@ -599,20 +610,17 @@ void struct_3d(ComMod &com_mod, CepMod &cep_mod, const int eNoN, const int nFn,
 
   // Inertia, body force and deformation tensor (F)
   //
-  Array<double> F(3,3), S0(3,3), vx(3,3);
+  mat_models::Matrix<3> F, S0, vx;
   Vector<double> ud(3);
 
-  double F_f[3][3]={}; 
-  F_f[0][0] = 1.0;
-  F_f[1][1] = 1.0;
-  F_f[2][2] = 1.0;
-
   ud = -rho*fb;
-  F = 0.0;
+  F.setZero();
   F(0,0) = 1.0;
   F(1,1) = 1.0;
   F(2,2) = 1.0;
-  S0 = 0.0;
+  S0.setZero();
+  // Array zeroed its storage on construction; Eigen does not.
+  vx.setZero();
 
   double ya_g_f = 0.0;
   double ya_g_s = 0.0;
@@ -662,17 +670,20 @@ void struct_3d(ComMod &com_mod, CepMod &cep_mod, const int eNoN, const int nFn,
   // 2nd Piola-Kirchhoff tensor (S) and material stiffness tensor in
   // Voigt notationa (Dm)
   //
-  Array<double> S(3,3), Dm(6,6); 
+  mat_models::Matrix<3> S;
+  mat_models::Matrix<6> Dm;
   double Ja;
-  mat_models::compute_pk2cc(com_mod, cep_mod, dmn, F, nFn, fN, ya_g_f, ya_g_s,
-                            ya_g_n, S, Dm, Ja);
+  mat_models::compute_pk2cc<3>(com_mod, cep_mod, dmn, F, nFn,
+                               Eigen::Map<const Eigen::Matrix<double, 3, Eigen::Dynamic>>(fN.data(), 3, nFn),
+                               ya_g_f, ya_g_s, ya_g_n, S,
+                               Dm, Ja);
 
   // Viscous 2nd Piola-Kirchhoff stress and tangent contributions
-  mat_models::compute_visc_stress_and_tangent(dmn, eNoN, Nx, vx, F, Svis, Kvis_u, Kvis_v,
-                                              recompute_visc);
+  mat_models::compute_visc_stress_and_tangent<3>(dmn, eNoN, Nx, vx, F, Svis, Kvis_u, Kvis_v,
+                                                recompute_visc);
 
   // Elastic + Viscous stresses
-  S = S + Svis;
+  S += Eigen::Map<const mat_models::Matrix<3>>(Svis.data());
 
   #ifdef debug_struct_3d 
   dmsg << "Jac: " << Jac;
@@ -695,9 +706,10 @@ void struct_3d(ComMod &com_mod, CepMod &cep_mod, const int eNoN, const int nFn,
 
   // 1st Piola-Kirchhoff tensor (P)
   //
-  Array<double> P(3,3);
-  Array3<double> Bm(6,3,eNoN); 
-  mat_fun::mat_mul(F, S, P);
+  mat_models::Matrix<3> P;
+  // Bm holds an 6 x 3 block per node; node a is in columns 3*a .. 3*a+2.
+  Eigen::Matrix<double, 6, Eigen::Dynamic, 0, 6, 3*MAX_ELEMENT_NODES> Bm(6, 3*eNoN);
+  P.noalias() = F * S;
 
   // Local residual
   for (int a = 0; a < eNoN; a++) {
@@ -709,125 +721,105 @@ void struct_3d(ComMod &com_mod, CepMod &cep_mod, const int eNoN, const int nFn,
   // Auxilary quantities for computing stiffness tensor
   //
   for (int a = 0; a < eNoN; a++) {
-    Bm(0,0,a) = Nx(0,a)*F(0,0);
-    Bm(0,1,a) = Nx(0,a)*F(1,0);
-    Bm(0,2,a) = Nx(0,a)*F(2,0);
+    Bm(0, 3*a+0) = Nx(0,a)*F(0,0);
+    Bm(0, 3*a+1) = Nx(0,a)*F(1,0);
+    Bm(0, 3*a+2) = Nx(0,a)*F(2,0);
 
-    Bm(1,0,a) = Nx(1,a)*F(0,1);
-    Bm(1,1,a) = Nx(1,a)*F(1,1);
-    Bm(1,2,a) = Nx(1,a)*F(2,1);
+    Bm(1, 3*a+0) = Nx(1,a)*F(0,1);
+    Bm(1, 3*a+1) = Nx(1,a)*F(1,1);
+    Bm(1, 3*a+2) = Nx(1,a)*F(2,1);
 
-    Bm(2,0,a) = Nx(2,a)*F(0,2);
-    Bm(2,1,a) = Nx(2,a)*F(1,2);
-    Bm(2,2,a) = Nx(2,a)*F(2,2);
+    Bm(2, 3*a+0) = Nx(2,a)*F(0,2);
+    Bm(2, 3*a+1) = Nx(2,a)*F(1,2);
+    Bm(2, 3*a+2) = Nx(2,a)*F(2,2);
 
-    Bm(3,0,a) = (Nx(0,a)*F(0,1) + F(0,0)*Nx(1,a));
-    Bm(3,1,a) = (Nx(0,a)*F(1,1) + F(1,0)*Nx(1,a));
-    Bm(3,2,a) = (Nx(0,a)*F(2,1) + F(2,0)*Nx(1,a));
+    Bm(3, 3*a+0) = (Nx(0,a)*F(0,1) + F(0,0)*Nx(1,a));
+    Bm(3, 3*a+1) = (Nx(0,a)*F(1,1) + F(1,0)*Nx(1,a));
+    Bm(3, 3*a+2) = (Nx(0,a)*F(2,1) + F(2,0)*Nx(1,a));
 
-    Bm(4,0,a) = (Nx(1,a)*F(0,2) + F(0,1)*Nx(2,a));
-    Bm(4,1,a) = (Nx(1,a)*F(1,2) + F(1,1)*Nx(2,a));
-    Bm(4,2,a) = (Nx(1,a)*F(2,2) + F(2,1)*Nx(2,a));
+    Bm(4, 3*a+0) = (Nx(1,a)*F(0,2) + F(0,1)*Nx(2,a));
+    Bm(4, 3*a+1) = (Nx(1,a)*F(1,2) + F(1,1)*Nx(2,a));
+    Bm(4, 3*a+2) = (Nx(1,a)*F(2,2) + F(2,1)*Nx(2,a));
 
-    Bm(5,0,a) = (Nx(2,a)*F(0,0) + F(0,2)*Nx(0,a));
-    Bm(5,1,a) = (Nx(2,a)*F(1,0) + F(1,2)*Nx(0,a));
-    Bm(5,2,a) = (Nx(2,a)*F(2,0) + F(2,2)*Nx(0,a));
+    Bm(5, 3*a+0) = (Nx(2,a)*F(0,0) + F(0,2)*Nx(0,a));
+    Bm(5, 3*a+1) = (Nx(2,a)*F(1,0) + F(1,2)*Nx(0,a));
+    Bm(5, 3*a+2) = (Nx(2,a)*F(2,0) + F(2,2)*Nx(0,a));
   }
 
   // Local stiffness tensor
   double NxSNx, T1, NxNx, BmDBm, Tv;
 
-  Array<double> DBm(6,3);
+  Eigen::Matrix<double, 6, 3> DBm;
+
+  Eigen::Map<const Eigen::Matrix<double, 3, Eigen::Dynamic>> Nx_m(Nx.data(), 3, eNoN);
 
   for (int b = 0; b < eNoN; b++) {
 
-    // Material stiffness (D*B). Shapes are fixed by the declarations above --
-    // Dm(6,6), Bm(6,3,eNoN), DBm(6,3) -- so state them and skip the run-time
-    // shape check that the unparameterised overload would otherwise repeat on
-    // every one of these calls.
-    mat_mul<6, 6, 3>(Dm, Bm.rslice(b), DBm);
+    // Material stiffness, D*B for node b.
+    DBm.noalias() = Dm * Bm.middleCols<3>(3*b);
+
+    // Geometric stiffness needs S * Nx(:,b), which does not depend on a.
+    const Eigen::Matrix<double, 3, 1> SNx_b = S * Nx_m.col(b);
 
     for (int a = 0; a < eNoN; a++) {
 
       // Geometric stiffness
-      NxSNx = Nx(0,a)*S(0,0)*Nx(0,b) + Nx(1,a)*S(1,0)*Nx(0,b) +
-              Nx(2,a)*S(2,0)*Nx(0,b) + Nx(0,a)*S(0,1)*Nx(1,b) +
-              Nx(1,a)*S(1,1)*Nx(1,b) + Nx(2,a)*S(2,1)*Nx(1,b) +
-              Nx(0,a)*S(0,2)*Nx(2,b) + Nx(1,a)*S(1,2)*Nx(2,b) +
-              Nx(2,a)*S(2,2)*Nx(2,b);
+      NxSNx = Nx_m.col(a).dot(SNx_b);
 
       T1 = amd*N(a)*N(b) + afu*NxSNx;
 
       // dM1/du1
       // Material stiffness: Bt*D*B
-      BmDBm = Bm(0,0,a)*DBm(0,0) + Bm(1,0,a)*DBm(1,0) +
-              Bm(2,0,a)*DBm(2,0) + Bm(3,0,a)*DBm(3,0) +
-              Bm(4,0,a)*DBm(4,0) + Bm(5,0,a)*DBm(5,0);
+      BmDBm = Bm.col(3*a+0).dot(DBm.col(0));
 
       lK(0,a,b) = lK(0,a,b) + w*( T1 + afu*(BmDBm + Kvis_u(0,a,b)) + afv*Kvis_v(0,a,b) );
 
       // dM1/du2
       // Material stiffness: Bt*D*B
-      BmDBm = Bm(0,0,a)*DBm(0,1) + Bm(1,0,a)*DBm(1,1) +
-              Bm(2,0,a)*DBm(2,1) + Bm(3,0,a)*DBm(3,1) +
-              Bm(4,0,a)*DBm(4,1) + Bm(5,0,a)*DBm(5,1);
+      BmDBm = Bm.col(3*a+0).dot(DBm.col(1));
 
 
       lK(1,a,b) = lK(1,a,b) + w*( afu*(BmDBm + Kvis_u(1,a,b)) + afv*(Kvis_v(1,a,b)) );
 
       // dM1/du3
       // Material stiffness: Bt*D*B
-      BmDBm = Bm(0,0,a)*DBm(0,2) + Bm(1,0,a)*DBm(1,2) +
-              Bm(2,0,a)*DBm(2,2) + Bm(3,0,a)*DBm(3,2) +
-              Bm(4,0,a)*DBm(4,2) + Bm(5,0,a)*DBm(5,2);
+      BmDBm = Bm.col(3*a+0).dot(DBm.col(2));
 
       lK(2,a,b) = lK(2,a,b) + w*( afu*(BmDBm + Kvis_u(2,a,b)) + afv*Kvis_v(2,a,b) );
 
       // dM2/du1
       // Material stiffness: Bt*D*B
-      BmDBm = Bm(0,1,a)*DBm(0,0) + Bm(1,1,a)*DBm(1,0) +
-              Bm(2,1,a)*DBm(2,0) + Bm(3,1,a)*DBm(3,0) +
-              Bm(4,1,a)*DBm(4,0) + Bm(5,1,a)*DBm(5,0);
+      BmDBm = Bm.col(3*a+1).dot(DBm.col(0));
 
       lK(dof+0,a,b) = lK(dof+0,a,b) + w*( afu*(BmDBm + Kvis_u(3,a,b)) + afv*Kvis_v(3,a,b) );
 
       // dM2/du2
       // Material stiffness: Bt*D*B
-      BmDBm = Bm(0,1,a)*DBm(0,1) + Bm(1,1,a)*DBm(1,1) +
-              Bm(2,1,a)*DBm(2,1) + Bm(3,1,a)*DBm(3,1) +
-              Bm(4,1,a)*DBm(4,1) + Bm(5,1,a)*DBm(5,1);
+      BmDBm = Bm.col(3*a+1).dot(DBm.col(1));
 
       lK(dof+1,a,b) = lK(dof+1,a,b) + w*(T1 + afu*(BmDBm + Kvis_u(4,a,b)) + afv*Kvis_v(4,a,b) );
 
       // dM2/du3
       // Material stiffness: Bt*D*B
-      BmDBm = Bm(0,1,a)*DBm(0,2) + Bm(1,1,a)*DBm(1,2) +
-              Bm(2,1,a)*DBm(2,2) + Bm(3,1,a)*DBm(3,2) +
-              Bm(4,1,a)*DBm(4,2) + Bm(5,1,a)*DBm(5,2);
+      BmDBm = Bm.col(3*a+1).dot(DBm.col(2));
 
       lK(dof+2,a,b) = lK(dof+2,a,b) + w*( afu*(BmDBm + Kvis_u(5,a,b)) + afv*Kvis_v(5,a,b) );
 
       // dM3/du1
       // Material stiffness: Bt*D*B
-      BmDBm = Bm(0,2,a)*DBm(0,0) + Bm(1,2,a)*DBm(1,0) +
-              Bm(2,2,a)*DBm(2,0) + Bm(3,2,a)*DBm(3,0) +
-              Bm(4,2,a)*DBm(4,0) + Bm(5,2,a)*DBm(5,0);
+      BmDBm = Bm.col(3*a+2).dot(DBm.col(0));
 
       lK(2*dof+0,a,b) = lK(2*dof+0,a,b) + w*( afu*(BmDBm + Kvis_u(6,a,b)) + afv*Kvis_v(6,a,b) );
 
       // dM3/du2
       // Material stiffness: Bt*D*B
-      BmDBm = Bm(0,2,a)*DBm(0,1) + Bm(1,2,a)*DBm(1,1) +
-              Bm(2,2,a)*DBm(2,1) + Bm(3,2,a)*DBm(3,1) +
-              Bm(4,2,a)*DBm(4,1) + Bm(5,2,a)*DBm(5,1);
+      BmDBm = Bm.col(3*a+2).dot(DBm.col(1));
 
      lK(2*dof+1,a,b) = lK(2*dof+1,a,b) + w*( afu*(BmDBm + Kvis_u(7,a,b)) + afv*Kvis_v(7,a,b) );
 
       // dM3/du3
       // Material stiffness: Bt*D*B
-      BmDBm = Bm(0,2,a)*DBm(0,2) + Bm(1,2,a)*DBm(1,2) +
-              Bm(2,2,a)*DBm(2,2) + Bm(3,2,a)*DBm(3,2) +
-              Bm(4,2,a)*DBm(4,2) + Bm(5,2,a)*DBm(5,2);
+      BmDBm = Bm.col(3*a+2).dot(DBm.col(2));
 
       lK(2*dof+2,a,b) = lK(2*dof+2,a,b) + w*( T1 + afu*(BmDBm + Kvis_u(8,a,b)) + afv*Kvis_v(8,a,b) );
     }
