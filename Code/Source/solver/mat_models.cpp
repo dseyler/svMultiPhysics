@@ -1731,16 +1731,10 @@ void compute_visc_stress_newtonian(const double mu, const int eNoN, const Array<
  * @param[out] Kvis_v Viscous tangent matrix contribution due to velocity
  */
 void compute_visc_stress_and_tangent(const dmnType& lDmn, const int eNoN, const Array<double>& Nx, const  Array<double>& vx, const  Array<double>& F,
-                                 Array<double>& Svis, Array3<double>& Kvis_u, Array3<double>& Kvis_v,
-                                 const bool recompute_visc) {
+                                 Array<double>& Svis, Array3<double>& Kvis_u, Array3<double>& Kvis_v) {
 
     switch (lDmn.solid_visc.viscType) {
       case consts::SolidViscosityModelType::viscType_Newtonian:
-        // Constant at all Gauss points for linear simplex elements (triangle / tetrahedra),
-        // so the caller can ask for the previous result to be kept.
-        if (!recompute_visc) {
-          return;
-        }
         if (F.nrows() == 3) {
           compute_visc_stress_newtonian<3>(lDmn.solid_visc.mu, eNoN, Nx, vx, F, Svis, Kvis_u, Kvis_v);
         } else if (F.nrows() == 2) {
@@ -1749,11 +1743,6 @@ void compute_visc_stress_and_tangent(const dmnType& lDmn, const int eNoN, const 
       break;
 
       case consts::SolidViscosityModelType::viscType_Potential:
-        // Constant at all Gauss points for linear simplex elements (triangle / tetrahedra),
-        // so the caller can ask for the previous result to be kept.
-        if (!recompute_visc) {
-          return;
-        }
         if (F.nrows() == 3) {
           compute_visc_stress_potential<3>(lDmn.solid_visc.mu, eNoN, Nx, vx, F, Svis, Kvis_u, Kvis_v);
         } else if (F.nrows() == 2) {

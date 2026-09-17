@@ -991,8 +991,11 @@ void ustruct_2d_m(ComMod &com_mod, CepMod &cep_mod, const bool vmsFlag,
     Kvis_v.resize(4, eNoNw, eNoNw);
   }
 
-  mat_models::compute_visc_stress_and_tangent(dmn, eNoNw, Nwx, vx, F, Svis, Kvis_u, Kvis_v,
-                                              recompute_visc);
+  // Reuse the previous Gauss point's viscous contributions when shape function
+  // gradients are constant within an element (e.g. linear triangles and tetrahedra).
+  if (recompute_visc) {
+    mat_models::compute_visc_stress_and_tangent(dmn, eNoNw, Nwx, vx, F, Svis, Kvis_u, Kvis_v);
+  }
 
   // Compute rho and beta depending on the volumetric penalty model
   //
@@ -1306,9 +1309,11 @@ void ustruct_3d_m(ComMod &com_mod, CepMod &cep_mod, const bool vmsFlag,
     Kvis_u.resize(9, eNoNw, eNoNw);
     Kvis_v.resize(9, eNoNw, eNoNw);
   }
-
-  mat_models::compute_visc_stress_and_tangent(dmn, eNoNw, Nwx, vx, F, Svis, Kvis_u, Kvis_v,
-                                              recompute_visc);
+  // Reuse the previous Gauss point's viscous contributions when shape function
+  // gradients are constant within an element (e.g. linear triangles and tetrahedra).
+  if (recompute_visc) {
+    mat_models::compute_visc_stress_and_tangent(dmn, eNoNw, Nwx, vx, F, Svis, Kvis_u, Kvis_v);
+  }
 
 
   // Compute rho and beta depending on the volumetric penalty model

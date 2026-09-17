@@ -453,8 +453,11 @@ void struct_2d(ComMod &com_mod, CepMod &cep_mod, const int eNoN, const int nFn,
     Kvis_v.resize(4, eNoN, eNoN);
   }
 
-  mat_models::compute_visc_stress_and_tangent(dmn, eNoN, Nx, vx, F, Svis, Kvis_u, Kvis_v,
-                                              recompute_visc);
+  // Reuse the previous Gauss point's viscous contributions when shape function
+  // gradients are constant wihtin an element (e.g. linear triangles, tetrahedra).
+  if (recompute_visc) {
+    mat_models::compute_visc_stress_and_tangent(dmn, eNoN, Nx, vx, F, Svis, Kvis_u, Kvis_v);
+  }
 
   // Elastic + Viscous stresses
   S = S + Svis;
@@ -677,8 +680,11 @@ void struct_3d(ComMod &com_mod, CepMod &cep_mod, const int eNoN, const int nFn,
     Kvis_v.resize(9, eNoN, eNoN);
   }
 
-  mat_models::compute_visc_stress_and_tangent(dmn, eNoN, Nx, vx, F, Svis, Kvis_u, Kvis_v,
-                                              recompute_visc);
+  // Reuse the previous Gauss point's viscous contributions when shape function
+  // gradients are constant wihtin an element (e.g. linear triangles, tetrahedra).
+  if (recompute_visc) {
+    mat_models::compute_visc_stress_and_tangent(dmn, eNoN, Nx, vx, F, Svis, Kvis_u, Kvis_v);
+  }
 
   // Elastic + Viscous stresses
   S = S + Svis;
