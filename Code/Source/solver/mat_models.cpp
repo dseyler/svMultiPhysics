@@ -14,13 +14,6 @@
 
 namespace mat_models {
 
-// Define templated type aliases for Eigen matrices and 4th order tensors for convenience
-template<size_t nsd>
-using Matrix = Eigen::Matrix<double, nsd, nsd>;
-
-template<size_t nsd>
-using Tensor = Eigen::TensorFixedSize<double, Eigen::Sizes<nsd, nsd, nsd, nsd>>;
-
 
 
 /// @brief Compute active component of deformation gradient tensor for
@@ -228,7 +221,7 @@ void voigt_to_cc(const int nsd, const Array<double>& Dm, Tensor4<double>& CC)
  * for Hyperelastic Isotropic and Anisotropic Materials" by Cheng and Zhang.
  * 
  */
-template<size_t nsd>
+template<int nsd>
 std::pair<Matrix<nsd>, Tensor<nsd>> bar_to_iso(
   const Matrix<nsd>& S_bar, const Tensor<nsd> &CC_bar, 
   const double J2d, const Matrix<nsd>& C, const Matrix<nsd>& Ci) 
@@ -266,7 +259,7 @@ std::pair<Matrix<nsd>, Tensor<nsd>> bar_to_iso(
  * @return Normalized sheet-normal direction vector.
  * @throws std::runtime_error if directions are parallel or if called in 2D.
  */
-template<size_t nsd>
+template<int nsd>
 Eigen::Matrix<double, nsd, 1> compute_sheet_normal(const Eigen::Matrix<double, nsd, Eigen::Dynamic>& fl)
 {
   using namespace mat_fun;
@@ -287,10 +280,10 @@ Eigen::Matrix<double, nsd, 1> compute_sheet_normal(const Eigen::Matrix<double, n
   }
 }
 
-template <size_t nsd>
+template <int nsd>
 void compute_pk2cc(const ComMod &com_mod, const CepMod &cep_mod,
                    const dmnType &lDmn, const Matrix<nsd> &F, const int nfd,
-                   const Eigen::Matrix<double, nsd, Eigen::Dynamic> fl,
+                   const FiberMatrix<nsd> &fl,
                    const double ya_f, const double ya_s, const double ya_n,
                    Matrix<nsd> &S, Matrix<3 * (nsd - 1)> &Dm, double &Ja) {
   using namespace consts;
@@ -822,6 +815,18 @@ void compute_pk2cc(const ComMod &com_mod, const CepMod &cep_mod,
  * This is a wrapper function for the templated function compute_pk2cc.
  * 
  */
+// The element routines know their dimension at compile time and call the
+// template directly, so instantiate the dimensions the solver supports. Keep
+// this next to the definition: a signature change here that is not mirrored
+// below fails at link time rather than at compile time.
+template void compute_pk2cc<2>(const ComMod&, const CepMod&, const dmnType&,
+    const Matrix<2>&, const int, const FiberMatrix<2>&,
+    const double, const double, const double, Matrix<2>&, Matrix<3>&, double&);
+
+template void compute_pk2cc<3>(const ComMod&, const CepMod&, const dmnType&,
+    const Matrix<3>&, const int, const FiberMatrix<3>&,
+    const double, const double, const double, Matrix<3>&, Matrix<6>&, double&);
+
 void compute_pk2cc(const ComMod& com_mod, const CepMod& cep_mod, const dmnType& lDmn, const Array<double>& F, const int nfd,
     const Array<double>& fl, const double ya_f, const double ya_s, const double ya_n, Array<double>& S, Array<double>& Dm, double& Ja)
 {
@@ -833,7 +838,7 @@ void compute_pk2cc(const ComMod& com_mod, const CepMod& cep_mod, const dmnType& 
         auto F_2D = mat_fun::convert_to_eigen_matrix<Eigen::Matrix2d>(F);
         
         // Copy fiber directions to Eigen matrix
-        Eigen::Matrix<double, 2, Eigen::Dynamic> fl_2D(2, nfd);
+        FiberMatrix<2> fl_2D(2, nfd);
         for (int i = 0; i < nfd; i++) {
             fl_2D(0, i) = fl(0, i);
             fl_2D(1, i) = fl(1, i);
@@ -855,7 +860,7 @@ void compute_pk2cc(const ComMod& com_mod, const CepMod& cep_mod, const dmnType& 
         auto F_3D = mat_fun::convert_to_eigen_matrix<Eigen::Matrix3d>(F);
 
         // Copy fiber directions to Eigen matrix
-        Eigen::Matrix<double, 3, Eigen::Dynamic> fl_3D(3, nfd);
+        FiberMatrix<3> fl_3D(3, nfd);
         for (int i = 0; i < nfd; i++) {
             fl_3D(0, i) = fl(0, i);
             fl_3D(1, i) = fl(1, i);
@@ -1560,13 +1565,6 @@ void g_vol_pen(const ComMod& com_mod, const dmnType& lDmn, const double p,
 }
 
 namespace {
-
-/// @brief Largest element node count the fixed-size views below allow (HEX27).
-constexpr int MAX_ELEMENT_NODES = 27;
-
-/// @brief A quantity carrying one nsd-vector per element node, so nsd x eNoN.
-template <int nsd>
-using NodalMatrix = Eigen::Matrix<double, nsd, Eigen::Dynamic, 0, nsd, MAX_ELEMENT_NODES>;
 
 /**
  * @brief Viscous PK2 stress and tangent contributions for the viscous

@@ -17,7 +17,40 @@
 
 namespace mat_models {
 
-void actv_strain(const ComMod& com_mod, const CepMod& cep_mod, const double gf, 
+/// @brief Largest number of fiber directions a mesh may declare.
+///
+/// Bounds FiberMatrix so it never allocates. read_msh rejects a mesh that
+/// declares more, because the overrun would otherwise be silent under NDEBUG.
+constexpr int MAX_FIBER_DIRECTIONS = 4;
+
+/// @brief Largest element node count the bounded views below allow (HEX27).
+constexpr int MAX_ELEMENT_NODES = 27;
+
+/// @brief A second order tensor, nsd x nsd.
+template <int nsd>
+using Matrix = Eigen::Matrix<double, nsd, nsd>;
+
+/// @brief A 4th order tensor, nsd x nsd x nsd x nsd.
+template <int nsd>
+using Tensor = Eigen::TensorFixedSize<double, Eigen::Sizes<nsd, nsd, nsd, nsd>>;
+
+/// @brief Fiber directions, one unit vector per column.
+///
+/// The column count is a run-time value, so the capacity is bounded to keep the
+/// storage on the stack; a plain dynamic matrix would allocate on every call.
+template <int nsd>
+using FiberMatrix =
+    Eigen::Matrix<double, nsd, Eigen::Dynamic, 0, nsd, MAX_FIBER_DIRECTIONS>;
+
+/// @brief A quantity carrying one nsd-vector per element node, so nsd x eNoN.
+///
+/// Bounded for the same reason as FiberMatrix. The layout is column major with
+/// a column stride of nsd, matching Array, so the two can share storage.
+template <int nsd>
+using NodalMatrix =
+    Eigen::Matrix<double, nsd, Eigen::Dynamic, 0, nsd, MAX_ELEMENT_NODES>;
+
+void actv_strain(const ComMod& com_mod, const CepMod& cep_mod, const double gf,
     const int nfd, const Array<double>& fl, Array<double>& Fa);
 
 void cc_to_voigt(const int nsd, const Tensor4<double>& CC, Array<double>& Dm);
@@ -45,7 +78,21 @@ void voigt_to_cc(const int nsd, const Array<double>& Dm, Tensor4<double>& CC);
  * @param[out] Ja Jacobian for active strain
  *
  * @return None, but modifies S, Dm, and Ja in place.
+ *
+ * @tparam nsd Number of spatial dimensions. Deduced from F, so callers that
+ *   know the dimension at compile time just pass their matrices.
+ *
+ * Defined in mat_models.cpp and explicitly instantiated there for nsd = 2 and
+ * nsd = 3, the only dimensions the solver supports.
  */
+template <int nsd>
+void compute_pk2cc(const ComMod &com_mod, const CepMod &cep_mod,
+                   const dmnType &lDmn, const Matrix<nsd> &F, const int nfd,
+                   const FiberMatrix<nsd> &fl, const double ya_f,
+                   const double ya_s, const double ya_n, Matrix<nsd> &S,
+                   Matrix<3 * (nsd - 1)> &Dm, double &Ja);
+
+/// @brief Array-based overload, for callers whose dimension is a run-time value.
 void compute_pk2cc(const ComMod &com_mod, const CepMod &cep_mod,
                    const dmnType &lDmn, const Array<double> &F, const int nfd,
                    const Array<double> &fl, const double ya_f,
