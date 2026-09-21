@@ -18,6 +18,8 @@ namespace consts {
 
 const int maxNSD = 3;
 
+const int maxNoN = 27;
+
 const int maxNProp = 20;
 
 const int maxOutput = 5;

@@ -8,6 +8,7 @@
 #include "CepMod.h"
 #include "ComMod.h"
 #include "Tensor4.h"
+#include "consts.h"
 
 #include "mat_fun.h"
 
@@ -16,9 +17,6 @@
 #include "eigen3/unsupported/Eigen/CXX11/Tensor"
 
 namespace mat_models {
-
-/// @brief Largest element node count the bounded views below allow (HEX27).
-constexpr int MAX_ELEMENT_NODES = 27;
 
 /// @brief A second order tensor, nsd x nsd.
 template <int nsd>
@@ -32,7 +30,7 @@ using Tensor = Eigen::TensorFixedSize<double, Eigen::Sizes<nsd, nsd, nsd, nsd>>;
 ///
 template <int nsd>
 using NodalMatrix =
-    Eigen::Matrix<double, nsd, Eigen::Dynamic, 0, nsd, MAX_ELEMENT_NODES>;
+    Eigen::Matrix<double, nsd, Eigen::Dynamic, 0, nsd, consts::maxNoN>;
 
 void actv_strain(const ComMod& com_mod, const CepMod& cep_mod, const double gf,
     const int nfd, const Array<double>& fl, Array<double>& Fa);
