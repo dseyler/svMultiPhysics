@@ -462,7 +462,7 @@ void struct_2d(ComMod &com_mod, CepMod &cep_mod, const int eNoN, const int nFn,
   }
 
   // Reuse the previous Gauss point's viscous contributions when shape function
-  // gradients are constant wihtin an element (e.g. linear triangles, tetrahedra).
+  // gradients are constant within an element (e.g. linear triangles, tetrahedra).
   if (recompute_visc) {
     mat_models::compute_visc_stress_and_tangent(dmn, eNoN, Nx, vx, F, Svis, Kvis_u, Kvis_v);
   }
@@ -690,7 +690,7 @@ void struct_3d(ComMod &com_mod, CepMod &cep_mod, const int eNoN, const int nFn,
   }
 
   // Reuse the previous Gauss point's viscous contributions when shape function
-  // gradients are constant wihtin an element (e.g. linear triangles, tetrahedra).
+  // gradients are constant within an element (e.g. linear triangles, tetrahedra).
   if (recompute_visc) {
     mat_models::compute_visc_stress_and_tangent(dmn, eNoN, Nx, vx, F, Svis, Kvis_u, Kvis_v);
   }

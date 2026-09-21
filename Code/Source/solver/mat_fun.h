@@ -312,6 +312,7 @@ namespace mat_fun {
         // Compute the symmetric product: C_ijkl = 0.5 * (A_ik * B_jl + A_il * B_jk)
         for (int l = 0; l < nsd; ++l) {
             for (int k = 0; k < nsd; ++k) {
+                // blk views the (k,l) block of C, so blk(i,j) is C(i,j,k,l).
                 Eigen::Map<Eigen::Matrix<double, nsd, nsd>> blk(C.data() + nsd * nsd * (k + nsd * l));
                 blk.noalias() = 0.5 * (A.col(k) * B.col(l).transpose()
                                      + A.col(l) * B.col(k).transpose());

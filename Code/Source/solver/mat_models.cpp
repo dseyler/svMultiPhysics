@@ -814,12 +814,6 @@ void compute_pk2cc(const ComMod &com_mod, const CepMod &cep_mod,
   cc_to_voigt_eigen<nsd>(CC, Dm);
 }
 
-/**
- * @brief Get the 2nd Piola-Kirchhoff stress tensor and material elasticity tensor.
- * 
- * This is a wrapper function for the templated function compute_pk2cc.
- * 
- */
 // The element routines know their dimension at compile time and call the
 // template directly, so instantiate the dimensions the solver supports. Keep
 // this next to the definition: a signature change here that is not mirrored
@@ -832,6 +826,12 @@ template void compute_pk2cc<3>(const ComMod&, const CepMod&, const dmnType&,
     const Matrix<3>&, const int, const Array<double>&,
     const double, const double, const double, Matrix<3>&, Matrix<6>&, double&);
 
+/**
+ * @brief Get the 2nd Piola-Kirchhoff stress tensor and material elasticity tensor.
+ * 
+ * This is a wrapper function for the templated function compute_pk2cc.
+ * 
+ */
 void compute_pk2cc(const ComMod& com_mod, const CepMod& cep_mod, const dmnType& lDmn, const Array<double>& F, const int nfd,
     const Array<double>& fl, const double ya_f, const double ya_s, const double ya_n, Array<double>& S, Array<double>& Dm, double& Ja)
 {
@@ -1562,7 +1562,7 @@ namespace {
  * @brief Viscous PK2 stress and tangent contributions for the viscous
  * pseudo-potential model.
  *
- * This is defined by a viscous pseuo-potential
+ * This is defined by a viscous pseudo-potential
  * Psi = mu/2 * tr(E_dot^2)
  * The viscous 2nd Piola-Kirchhoff stress is given by
  * Svis = dPsi/dE_dot

@@ -1032,7 +1032,7 @@ void ustruct_2d_m(ComMod &com_mod, CepMod &cep_mod, const bool vmsFlag,
 
    // Velocity gradient in current configuration
   const mat_models::Matrix<2> VxFi = vx * Fi;
-  double rC  = beta*pd + VxFi(1,1) + VxFi(2,2);
+  double rC  = beta*pd + VxFi(0,0) + VxFi(1,1);
   double rCl = -p + tauC*rC;
 
   // Local residual

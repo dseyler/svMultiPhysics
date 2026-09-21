@@ -186,7 +186,7 @@ void construct_fsi(ComMod& com_mod, CepMod& cep_mod, const mshType& lM, const So
         }
       }
 
-      // Shape function gradients and the viscous response, are constant
+      // Shape function gradients and the viscous response are constant
       // within linear simplex elements (tetrahedra, triangles). Bi- and
       // trilinear hexahedra are sometimes called linear but do not qualify.
       const bool recompute_visc = (g == 0 || !fs_1[0].lShpF);
