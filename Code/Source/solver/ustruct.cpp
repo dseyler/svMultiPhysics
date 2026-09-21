@@ -454,9 +454,9 @@ void ustruct_2d_c(ComMod& com_mod, CepMod& cep_mod, const bool vmsFlag, const in
   const double dt = com_mod.dt;
 
   Vector<double> fb(2);
-  fb[0] = dmn.prop[PhysicalProperyType::f_x];
-  fb[1] = dmn.prop[PhysicalProperyType::f_y];
-  fb[2] = dmn.prop[PhysicalProperyType::f_z];
+  fb[0] = dmn.prop[PhysicalPropertyType::f_x];
+  fb[1] = dmn.prop[PhysicalPropertyType::f_y];
+  fb[2] = dmn.prop[PhysicalPropertyType::f_z];
 
   double am = eq.am;
   double af = eq.af * eq.gam * dt;
@@ -657,9 +657,9 @@ void ustruct_3d_c(ComMod& com_mod, CepMod& cep_mod, const bool vmsFlag, const in
   const double dt = com_mod.dt;
 
   Vector<double> fb(3);
-  fb[0] = dmn.prop[PhysicalProperyType::f_x];
-  fb[1] = dmn.prop[PhysicalProperyType::f_y];
-  fb[2] = dmn.prop[PhysicalProperyType::f_z];
+  fb[0] = dmn.prop[PhysicalPropertyType::f_x];
+  fb[1] = dmn.prop[PhysicalPropertyType::f_y];
+  fb[2] = dmn.prop[PhysicalPropertyType::f_z];
 
   double am = eq.am;
   double af = eq.af * eq.gam * dt;
@@ -905,8 +905,8 @@ void ustruct_2d_m(ComMod &com_mod, CepMod &cep_mod, const bool vmsFlag,
   // Define parameters
   //
   Vector<double> fb(2);
-  fb[0] = dmn.prop[PhysicalProperyType::f_x];
-  fb[1] = dmn.prop[PhysicalProperyType::f_y];
+  fb[0] = dmn.prop[PhysicalPropertyType::f_x];
+  fb[1] = dmn.prop[PhysicalPropertyType::f_y];
 
   double am = eq.am;
   double af = eq.af * eq.gam * dt;
@@ -1203,9 +1203,9 @@ void ustruct_3d_m(ComMod &com_mod, CepMod &cep_mod, const bool vmsFlag,
   // Define parameters
 
   Vector<double> fb(3);
-  fb[0] = dmn.prop[PhysicalProperyType::f_x];
-  fb[1] = dmn.prop[PhysicalProperyType::f_y];
-  fb[2] = dmn.prop[PhysicalProperyType::f_z];
+  fb[0] = dmn.prop[PhysicalPropertyType::f_x];
+  fb[1] = dmn.prop[PhysicalPropertyType::f_y];
+  fb[2] = dmn.prop[PhysicalPropertyType::f_z];
 
   double am = eq.am;
   double af = eq.af * eq.gam * dt;
