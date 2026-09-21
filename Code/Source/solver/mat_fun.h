@@ -22,10 +22,10 @@
 //
 namespace mat_fun {
     // Define templated type aliases for Eigen matrices and tensors for convenience
-    template<size_t nsd>
+    template<int nsd>
     using Matrix = Eigen::Matrix<double, nsd, nsd>;
 
-    template<size_t nsd>
+    template<int nsd>
     using Tensor = Eigen::TensorFixedSize<double, Eigen::Sizes<nsd, nsd, nsd, nsd>>;
 
     // Function to convert Array<double> to Eigen::Matrix

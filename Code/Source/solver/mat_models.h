@@ -8,7 +8,6 @@
 #include "CepMod.h"
 #include "ComMod.h"
 #include "Tensor4.h"
-#include "consts.h"
 
 #include "mat_fun.h"
 
@@ -18,19 +17,8 @@
 
 namespace mat_models {
 
-/// @brief A second order tensor, nsd x nsd.
-template <int nsd>
-using Matrix = Eigen::Matrix<double, nsd, nsd>;
-
-/// @brief A 4th order tensor, nsd x nsd x nsd x nsd.
-template <int nsd>
-using Tensor = Eigen::TensorFixedSize<double, Eigen::Sizes<nsd, nsd, nsd, nsd>>;
-
-/// @brief A quantity carrying one nsd-vector per element node, so nsd x eNoN.
-///
-template <int nsd>
-using NodalMatrix =
-    Eigen::Matrix<double, nsd, Eigen::Dynamic, 0, nsd, consts::maxNoN>;
+using mat_fun::Matrix;
+using mat_fun::Tensor;
 
 void actv_strain(const ComMod& com_mod, const CepMod& cep_mod, const double gf,
     const int nfd, const Array<double>& fl, Array<double>& Fa);

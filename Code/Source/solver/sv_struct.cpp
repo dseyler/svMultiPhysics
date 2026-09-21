@@ -402,7 +402,7 @@ void struct_2d(ComMod &com_mod, CepMod &cep_mod, const int eNoN, const int nFn,
 
   // Inertia, body force and deformation tensor (F)
   //
-  mat_models::Matrix<2> F, S0, vx;
+  Matrix<2> F, S0, vx;
   Vector<double> ud(2);
 
   ud = -rho*fb;
@@ -447,14 +447,14 @@ void struct_2d(ComMod &com_mod, CepMod &cep_mod, const int eNoN, const int nFn,
   S0(1,0) = S0(0,1);
 
   // 2nd Piola-Kirchhoff stress (S) and material stiffness tensor in Voight notation (Dm)
-  mat_models::Matrix<2> S;
-  mat_models::Matrix<3> Dm;
+  Matrix<2> S;
+  Matrix<3> Dm;
   double Ja;
   mat_models::compute_pk2cc(com_mod, cep_mod, dmn, F, nFn, fN, ya_g_f, ya_g_s,
                             ya_g_n, S, Dm, Ja);
 
   // Viscous 2nd Piola-Kirchhoff stress and tangent contributions
-  static mat_models::Matrix<2> Svis;
+  static Matrix<2> Svis;
   static Array3<double> Kvis_u, Kvis_v;
   if (Kvis_u.ncols() != eNoN) {
     Kvis_u.resize(4, eNoN, eNoN);
@@ -480,7 +480,7 @@ void struct_2d(ComMod &com_mod, CepMod &cep_mod, const int eNoN, const int nFn,
 
   // 1st Piola-Kirchhoff tensor (P)
   //
-  mat_models::Matrix<2> P;
+  Matrix<2> P;
   Array<double> DBm(3,2);
   Array3<double> Bm(3,2,eNoN);
   P.noalias() = F * S;
@@ -614,7 +614,7 @@ void struct_3d(ComMod &com_mod, CepMod &cep_mod, const int eNoN, const int nFn,
 
   // Inertia, body force and deformation tensor (F)
   //
-  mat_models::Matrix<3> F, S0, vx;
+  Matrix<3> F, S0, vx;
   Vector<double> ud(3);
 
   double F_f[3][3]={}; 
@@ -675,14 +675,14 @@ void struct_3d(ComMod &com_mod, CepMod &cep_mod, const int eNoN, const int nFn,
   // 2nd Piola-Kirchhoff tensor (S) and material stiffness tensor in
   // Voigt notationa (Dm)
   //
-  mat_models::Matrix<3> S;
-  mat_models::Matrix<6> Dm;
+  Matrix<3> S;
+  Matrix<6> Dm;
   double Ja;
   mat_models::compute_pk2cc(com_mod, cep_mod, dmn, F, nFn, fN, ya_g_f, ya_g_s,
                             ya_g_n, S, Dm, Ja);
 
   // Viscous 2nd Piola-Kirchhoff stress and tangent contributions
-  static mat_models::Matrix<3> Svis;
+  static Matrix<3> Svis;
   static Array3<double> Kvis_u, Kvis_v;
   if (Kvis_u.ncols() != eNoN) {
     Kvis_u.resize(9, eNoN, eNoN);
@@ -719,7 +719,7 @@ void struct_3d(ComMod &com_mod, CepMod &cep_mod, const int eNoN, const int nFn,
 
   // 1st Piola-Kirchhoff tensor (P)
   //
-  mat_models::Matrix<3> P;
+  Matrix<3> P;
   Array3<double> Bm(6,3,eNoN); 
   P.noalias() = F * S;
 
