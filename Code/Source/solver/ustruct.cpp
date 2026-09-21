@@ -479,9 +479,8 @@ void ustruct_2d_c(ComMod& com_mod, CepMod& cep_mod, const bool vmsFlag, const in
   //
   Vector<double> vd{-fb[0], -fb[1]};
   Vector<double> v(2);
-  Array<double> vx(2,2), F(2,2);
-  F(0,0) = 1.0;
-  F(1,1) = 1.0;
+  mat_models::Matrix<2> vx = mat_models::Matrix<2>::Zero();
+  mat_models::Matrix<2> F = mat_models::Matrix<2>::Identity();
 
   for (int a = 0; a < eNoNw; a++) {
     v(0) = v(0) + Nw(a)*yl(i,a);
@@ -501,8 +500,8 @@ void ustruct_2d_c(ComMod& com_mod, CepMod& cep_mod, const bool vmsFlag, const in
     F(1,1) = F(1,1) + Nwx(1,a)*dl(j,a);
   }
 
-  double Jac = mat_fun::mat_det(F, 2);
-  auto Fi = mat_fun::mat_inv(F, 2);
+  double Jac = F.determinant();
+  const mat_models::Matrix<2> Fi = F.inverse();
 
   // Pressure and its gradients 
   //
@@ -684,10 +683,8 @@ void ustruct_3d_c(ComMod& com_mod, CepMod& cep_mod, const bool vmsFlag, const in
   //
   Vector<double> vd{-fb[0], -fb[1], -fb[2]};
   Vector<double> v(3);
-  Array<double> vx(3,3), F(3,3);
-  F(0,0) = 1.0;
-  F(1,1) = 1.0;
-  F(2,2) = 1.0;
+  mat_models::Matrix<3> vx = mat_models::Matrix<3>::Zero();
+  mat_models::Matrix<3> F = mat_models::Matrix<3>::Identity();
 
   for (int a = 0; a < eNoNw; a++) {
     v(0) = v(0) + Nw(a)*yl(i,a);
@@ -723,8 +720,8 @@ void ustruct_3d_c(ComMod& com_mod, CepMod& cep_mod, const bool vmsFlag, const in
     F(2,2) = F(2,2) + Nwx(2,a)*dl(k,a);
   }
 
-  double Jac = mat_fun::mat_det(F, 3);
-  auto Fi = mat_fun::mat_inv(F, 3);
+  double Jac = F.determinant();
+  const mat_models::Matrix<3> Fi = F.inverse();
 
   // Pressure and its gradients 
   //
@@ -932,14 +929,13 @@ void ustruct_2d_m(ComMod &com_mod, CepMod &cep_mod, const bool vmsFlag,
   //
   Vector<double> vd{-fb[0], -fb[1]};
   Vector<double> v(2);
-  Array<double> vx(2,2), F(2,2);
+  mat_models::Matrix<2> vx = mat_models::Matrix<2>::Zero();
+  mat_models::Matrix<2> F = mat_models::Matrix<2>::Identity();
 
   double ya_g_f = 0.0;
   double ya_g_s = 0.0;
   double ya_g_n = 0.0;
 
-  F(0,0) = 1.0;
-  F(1,1) = 1.0;
 
   for (int a = 0; a < eNoNw; a++) {
     v(0) = v(0) + Nw(a)*yl(i,a);
@@ -963,8 +959,8 @@ void ustruct_2d_m(ComMod &com_mod, CepMod &cep_mod, const bool vmsFlag,
     ya_g_n = ya_g_n + Nw(a) * ya_l_n(a);
   }
 
-  double Jac = mat_fun::mat_det(F, 2);
-  auto Fi = mat_fun::mat_inv(F, 2);
+  double Jac = F.determinant();
+  const mat_models::Matrix<2> Fi = F.inverse();
 
   // Pressure and its time derivative
   //
@@ -978,13 +974,14 @@ void ustruct_2d_m(ComMod &com_mod, CepMod &cep_mod, const bool vmsFlag,
 
   // Compute deviatoric 2nd Piola-Kirchhoff stress tensor (Siso) and
   // isochoric elasticity tensor in Voigt notation (Dm)
-  Array<double> Siso(2,2), Dm(3,3);
+  mat_models::Matrix<2> Siso;
+  mat_models::Matrix<3> Dm;
   double Ja = 0;
   mat_models::compute_pk2cc(com_mod, cep_mod, eq.dmn[cDmn], F, nFn, fN, ya_g_f,
                             ya_g_s, ya_g_n, Siso, Dm, Ja);
 
   // Viscous 2nd Piola-Kirchhoff stress and tangent contributions
-  static Array<double> Svis(2,2);
+  static mat_models::Matrix<2> Svis;
   static Array3<double> Kvis_u, Kvis_v;
   if (Kvis_u.ncols() != eNoNw) {
     Kvis_u.resize(4, eNoNw, eNoNw);
@@ -1017,11 +1014,11 @@ void ustruct_2d_m(ComMod &com_mod, CepMod &cep_mod, const bool vmsFlag,
   }
 
   // Total isochoric 2nd Piola-Kirchhoff stress (Elastic + Viscous)
-  Siso = Siso + Svis;
+  Siso += Svis;
 
   // Deviatoric 1st Piola-Kirchhoff tensor (P)
   //
-  auto Pdev = mat_fun::mat_mul(F, Siso);
+  const mat_models::Matrix<2> Pdev = F * Siso;
 
 
   // Shape function gradients in the current configuration
@@ -1034,7 +1031,7 @@ void ustruct_2d_m(ComMod &com_mod, CepMod &cep_mod, const bool vmsFlag,
   }
 
    // Velocity gradient in current configuration
-  auto VxFi = mat_mul(vx, Fi);
+  const mat_models::Matrix<2> VxFi = vx * Fi;
   double rC  = beta*pd + VxFi(1,1) + VxFi(2,2);
   double rCl = -p + tauC*rC;
 
@@ -1080,7 +1077,7 @@ void ustruct_2d_m(ComMod &com_mod, CepMod &cep_mod, const bool vmsFlag,
       T1{0.0}, T2{0.0}, T3{0.0},
       Tv{0.0}, Ku{0.0};
 
-  Array<double> DBm(3,2);
+  Eigen::Matrix<double, 3, 2> DBm;
 
   for (int b = 0; b < eNoNw; b++) {
     for (int a = 0; a < eNoNw; a++) {
@@ -1233,15 +1230,12 @@ void ustruct_3d_m(ComMod &com_mod, CepMod &cep_mod, const bool vmsFlag,
   //
   Vector<double> vd{-fb[0], -fb[1], -fb[2]};
   Vector<double> v(3);
-  Array<double> vx(3,3), F(3,3);
+  mat_models::Matrix<3> vx = mat_models::Matrix<3>::Zero();
+  mat_models::Matrix<3> F = mat_models::Matrix<3>::Identity();
 
   double ya_g_f = 0.0;
   double ya_g_s = 0.0;
   double ya_g_n = 0.0;
-
-  F(0,0) = 1.0;
-  F(1,1) = 1.0;
-  F(2,2) = 1.0;
 
   for (int a = 0; a < eNoNw; a++) {
     v(0) = v(0) + Nw(a)*yl(i,a);
@@ -1281,8 +1275,8 @@ void ustruct_3d_m(ComMod &com_mod, CepMod &cep_mod, const bool vmsFlag,
     ya_g_n = ya_g_n + Nw(a) * ya_l_n(a);
   }
 
-  double Jac = mat_fun::mat_det(F, 3);
-  auto Fi = mat_fun::mat_inv(F, 3);
+  double Jac = F.determinant();
+  const mat_models::Matrix<3> Fi = F.inverse();
 
   // Pressure and its time derivative
   //
@@ -1297,13 +1291,14 @@ void ustruct_3d_m(ComMod &com_mod, CepMod &cep_mod, const bool vmsFlag,
   // Compute deviatoric 2nd Piola-Kirchhoff stress tensor (Siso) and
   // isochoric elasticity tensor in Voigt notation (Dm)
   //
-  Array<double> Siso(3,3), Dm(6,6);
+  mat_models::Matrix<3> Siso;
+  mat_models::Matrix<6> Dm;
   double Ja = 0;
   mat_models::compute_pk2cc(com_mod, cep_mod, eq.dmn[cDmn], F, nFn, fN, ya_g_f,
                             ya_g_s, ya_g_n, Siso, Dm, Ja);
 
   // Viscous 2nd Piola-Kirchhoff stress and tangent contributions
-  static Array<double> Svis(3,3);
+  static mat_models::Matrix<3> Svis;
   static Array3<double> Kvis_u, Kvis_v;
   if (Kvis_u.ncols() != eNoNw) {
     Kvis_u.resize(9, eNoNw, eNoNw);
@@ -1336,11 +1331,11 @@ void ustruct_3d_m(ComMod &com_mod, CepMod &cep_mod, const bool vmsFlag,
   }
 
   // Total isochoric 2nd Piola-Kirchhoff stress (Elastic + Viscous)
-  Siso = Siso + Svis;
+  Siso += Svis;
 
   // Deviatoric 1st Piola-Kirchhoff tensor (P)
   //
-  auto Pdev = mat_fun::mat_mul(F, Siso);
+  const mat_models::Matrix<3> Pdev = F * Siso;
 
   // Shape function gradients in the current configuration
   //
@@ -1353,7 +1348,7 @@ void ustruct_3d_m(ComMod &com_mod, CepMod &cep_mod, const bool vmsFlag,
   } 
 
   // Velocity gradient in current configuration
-  auto VxFi = mat_mul(vx, Fi);
+  const mat_models::Matrix<3> VxFi = vx * Fi;
   double rC  = beta*pd + VxFi(0,0) + VxFi(1,1) + VxFi(2,2);
   double rCl = -p + tauC*rC;
 
@@ -1423,11 +1418,11 @@ void ustruct_3d_m(ComMod &com_mod, CepMod &cep_mod, const bool vmsFlag,
   double NxSNx{0.0}, BtDB{0.0};
   double Tv{0.0}, Ku{0.0};
 
-  Array<double> DBm(6,3);
+  Eigen::Matrix<double, 6, 3> DBm;
 
   for (int b = 0; b < eNoNw; b++) {
 
-    mat_mul(Dm, Bm.rslice(b), DBm);
+    DBm.noalias() = Dm * Eigen::Map<const Eigen::Matrix<double, 6, 3>>(Bm.slice_data(b));
 
     for (int a = 0; a < eNoNw; a++) {
       NxSNx = Nwx(0,a)*Siso(0,0)*Nwx(0,b)

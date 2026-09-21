@@ -179,8 +179,16 @@ void b_struct_3d(const ComMod& com_mod, const int eNoN, const double w, const Ve
   }
 }
 
-/// @brief Replicates the Fortan 'CONSTRUCT_dSOLID' subroutine.
-//
+/// @brief Assemble the residual and tangent contributions of one solid mesh.
+///
+/// @param[in,out] com_mod Global common variables. The current domain and, when
+///   prestress is active, the accumulated nodal stresses are updated here, and
+///   the assembled element contributions are written through it.
+/// @param[in] cep_mod Electrophysiology variables, supplying the active stress
+///   interpolated to each Gauss point.
+/// @param[in] lM Mesh whose elements are assembled.
+/// @param[in] solutions Acceleration, velocity and displacement at the
+///   intermediate time level.
 void construct_dsolid(ComMod& com_mod, CepMod& cep_mod, const mshType& lM, const SolutionStates& solutions)
 {
   const auto& Ag = solutions.intermediate.get_acceleration();
@@ -394,14 +402,13 @@ void struct_2d(ComMod &com_mod, CepMod &cep_mod, const int eNoN, const int nFn,
 
   // Inertia, body force and deformation tensor (F)
   //
-  Array<double> F(2,2), S0(2,2), vx(2,2);
+  mat_models::Matrix<2> F, S0, vx;
   Vector<double> ud(2);
 
   ud = -rho*fb;
-  F = 0.0;
-  F(0,0) = 1.0;
-  F(1,1) = 1.0;
-  S0 = 0.0;
+  F.setIdentity();
+  S0.setZero();
+  vx.setZero();
 
   double ya_g_f = 0.0;
   double ya_g_s = 0.0;
@@ -440,13 +447,14 @@ void struct_2d(ComMod &com_mod, CepMod &cep_mod, const int eNoN, const int nFn,
   S0(1,0) = S0(0,1);
 
   // 2nd Piola-Kirchhoff stress (S) and material stiffness tensor in Voight notation (Dm)
-  Array<double> S(2,2), Dm(3,3);
+  mat_models::Matrix<2> S;
+  mat_models::Matrix<3> Dm;
   double Ja;
   mat_models::compute_pk2cc(com_mod, cep_mod, dmn, F, nFn, fN, ya_g_f, ya_g_s,
                             ya_g_n, S, Dm, Ja);
 
   // Viscous 2nd Piola-Kirchhoff stress and tangent contributions
-  static Array<double> Svis(2,2);
+  static mat_models::Matrix<2> Svis;
   static Array3<double> Kvis_u, Kvis_v;
   if (Kvis_u.ncols() != eNoN) {
     Kvis_u.resize(4, eNoN, eNoN);
@@ -472,9 +480,10 @@ void struct_2d(ComMod &com_mod, CepMod &cep_mod, const int eNoN, const int nFn,
 
   // 1st Piola-Kirchhoff tensor (P)
   //
-  Array<double> P(2,2), DBm(3,2);
+  mat_models::Matrix<2> P;
+  Array<double> DBm(3,2);
   Array3<double> Bm(3,2,eNoN);
-  P = mat_fun::mat_mul(F, S);
+  P.noalias() = F * S;
   #ifdef debug_struct_2d 
   dmsg << "P: " << P(0,0) << " " << P(0,1);
   dmsg << "   " << P(1,0) << " " << P(1,1);
@@ -505,22 +514,23 @@ void struct_2d(ComMod &com_mod, CepMod &cep_mod, const int eNoN, const int nFn,
   double T1, NxNx, NxSNx, BmDBm;
 
   for (int b = 0; b < eNoN; b++) { 
+
+    // Material stiffness (Bt*D*B)
+    DBm(0,0) = Dm(0,0)*Bm(0,0,b) + Dm(0,1)*Bm(1,0,b) + Dm(0,2)*Bm(2,0,b);
+    DBm(0,1) = Dm(0,0)*Bm(0,1,b) + Dm(0,1)*Bm(1,1,b) + Dm(0,2)*Bm(2,1,b);
+
+    DBm(1,0) = Dm(1,0)*Bm(0,0,b) + Dm(1,1)*Bm(1,0,b) + Dm(1,2)*Bm(2,0,b);
+    DBm(1,1) = Dm(1,0)*Bm(0,1,b) + Dm(1,1)*Bm(1,1,b) + Dm(1,2)*Bm(2,1,b);
+
+    DBm(2,0) = Dm(2,0)*Bm(0,0,b) + Dm(2,1)*Bm(1,0,b) + Dm(2,2)*Bm(2,0,b);
+    DBm(2,1) = Dm(2,0)*Bm(0,1,b) + Dm(2,1)*Bm(1,1,b) + Dm(2,2)*Bm(2,1,b);
+
     for (int a = 0; a < eNoN; a++) { 
 
       // Geometric stiffness
       NxSNx = Nx(0,a)*S(0,0)*Nx(0,b) + Nx(1,a)*S(1,0)*Nx(0,b) +
               Nx(0,a)*S(0,1)*Nx(1,b) + Nx(1,a)*S(1,1)*Nx(1,b);
       T1 = amd*N(a)*N(b) + afu*NxSNx;
-
-      // Material stiffness (Bt*D*B)
-      DBm(0,0) = Dm(0,0)*Bm(0,0,b) + Dm(0,1)*Bm(1,0,b) + Dm(0,2)*Bm(2,0,b);
-      DBm(0,1) = Dm(0,0)*Bm(0,1,b) + Dm(0,1)*Bm(1,1,b) + Dm(0,2)*Bm(2,1,b);
-
-      DBm(1,0) = Dm(1,0)*Bm(0,0,b) + Dm(1,1)*Bm(1,0,b) + Dm(1,2)*Bm(2,0,b);
-      DBm(1,1) = Dm(1,0)*Bm(0,1,b) + Dm(1,1)*Bm(1,1,b) + Dm(1,2)*Bm(2,1,b);
-
-      DBm(2,0) = Dm(2,0)*Bm(0,0,b) + Dm(2,1)*Bm(1,0,b) + Dm(2,2)*Bm(2,0,b);
-      DBm(2,1) = Dm(2,0)*Bm(0,1,b) + Dm(2,1)*Bm(1,1,b) + Dm(2,2)*Bm(2,1,b);
 
 
       // dM1/du1
@@ -604,7 +614,7 @@ void struct_3d(ComMod &com_mod, CepMod &cep_mod, const int eNoN, const int nFn,
 
   // Inertia, body force and deformation tensor (F)
   //
-  Array<double> F(3,3), S0(3,3), vx(3,3);
+  mat_models::Matrix<3> F, S0, vx;
   Vector<double> ud(3);
 
   double F_f[3][3]={}; 
@@ -613,11 +623,9 @@ void struct_3d(ComMod &com_mod, CepMod &cep_mod, const int eNoN, const int nFn,
   F_f[2][2] = 1.0;
 
   ud = -rho*fb;
-  F = 0.0;
-  F(0,0) = 1.0;
-  F(1,1) = 1.0;
-  F(2,2) = 1.0;
-  S0 = 0.0;
+  F.setIdentity();
+  S0.setZero();
+  vx.setZero();
 
   double ya_g_f = 0.0;
   double ya_g_s = 0.0;
@@ -667,13 +675,14 @@ void struct_3d(ComMod &com_mod, CepMod &cep_mod, const int eNoN, const int nFn,
   // 2nd Piola-Kirchhoff tensor (S) and material stiffness tensor in
   // Voigt notationa (Dm)
   //
-  Array<double> S(3,3), Dm(6,6); 
+  mat_models::Matrix<3> S;
+  mat_models::Matrix<6> Dm;
   double Ja;
   mat_models::compute_pk2cc(com_mod, cep_mod, dmn, F, nFn, fN, ya_g_f, ya_g_s,
                             ya_g_n, S, Dm, Ja);
 
   // Viscous 2nd Piola-Kirchhoff stress and tangent contributions
-  static Array<double> Svis(3,3);
+  static mat_models::Matrix<3> Svis;
   static Array3<double> Kvis_u, Kvis_v;
   if (Kvis_u.ncols() != eNoN) {
     Kvis_u.resize(9, eNoN, eNoN);
@@ -710,9 +719,9 @@ void struct_3d(ComMod &com_mod, CepMod &cep_mod, const int eNoN, const int nFn,
 
   // 1st Piola-Kirchhoff tensor (P)
   //
-  Array<double> P(3,3);
+  mat_models::Matrix<3> P;
   Array3<double> Bm(6,3,eNoN); 
-  mat_fun::mat_mul(F, S, P);
+  P.noalias() = F * S;
 
   // Local residual
   for (int a = 0; a < eNoN; a++) {
@@ -756,11 +765,10 @@ void struct_3d(ComMod &com_mod, CepMod &cep_mod, const int eNoN, const int nFn,
 
   for (int b = 0; b < eNoN; b++) {
 
-    // Material stiffness (D*B). Shapes are fixed by the declarations above --
-    // Dm(6,6), Bm(6,3,eNoN), DBm(6,3) -- so state them and skip the run-time
-    // shape check that the unparameterised overload would otherwise repeat on
-    // every one of these calls.
-    mat_mul<6, 6, 3>(Dm, Bm.rslice(b), DBm);
+    // Material stiffness (D*B) for node b. Dm is Eigen and Bm/DBm are Arrays,
+    // so view them; this is what mat_mul<6,6,3> did internally.
+    Eigen::Map<Eigen::Matrix<double, 6, 3>> dbm(DBm.data());
+    dbm.noalias() = Dm * Eigen::Map<const Eigen::Matrix<double, 6, 3>>(Bm.slice_data(b));
 
     for (int a = 0; a < eNoN; a++) {
 
