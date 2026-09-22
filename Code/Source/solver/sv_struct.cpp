@@ -402,41 +402,36 @@ void struct_2d(ComMod &com_mod, CepMod &cep_mod, const int eNoN, const int nFn,
   dmsg << "w: " << w;
   #endif
 
-  // Inertia, body force and deformation tensor (F)
-  //
-  Matrix<2> F, S0, vx;
-  Vector<double> ud(2);
+  double ya_g_f;
+  double ya_g_s;
+  double ya_g_n;
 
-  ud = -rho*fb;
-  F.setIdentity();
-  S0.setZero();
-  vx.setZero();
+  // This element's nodal fields, as Eigen views over the caller's storage
+  const auto Nxm  = eigen_view<2>(Nx);                // grad(N_a) per column
+  const auto Nm   = eigen_view(N);                    // shape functions
+  const auto disp = eigen_view(dl).middleRows<2>(i);  // nodal displacements
+  const auto vel  = eigen_view(yl).middleRows<2>(i);  // nodal velocities
+  const auto acc  = eigen_view(al).middleRows<2>(i);  // nodal accelerations
+  const auto bfm  = eigen_view<2>(bfl);               // nodal body force
+  const auto fbv  = eigen_view<2>(fb);                // domain body force, constant over the element
+  auto       lRv  = eigen_view_mut(lR).topRows<2>();  // rows this kernel adds to
 
-  double ya_g_f = 0.0;
-  double ya_g_s = 0.0;
-  double ya_g_n = 0.0;
+  // Inertia, damping and body force: the term the residual weights with N
+  const Eigen::Vector2d ud = (rho*(acc - bfm) + dmp*vel) * Nm - rho * fbv;
+
+  // Active stress activation along fiber, sheet and sheet-normal
+  ya_g_f = eigen_view(ya_l_f).dot(Nm);
+  ya_g_s = eigen_view(ya_l_s).dot(Nm);
+  ya_g_n = eigen_view(ya_l_n).dot(Nm);
+
+  // Prestress at this Gauss point: interpolate pS0l, held in Voigt
+  // order [11, 22, 12], into the three independent components of S0.
+  Matrix<2> S0 = Matrix<2>::Zero();
 
   for (int a = 0; a < eNoN; a++) {
-    ud(0) = ud(0) + N(a)*(rho*(al(i,a)-bfl(0,a)) + dmp*yl(i,a));
-    ud(1) = ud(1) + N(a)*(rho*(al(j,a)-bfl(1,a)) + dmp*yl(j,a));
-
-    vx(0,0) = vx(0,0) + Nx(0,a)*yl(i,a);
-    vx(0,1) = vx(0,1) + Nx(1,a)*yl(i,a);
-    vx(1,0) = vx(1,0) + Nx(0,a)*yl(j,a);
-    vx(1,1) = vx(1,1) + Nx(1,a)*yl(j,a);
-
-    F(0,0) = F(0,0) + Nx(0,a)*dl(i,a);
-    F(0,1) = F(0,1) + Nx(1,a)*dl(i,a);
-    F(1,0) = F(1,0) + Nx(0,a)*dl(j,a);
-    F(1,1) = F(1,1) + Nx(1,a)*dl(j,a);
-
     S0(0,0) = S0(0,0) + N(a)*pS0l(0,a);
     S0(1,1) = S0(1,1) + N(a)*pS0l(1,a);
     S0(0,1) = S0(0,1) + N(a)*pS0l(2,a);
-
-    ya_g_f = ya_g_f + N(a) * ya_l_f(a);
-    ya_g_s = ya_g_s + N(a) * ya_l_s(a);
-    ya_g_n = ya_g_n + N(a) * ya_l_n(a);
   }
   #ifdef debug_struct_2d 
   dmsg << "ud: " << ud(0) << " " << ud(1);
@@ -447,6 +442,10 @@ void struct_2d(ComMod &com_mod, CepMod &cep_mod, const int eNoN, const int nFn,
 #endif
 
   S0(1,0) = S0(0,1);
+
+  // Velocity and deformation gradients: Grad(v) and F = I + Grad(u)
+  const Matrix<2> vx = vel * Nxm.transpose();
+  const Matrix<2> F  = Matrix<2>::Identity() + disp * Nxm.transpose();
 
   // 2nd Piola-Kirchhoff stress (S) and material stiffness tensor in Voight notation (Dm)
   Matrix<2> S;
@@ -485,7 +484,6 @@ void struct_2d(ComMod &com_mod, CepMod &cep_mod, const int eNoN, const int nFn,
   Matrix<2> P;
   Eigen::Matrix<double, 3, 2> DBm;
 
-  const auto Nxm = eigen_view<2>(Nx);
   std::array<Eigen::Matrix<double, 3, 2>, consts::maxNoN> Bm;
   P.noalias() = F * S;
   #ifdef debug_struct_2d 
@@ -493,11 +491,8 @@ void struct_2d(ComMod &com_mod, CepMod &cep_mod, const int eNoN, const int nFn,
   dmsg << "   " << P(1,0) << " " << P(1,1);
   #endif
 
-  // Local residual
-  for (int a = 0; a < eNoN; a++) {
-    lR(0,a) = lR(0,a) + w*(N(a)*ud(0) + Nx(0,a)*P(0,0) + Nx(1,a)*P(0,1));
-    lR(1,a) = lR(1,a) + w*(N(a)*ud(1) + Nx(0,a)*P(1,0) + Nx(1,a)*P(1,1));
-  }
+  // Local residual: inertia and body force, plus the divergence of P
+  lRv += w * (ud * Nm.transpose() + P * Nxm);
 
   // Strain-displacement matrix; Bm[a] maps node a displacement to Voigt strain
   //
@@ -528,7 +523,6 @@ void struct_2d(ComMod &com_mod, CepMod &cep_mod, const int eNoN, const int nFn,
       // Geometric stiffness
       NxSNx = Nxm.col(a).dot(SNx);
       T1 = amd*N(a)*N(b) + afu*NxSNx;
-
 
       // dM1/du1
       BmDBm = Bm[a].col(0).dot(DBm.col(0));
@@ -605,65 +599,53 @@ void struct_3d(ComMod &com_mod, CepMod &cep_mod, const int eNoN, const int nFn,
   int j = i + 1;
   int k = j + 1;
 
-  // Inertia, body force and deformation tensor (F)
-  //
-  Matrix<3> F, S0, vx;
-  Vector<double> ud(3);
-
   double F_f[3][3]={}; 
   F_f[0][0] = 1.0;
   F_f[1][1] = 1.0;
   F_f[2][2] = 1.0;
 
-  ud = -rho*fb;
-  F.setIdentity();
-  S0.setZero();
-  vx.setZero();
+  double ya_g_f;
+  double ya_g_s;
+  double ya_g_n;
 
-  double ya_g_f = 0.0;
-  double ya_g_s = 0.0;
-  double ya_g_n = 0.0;
+  // This element's nodal fields, as Eigen views over the caller's storage
+  const auto Nxm  = eigen_view<3>(Nx);                // grad(N_a) per column
+  const auto Nm   = eigen_view(N);                    // shape functions
+  const auto disp = eigen_view(dl).middleRows<3>(i);  // nodal displacements
+  const auto vel  = eigen_view(yl).middleRows<3>(i);  // nodal velocities
+  const auto acc  = eigen_view(al).middleRows<3>(i);  // nodal accelerations
+  const auto bfm  = eigen_view<3>(bfl);               // nodal body force
+  const auto fbv  = eigen_view<3>(fb);                // domain body force, constant over the element
+  auto       lRv  = eigen_view_mut(lR).topRows<3>();  // rows this kernel adds to
+
+  // Inertia, damping and body force: the term the residual weights with N
+  const Eigen::Vector3d ud = (rho*(acc - bfm) + dmp*vel) * Nm - rho * fbv;
+
+  // Active stress activation along fiber, sheet and sheet-normal
+  ya_g_f = eigen_view(ya_l_f).dot(Nm);
+  ya_g_s = eigen_view(ya_l_s).dot(Nm);
+  ya_g_n = eigen_view(ya_l_n).dot(Nm);
+
+  // Prestress at this Gauss point: interpolate pS0l, held in Voigt
+  // order [11, 22, 33, 12, 23, 31], into the six independent components of S0.
+  Matrix<3> S0 = Matrix<3>::Zero();
 
   for (int a = 0; a < eNoN; a++) {
-    ud(0) = ud(0) + N(a)*(rho*(al(i,a)-bfl(0,a)) + dmp*yl(i,a));
-    ud(1) = ud(1) + N(a)*(rho*(al(j,a)-bfl(1,a)) + dmp*yl(j,a));
-    ud(2) = ud(2) + N(a)*(rho*(al(k,a)-bfl(2,a)) + dmp*yl(k,a));
-
-    vx(0,0) = vx(0,0) + Nx(0,a)*yl(i,a);
-    vx(0,1) = vx(0,1) + Nx(1,a)*yl(i,a);
-    vx(0,2) = vx(0,2) + Nx(2,a)*yl(i,a);
-    vx(1,0) = vx(1,0) + Nx(0,a)*yl(j,a);
-    vx(1,1) = vx(1,1) + Nx(1,a)*yl(j,a);
-    vx(1,2) = vx(1,2) + Nx(2,a)*yl(j,a);
-    vx(2,0) = vx(2,0) + Nx(0,a)*yl(k,a);
-    vx(2,1) = vx(2,1) + Nx(1,a)*yl(k,a);
-    vx(2,2) = vx(2,2) + Nx(2,a)*yl(k,a);
-
-    F(0,0) = F(0,0) + Nx(0,a)*dl(i,a);
-    F(0,1) = F(0,1) + Nx(1,a)*dl(i,a);
-    F(0,2) = F(0,2) + Nx(2,a)*dl(i,a);
-    F(1,0) = F(1,0) + Nx(0,a)*dl(j,a);
-    F(1,1) = F(1,1) + Nx(1,a)*dl(j,a);
-    F(1,2) = F(1,2) + Nx(2,a)*dl(j,a);
-    F(2,0) = F(2,0) + Nx(0,a)*dl(k,a);
-    F(2,1) = F(2,1) + Nx(1,a)*dl(k,a);
-    F(2,2) = F(2,2) + Nx(2,a)*dl(k,a);
-
     S0(0,0) = S0(0,0) + N(a)*pS0l(0,a);
     S0(1,1) = S0(1,1) + N(a)*pS0l(1,a);
     S0(2,2) = S0(2,2) + N(a)*pS0l(2,a);
     S0(0,1) = S0(0,1) + N(a)*pS0l(3,a);
     S0(1,2) = S0(1,2) + N(a)*pS0l(4,a);
     S0(2,0) = S0(2,0) + N(a)*pS0l(5,a);
-
-    ya_g_f = ya_g_f + N(a) * ya_l_f(a);
-    ya_g_s = ya_g_s + N(a) * ya_l_s(a);
-    ya_g_n = ya_g_n + N(a) * ya_l_n(a);
   }
 
   S0(1,0) = S0(0,1);
   S0(2,1) = S0(1,2);
   S0(0,2) = S0(2,0);
+
+  // Velocity and deformation gradients: Grad(v) and F = I + Grad(u)
+  const Matrix<3> vx = vel * Nxm.transpose();
+  const Matrix<3> F  = Matrix<3>::Identity() + disp * Nxm.transpose();
 
   // 2nd Piola-Kirchhoff tensor (S) and material stiffness tensor in
   // Voigt notationa (Dm)
@@ -716,12 +698,8 @@ void struct_3d(ComMod &com_mod, CepMod &cep_mod, const int eNoN, const int nFn,
   std::array<Eigen::Matrix<double, 6, 3>, consts::maxNoN> Bm;
   P.noalias() = F * S;
 
-  // Local residual
-  for (int a = 0; a < eNoN; a++) {
-    lR(0,a) = lR(0,a) + w*(N(a)*ud(0) + Nx(0,a)*P(0,0) + Nx(1,a)*P(0,1) + Nx(2,a)*P(0,2));
-    lR(1,a) = lR(1,a) + w*(N(a)*ud(1) + Nx(0,a)*P(1,0) + Nx(1,a)*P(1,1) + Nx(2,a)*P(1,2));
-    lR(2,a) = lR(2,a) + w*(N(a)*ud(2) + Nx(0,a)*P(2,0) + Nx(1,a)*P(2,1) + Nx(2,a)*P(2,2));
-  }
+  // Local residual: inertia and body force, plus the divergence of P
+  lRv += w * (ud * Nm.transpose() + P * Nxm);
 
   // Strain-displacement matrix; Bm[a] maps node a displacement to Voigt strain
   //
@@ -755,8 +733,6 @@ void struct_3d(ComMod &com_mod, CepMod &cep_mod, const int eNoN, const int nFn,
   double NxSNx, T1, NxNx, BmDBm, Tv;
 
   Eigen::Matrix<double, 6, 3> DBm;
-
-  const auto Nxm = eigen_view<3>(Nx);
 
   for (int b = 0; b < eNoN; b++) {
 

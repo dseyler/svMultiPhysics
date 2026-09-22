@@ -54,6 +54,33 @@ namespace mat_fun {
         return {A.data(), rows, A.ncols()};
     }
 
+    /// @brief Read-only Eigen view of a whole Array, sharing its storage.
+    ///
+    /// Both dimensions come from the Array, so a row block of a larger array is
+    /// reached with e.g. eigen_view(dl).middleRows<nsd>(i), letting Eigen derive
+    /// the stride. The Array must outlive the view.
+    inline Eigen::Map<const Eigen::MatrixXd>
+    eigen_view(const Array<double>& A) {
+        return {A.data(), A.nrows(), A.ncols()};
+    }
+
+    /// @brief Writable Eigen view of a whole Array, sharing its storage.
+    ///
+    /// Lets a result be accumulated with a single Eigen expression. The Array
+    /// must outlive the view.
+    inline Eigen::Map<Eigen::MatrixXd>
+    eigen_view_mut(Array<double>& A) {
+        return {A.data(), A.nrows(), A.ncols()};
+    }
+
+    /// @brief Read-only Eigen view of a whole Vector, sharing its storage.
+    ///
+    /// The Vector must outlive the view.
+    inline Eigen::Map<const Eigen::VectorXd>
+    eigen_view(const Vector<double>& v) {
+        return {v.data(), v.size()};
+    }
+
     /// @brief Read-only Eigen view of a Vector, sharing its storage.
     ///
     /// The Vector must outlive the view.

@@ -475,31 +475,22 @@ void ustruct_2d_c(ComMod& com_mod, CepMod& cep_mod, const bool vmsFlag, const in
   dmsg << "i: " << i;
   #endif
 
-  // Inertia (velocity and acceleration), body force, fiber directions,
-  // and deformation tensor (F) at integration point
-  //
-  Vector<double> vd{-fb[0], -fb[1]};
-  Vector<double> v(2);
-  Matrix<2> vx = Matrix<2>::Zero();
-  Matrix<2> F = Matrix<2>::Identity();
+  // This element's nodal fields, as Eigen views over the caller's storage
+  const auto Nwxm = eigen_view<2>(Nwx);               // grad(N_a) per column
+  const auto Nwm  = eigen_view(Nw);                   // shape functions
+  const auto disp = eigen_view(dl).middleRows<2>(i);  // nodal displacements
+  const auto vel  = eigen_view(yl).middleRows<2>(i);  // nodal velocities
+  const auto acc  = eigen_view(al).middleRows<2>(i);  // nodal accelerations
+  const auto bfm  = eigen_view<2>(bfl);               // nodal body force
+  const auto fbv  = eigen_view<2>(fb);                // domain body force, constant over the element
 
-  for (int a = 0; a < eNoNw; a++) {
-    v(0) = v(0) + Nw(a)*yl(i,a);
-    v(1) = v(1) + Nw(a)*yl(j,a);
+  // Velocity, and the inertia less body force, at this Gauss point
+  const Eigen::Vector2d v  = vel * Nwm;
+  const Eigen::Vector2d vd = (acc - bfm) * Nwm - fbv;
 
-    vd(0) = vd(0) + Nw(a)*(al(i,a)-bfl(0,a));
-    vd(1) = vd(1) + Nw(a)*(al(j,a)-bfl(1,a));
-
-    vx(0,0) = vx(0,0) + Nwx(0,a)*yl(i,a);
-    vx(0,1) = vx(0,1) + Nwx(1,a)*yl(i,a);
-    vx(1,0) = vx(1,0) + Nwx(0,a)*yl(j,a);
-    vx(1,1) = vx(1,1) + Nwx(1,a)*yl(j,a);
-
-    F(0,0) = F(0,0) + Nwx(0,a)*dl(i,a);
-    F(0,1) = F(0,1) + Nwx(1,a)*dl(i,a);
-    F(1,0) = F(1,0) + Nwx(0,a)*dl(j,a);
-    F(1,1) = F(1,1) + Nwx(1,a)*dl(j,a);
-  }
+  // Velocity and deformation gradients: Grad(v) and F = I + Grad(u)
+  const Matrix<2> vx = vel * Nwxm.transpose();
+  const Matrix<2> F  = Matrix<2>::Identity() + disp * Nwxm.transpose();
 
   double Jac = F.determinant();
   const Matrix<2> Fi = F.inverse();
@@ -537,7 +528,7 @@ void ustruct_2d_c(ComMod& com_mod, CepMod& cep_mod, const bool vmsFlag, const in
     tauC = 0.0;
   }
 
-  const NodalMatrix<2> NwxFi = Fi.transpose() * eigen_view<2>(Nwx);
+  const NodalMatrix<2> NwxFi = Fi.transpose() * Nwxm;
 
   const NodalMatrix<2> NqxFi = Fi.transpose() * eigen_view<2>(Nqx);
 
@@ -656,47 +647,22 @@ void ustruct_3d_c(ComMod& com_mod, CepMod& cep_mod, const bool vmsFlag, const in
   dmsg << "i: " << i;
   #endif
 
-  // Inertia (velocity and acceleration), body force, fiber directions,
-  // and deformation tensor (F) at integration point
-  //
-  Vector<double> vd{-fb[0], -fb[1], -fb[2]};
-  Vector<double> v(3);
-  Matrix<3> vx = Matrix<3>::Zero();
-  Matrix<3> F = Matrix<3>::Identity();
+  // This element's nodal fields, as Eigen views over the caller's storage
+  const auto Nwxm = eigen_view<3>(Nwx);               // grad(N_a) per column
+  const auto Nwm  = eigen_view(Nw);                   // shape functions
+  const auto disp = eigen_view(dl).middleRows<3>(i);  // nodal displacements
+  const auto vel  = eigen_view(yl).middleRows<3>(i);  // nodal velocities
+  const auto acc  = eigen_view(al).middleRows<3>(i);  // nodal accelerations
+  const auto bfm  = eigen_view<3>(bfl);               // nodal body force
+  const auto fbv  = eigen_view<3>(fb);                // domain body force, constant over the element
 
-  for (int a = 0; a < eNoNw; a++) {
-    v(0) = v(0) + Nw(a)*yl(i,a);
-    v(1) = v(1) + Nw(a)*yl(j,a);
-    v(2) = v(2) + Nw(a)*yl(k,a);
+  // Velocity, and the inertia less body force, at this Gauss point
+  const Eigen::Vector3d v  = vel * Nwm;
+  const Eigen::Vector3d vd = (acc - bfm) * Nwm - fbv;
 
-    vd(0) = vd(0) + Nw(a)*(al(i,a)-bfl(0,a));
-    vd(1) = vd(1) + Nw(a)*(al(j,a)-bfl(1,a));
-    vd(2) = vd(2) + Nw(a)*(al(k,a)-bfl(2,a));
-
-    vx(0,0) = vx(0,0) + Nwx(0,a)*yl(i,a);
-    vx(0,1) = vx(0,1) + Nwx(1,a)*yl(i,a);
-    vx(0,2) = vx(0,2) + Nwx(2,a)*yl(i,a);
-
-    vx(1,0) = vx(1,0) + Nwx(0,a)*yl(j,a);
-    vx(1,1) = vx(1,1) + Nwx(1,a)*yl(j,a);
-    vx(1,2) = vx(1,2) + Nwx(2,a)*yl(j,a);
-
-    vx(2,0) = vx(2,0) + Nwx(0,a)*yl(k,a);
-    vx(2,1) = vx(2,1) + Nwx(1,a)*yl(k,a);
-    vx(2,2) = vx(2,2) + Nwx(2,a)*yl(k,a);
-
-    F(0,0) = F(0,0) + Nwx(0,a)*dl(i,a);
-    F(0,1) = F(0,1) + Nwx(1,a)*dl(i,a);
-    F(0,2) = F(0,2) + Nwx(2,a)*dl(i,a);
-
-    F(1,0) = F(1,0) + Nwx(0,a)*dl(j,a);
-    F(1,1) = F(1,1) + Nwx(1,a)*dl(j,a);
-    F(1,2) = F(1,2) + Nwx(2,a)*dl(j,a);
-
-    F(2,0) = F(2,0) + Nwx(0,a)*dl(k,a);
-    F(2,1) = F(2,1) + Nwx(1,a)*dl(k,a);
-    F(2,2) = F(2,2) + Nwx(2,a)*dl(k,a);
-  }
+  // Velocity and deformation gradients: Grad(v) and F = I + Grad(u)
+  const Matrix<3> vx = vel * Nwxm.transpose();
+  const Matrix<3> F  = Matrix<3>::Identity() + disp * Nwxm.transpose();
 
   double Jac = F.determinant();
   const Matrix<3> Fi = F.inverse();
@@ -735,7 +701,7 @@ void ustruct_3d_c(ComMod& com_mod, CepMod& cep_mod, const bool vmsFlag, const in
     tauC = 0.0;
   }
 
-  const NodalMatrix<3> NwxFi = Fi.transpose() * eigen_view<3>(Nwx);
+  const NodalMatrix<3> NwxFi = Fi.transpose() * Nwxm;
 
   const NodalMatrix<3> NqxFi = Fi.transpose() * eigen_view<3>(Nqx);
 
@@ -868,40 +834,32 @@ void ustruct_2d_m(ComMod &com_mod, CepMod &cep_mod, const bool vmsFlag,
   dmsg << "i: " << i;
   #endif
 
-  // Inertia (velocity and acceleration), body force, fiber directions,
-  // and deformation tensor (F) at integration point
-  //
-  Vector<double> vd{-fb[0], -fb[1]};
-  Vector<double> v(2);
-  Matrix<2> vx = Matrix<2>::Zero();
-  Matrix<2> F = Matrix<2>::Identity();
+  double ya_g_f;
+  double ya_g_s;
+  double ya_g_n;
 
-  double ya_g_f = 0.0;
-  double ya_g_s = 0.0;
-  double ya_g_n = 0.0;
+  // This element's nodal fields, as Eigen views over the caller's storage
+  const auto Nwxm = eigen_view<2>(Nwx);               // grad(N_a) per column
+  const auto Nwm  = eigen_view(Nw);                   // shape functions
+  const auto disp = eigen_view(dl).middleRows<2>(i);  // nodal displacements
+  const auto vel  = eigen_view(yl).middleRows<2>(i);  // nodal velocities
+  const auto acc  = eigen_view(al).middleRows<2>(i);  // nodal accelerations
+  const auto bfm  = eigen_view<2>(bfl);               // nodal body force
+  const auto fbv  = eigen_view<2>(fb);                // domain body force, constant over the element
+  auto       lRv  = eigen_view_mut(lR).topRows<2>();  // rows this kernel adds to
 
+  // Velocity, and the inertia less body force, at this Gauss point
+  const Eigen::Vector2d v  = vel * Nwm;
+  const Eigen::Vector2d vd = (acc - bfm) * Nwm - fbv;
 
-  for (int a = 0; a < eNoNw; a++) {
-    v(0) = v(0) + Nw(a)*yl(i,a);
-    v(1) = v(1) + Nw(a)*yl(j,a);
+  // Active stress activation along fiber, sheet and sheet-normal
+  ya_g_f = eigen_view(ya_l_f).dot(Nwm);
+  ya_g_s = eigen_view(ya_l_s).dot(Nwm);
+  ya_g_n = eigen_view(ya_l_n).dot(Nwm);
 
-    vd(0) = vd(0) + Nw(a)*(al(i,a)-bfl(0,a));
-    vd(1) = vd(1) + Nw(a)*(al(j,a)-bfl(1,a));
-
-    vx(0,0) = vx(0,0) + Nwx(0,a)*yl(i,a);
-    vx(0,1) = vx(0,1) + Nwx(1,a)*yl(i,a);
-    vx(1,0) = vx(1,0) + Nwx(0,a)*yl(j,a);
-    vx(1,1) = vx(1,1) + Nwx(1,a)*yl(j,a);
-
-    F(0,0) = F(0,0) + Nwx(0,a)*dl(i,a);
-    F(0,1) = F(0,1) + Nwx(1,a)*dl(i,a);
-    F(1,0) = F(1,0) + Nwx(0,a)*dl(j,a);
-    F(1,1) = F(1,1) + Nwx(1,a)*dl(j,a);
-
-    ya_g_f = ya_g_f + Nw(a) * ya_l_f(a);
-    ya_g_s = ya_g_s + Nw(a) * ya_l_s(a);
-    ya_g_n = ya_g_n + Nw(a) * ya_l_n(a);
-  }
+  // Velocity and deformation gradients: Grad(v) and F = I + Grad(u)
+  const Matrix<2> vx = vel * Nwxm.transpose();
+  const Matrix<2> F  = Matrix<2>::Identity() + disp * Nwxm.transpose();
 
   double Jac = F.determinant();
   const Matrix<2> Fi = F.inverse();
@@ -964,10 +922,9 @@ void ustruct_2d_m(ComMod &com_mod, CepMod &cep_mod, const bool vmsFlag,
   //
   const Matrix<2> Pdev = F * Siso;
 
-
   // Shape function gradients in the current configuration
   //
-  const NodalMatrix<2> NxFi = Fi.transpose() * eigen_view<2>(Nwx);
+  const NodalMatrix<2> NxFi = Fi.transpose() * Nwxm;
 
    // Velocity gradient in current configuration
   const Matrix<2> VxFi = vx * Fi;
@@ -976,17 +933,8 @@ void ustruct_2d_m(ComMod &com_mod, CepMod &cep_mod, const bool vmsFlag,
 
   // Local residual
   //
-  for (int a = 0; a < eNoNw; a++) {
-    double T1 = Jac*rho*vd(0)*Nw(a);
-    double T2 = Pdev(0,0)*Nwx(0,a) + Pdev(0,1)*Nwx(1,a);
-    double T3 = Jac*rCl*NxFi(0,a);
-    lR(0,a) = lR(0,a) + w*(T1 + T2 + T3);
-
-    T1 = Jac*rho*vd(1)*Nw(a);
-    T2 = Pdev(1,0)*Nwx(0,a) + Pdev(1,1)*Nwx(1,a);
-    T3 = Jac*rCl*NxFi(1,a);
-    lR(1,a) = lR(1,a) + w*(T1 + T2 + T3);
-  }
+  // Inertia, the divergence of Pdev, and the pressure/volumetric term
+  lRv += w * (Jac*rho * vd * Nwm.transpose() + Pdev * Nwxm + Jac*rCl * NxFi);
 
   // Strain-displacement matrix; Bm[a] maps node a displacement to Voigt strain
   //
@@ -1012,8 +960,6 @@ void ustruct_2d_m(ComMod &com_mod, CepMod &cep_mod, const bool vmsFlag,
       Tv{0.0}, Ku{0.0};
 
   Eigen::Matrix<double, 3, 2> DBm;
-
-  const auto Nwxm = eigen_view<2>(Nwx);
 
   for (int b = 0; b < eNoNw; b++) {
 
@@ -1154,55 +1100,32 @@ void ustruct_3d_m(ComMod &com_mod, CepMod &cep_mod, const bool vmsFlag,
   dmsg << "i: " << i;
   #endif
 
-  // Inertia (velocity and acceleration), body force, fiber directions,
-  // and deformation tensor (F) at integration point
-  //
-  Vector<double> vd{-fb[0], -fb[1], -fb[2]};
-  Vector<double> v(3);
-  Matrix<3> vx = Matrix<3>::Zero();
-  Matrix<3> F = Matrix<3>::Identity();
+  double ya_g_f;
+  double ya_g_s;
+  double ya_g_n;
 
-  double ya_g_f = 0.0;
-  double ya_g_s = 0.0;
-  double ya_g_n = 0.0;
+  // This element's nodal fields, as Eigen views over the caller's storage
+  const auto Nwxm = eigen_view<3>(Nwx);               // grad(N_a) per column
+  const auto Nwm  = eigen_view(Nw);                   // shape functions
+  const auto disp = eigen_view(dl).middleRows<3>(i);  // nodal displacements
+  const auto vel  = eigen_view(yl).middleRows<3>(i);  // nodal velocities
+  const auto acc  = eigen_view(al).middleRows<3>(i);  // nodal accelerations
+  const auto bfm  = eigen_view<3>(bfl);               // nodal body force
+  const auto fbv  = eigen_view<3>(fb);                // domain body force, constant over the element
+  auto       lRv  = eigen_view_mut(lR).topRows<3>();  // rows this kernel adds to
 
-  for (int a = 0; a < eNoNw; a++) {
-    v(0) = v(0) + Nw(a)*yl(i,a);
-    v(1) = v(1) + Nw(a)*yl(j,a);
-    v(2) = v(2) + Nw(a)*yl(k,a);
+  // Velocity, and the inertia less body force, at this Gauss point
+  const Eigen::Vector3d v  = vel * Nwm;
+  const Eigen::Vector3d vd = (acc - bfm) * Nwm - fbv;
 
-    vd(0) = vd(0) + Nw(a)*(al(i,a)-bfl(0,a));
-    vd(1) = vd(1) + Nw(a)*(al(j,a)-bfl(1,a));
-    vd(2) = vd(2) + Nw(a)*(al(k,a)-bfl(2,a));
+  // Active stress activation along fiber, sheet and sheet-normal
+  ya_g_f = eigen_view(ya_l_f).dot(Nwm);
+  ya_g_s = eigen_view(ya_l_s).dot(Nwm);
+  ya_g_n = eigen_view(ya_l_n).dot(Nwm);
 
-    vx(0,0) = vx(0,0) + Nwx(0,a)*yl(i,a);
-    vx(0,1) = vx(0,1) + Nwx(1,a)*yl(i,a);
-    vx(0,2) = vx(0,2) + Nwx(2,a)*yl(i,a);
-
-    vx(1,0) = vx(1,0) + Nwx(0,a)*yl(j,a);
-    vx(1,1) = vx(1,1) + Nwx(1,a)*yl(j,a);
-    vx(1,2) = vx(1,2) + Nwx(2,a)*yl(j,a);
-
-    vx(2,0) = vx(2,0) + Nwx(0,a)*yl(k,a);
-    vx(2,1) = vx(2,1) + Nwx(1,a)*yl(k,a);
-    vx(2,2) = vx(2,2) + Nwx(2,a)*yl(k,a);
-
-    F(0,0) = F(0,0) + Nwx(0,a)*dl(i,a);
-    F(0,1) = F(0,1) + Nwx(1,a)*dl(i,a);
-    F(0,2) = F(0,2) + Nwx(2,a)*dl(i,a);
-
-    F(1,0) = F(1,0) + Nwx(0,a)*dl(j,a);
-    F(1,1) = F(1,1) + Nwx(1,a)*dl(j,a);
-    F(1,2) = F(1,2) + Nwx(2,a)*dl(j,a);
-
-    F(2,0) = F(2,0) + Nwx(0,a)*dl(k,a);
-    F(2,1) = F(2,1) + Nwx(1,a)*dl(k,a);
-    F(2,2) = F(2,2) + Nwx(2,a)*dl(k,a);
-
-    ya_g_f = ya_g_f + Nw(a) * ya_l_f(a);
-    ya_g_s = ya_g_s + Nw(a) * ya_l_s(a);
-    ya_g_n = ya_g_n + Nw(a) * ya_l_n(a);
-  }
+  // Velocity and deformation gradients: Grad(v) and F = I + Grad(u)
+  const Matrix<3> vx = vel * Nwxm.transpose();
+  const Matrix<3> F  = Matrix<3>::Identity() + disp * Nwxm.transpose();
 
   double Jac = F.determinant();
   const Matrix<3> Fi = F.inverse();
@@ -1239,7 +1162,6 @@ void ustruct_3d_m(ComMod &com_mod, CepMod &cep_mod, const bool vmsFlag,
     mat_models::compute_visc_stress_and_tangent(dmn, eNoNw, Nwx, vx, F, Svis, Kvis_u, Kvis_v);
   }
 
-
   // Compute rho and beta depending on the volumetric penalty model
   //
   double rho= 0;
@@ -1268,33 +1190,15 @@ void ustruct_3d_m(ComMod &com_mod, CepMod &cep_mod, const bool vmsFlag,
 
   // Shape function gradients in the current configuration
   //
-  const NodalMatrix<3> NxFi = Fi.transpose() * eigen_view<3>(Nwx);
+  const NodalMatrix<3> NxFi = Fi.transpose() * Nwxm;
 
   // Velocity gradient in current configuration
   const Matrix<3> VxFi = vx * Fi;
   double rC  = beta*pd + VxFi(0,0) + VxFi(1,1) + VxFi(2,2);
   double rCl = -p + tauC*rC;
 
-  // Local residual
-  //
-  double T1, T2, T3;
-
-  for (int a = 0; a < eNoNw; a++) {
-    T1 = Jac*rho*vd(0)*Nw(a);
-    T2 = Pdev(0,0)*Nwx(0,a) + Pdev(0,1)*Nwx(1,a) + Pdev(0,2)*Nwx(2,a);
-    T3 = Jac*rCl*NxFi(0,a);
-    lR(0,a) = lR(0,a) + w*(T1 + T2 + T3);
-
-    T1 = Jac*rho*vd(1)*Nw(a);
-    T2 = Pdev(1,0)*Nwx(0,a) + Pdev(1,1)*Nwx(1,a) + Pdev(1,2)*Nwx(2,a);
-    T3 = Jac*rCl*NxFi(1,a);
-    lR(1,a) = lR(1,a) + w*(T1 + T2 + T3);
-
-    T1 = Jac*rho*vd(2)*Nw(a);
-    T2 = Pdev(2,0)*Nwx(0,a) + Pdev(2,1)*Nwx(1,a) + Pdev(2,2)*Nwx(2,a);
-    T3 = Jac*rCl*NxFi(2,a);
-    lR(2,a) = lR(2,a) + w*(T1 + T2 + T3);
-  }
+  // Inertia, the divergence of Pdev, and the pressure/volumetric term
+  lRv += w * (Jac*rho * vd * Nwm.transpose() + Pdev * Nwxm + Jac*rCl * NxFi);
 
   // Strain-displacement matrix; Bm[a] maps node a displacement to Voigt strain
   //
@@ -1332,12 +1236,10 @@ void ustruct_3d_m(ComMod &com_mod, CepMod &cep_mod, const bool vmsFlag,
   //
   double r13 = 1.0 / 3.0;
   double r23 = 2.0 / 3.0;
-  double NxSNx{0.0}, BtDB{0.0};
+  double NxSNx{0.0}, BtDB{0.0}, T1{0.0}, T2{0.0}, T3{0.0};
   double Tv{0.0}, Ku{0.0};
 
   Eigen::Matrix<double, 6, 3> DBm;
-
-  const auto Nwxm = eigen_view<3>(Nwx);
 
   for (int b = 0; b < eNoNw; b++) {
 
@@ -1421,7 +1323,6 @@ void ustruct_3d_m(ComMod &com_mod, CepMod &cep_mod, const bool vmsFlag,
       T2   = T1 + af*Jac*tauC*rho*NxFi(1,a)*NxFi(1,b);
       Tv   = af*Kvis_v(4,a,b);
       lK(5,a,b) = lK(5,a,b) + w*(T2 + Tv) + afm*Ku;
-
 
       // dM_2/dV_3 + af/am *dM_2/dU_3
       //
