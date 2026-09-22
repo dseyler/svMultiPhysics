@@ -45,10 +45,10 @@ void b_struct_2d(const ComMod& com_mod, const int eNoN, const double w, const Ve
 
   for (int a = 0; a  < eNoN; a++) {
     h  = h + N(a)*hl(a);
-    F(0,0) = F(0,0) + Nx(0,a)*dl(i,a);
-    F(0,1) = F(0,1) + Nx(1,a)*dl(i,a);
-    F(1,0) = F(1,0) + Nx(0,a)*dl(j,a);
-    F(1,1) = F(1,1) + Nx(1,a)*dl(j,a);
+    F(0,0) += Nx(0,a)*dl(i,a);
+    F(0,1) += Nx(1,a)*dl(i,a);
+    F(1,0) += Nx(0,a)*dl(j,a);
+    F(1,1) += Nx(1,a)*dl(j,a);
   }
 
   double Jac = F(0,0)*F(1,1) - F(0,1)*F(1,0);
@@ -69,7 +69,7 @@ void b_struct_2d(const ComMod& com_mod, const int eNoN, const double w, const Ve
 
     for (int b = 0; b < eNoN; b++) {
       double Ku = wl*af*N(a)*(nFi(1)*NxFi(0,b) - nFi(0)*NxFi(1,b));
-      lK(1,a,b) = lK(1,a,b) + Ku;
+      lK(1,a,b) += Ku;
       lK(dof,a,b) = lK(dof,a,b) - Ku;
     }
   }
@@ -126,15 +126,15 @@ void b_struct_3d(const ComMod& com_mod, const int eNoN, const double w, const Ve
   // Compute deformation gradient tensor F
   for (int a = 0; a  < eNoN; a++) {
     h  = h + N(a)*hl(a);
-    F(0,0) = F(0,0) + Nx(0,a)*dl(i,a);
-    F(0,1) = F(0,1) + Nx(1,a)*dl(i,a);
-    F(0,2) = F(0,2) + Nx(2,a)*dl(i,a);
-    F(1,0) = F(1,0) + Nx(0,a)*dl(j,a);
-    F(1,1) = F(1,1) + Nx(1,a)*dl(j,a);
-    F(1,2) = F(1,2) + Nx(2,a)*dl(j,a);
-    F(2,0) = F(2,0) + Nx(0,a)*dl(k,a);
-    F(2,1) = F(2,1) + Nx(1,a)*dl(k,a);
-    F(2,2) = F(2,2) + Nx(2,a)*dl(k,a);
+    F(0,0) += Nx(0,a)*dl(i,a);
+    F(0,1) += Nx(1,a)*dl(i,a);
+    F(0,2) += Nx(2,a)*dl(i,a);
+    F(1,0) += Nx(0,a)*dl(j,a);
+    F(1,1) += Nx(1,a)*dl(j,a);
+    F(1,2) += Nx(2,a)*dl(j,a);
+    F(2,0) += Nx(0,a)*dl(k,a);
+    F(2,1) += Nx(1,a)*dl(k,a);
+    F(2,2) += Nx(2,a)*dl(k,a);
   }
 
   double Jac = mat_fun::mat_det(F, 3);
@@ -167,15 +167,15 @@ void b_struct_3d(const ComMod& com_mod, const int eNoN, const double w, const Ve
 
     for (int b = 0; b < eNoN; b++) {
       double Ku = wl * af * N(a) * (nFi(1)*NxFi(0,b) - nFi(0)*NxFi(1,b));
-      lK(1,a,b) = lK(1,a,b) + Ku;
+      lK(1,a,b) += Ku;
       lK(dof,a,b) = lK(dof,a,b) - Ku;
 
       Ku = wl*af*N(a)*(nFi(2)*NxFi(0,b) - nFi(0)*NxFi(2,b));
-      lK(2,a,b) = lK(2,a,b) + Ku;
+      lK(2,a,b) += Ku;
       lK(2*dof,a,b) = lK(2*dof,a,b) - Ku;
 
       Ku = wl*af*N(a)*(nFi(2)*NxFi(1,b) - nFi(1)*NxFi(2,b));
-      lK(dof+2,a,b) = lK(dof+2,a,b) + Ku;
+      lK(dof+2,a,b) += Ku;
       lK(2*dof+1,a,b) = lK(2*dof+1,a,b) - Ku;
     }
   }
@@ -343,9 +343,9 @@ void construct_dsolid(ComMod& com_mod, CepMod& cep_mod, const mshType& lM, const
       if (pstEq) {
         for (int a = 0; a < eNoN; a++) {
           int Ac = ptr(a);
-          pSa(Ac) = pSa(Ac) + w*N(a);
+          pSa(Ac) += w*N(a);
           for (int i = 0; i < pSn.nrows(); i++) {
-            pSn(i,Ac) = pSn(i,Ac) + w*N(a)*pSl(i);
+            pSn(i,Ac) += w*N(a)*pSl(i);
           }
         }
       }
@@ -429,9 +429,9 @@ void struct_2d(ComMod &com_mod, CepMod &cep_mod, const int eNoN, const int nFn,
   Matrix<2> S0 = Matrix<2>::Zero();
 
   for (int a = 0; a < eNoN; a++) {
-    S0(0,0) = S0(0,0) + N(a)*pS0l(0,a);
-    S0(1,1) = S0(1,1) + N(a)*pS0l(1,a);
-    S0(0,1) = S0(0,1) + N(a)*pS0l(2,a);
+    S0(0,0) += N(a)*pS0l(0,a);
+    S0(1,1) += N(a)*pS0l(1,a);
+    S0(0,1) += N(a)*pS0l(2,a);
   }
   #ifdef debug_struct_2d 
   dmsg << "ud: " << ud(0) << " " << ud(1);
@@ -496,15 +496,14 @@ void struct_2d(ComMod &com_mod, CepMod &cep_mod, const int eNoN, const int nFn,
 
   // Strain-displacement matrix; Bm[a] maps node a displacement to Voigt strain
   //
+  const Matrix<2> Ft = F.transpose();
+
   for (int a = 0; a < eNoN; a++) {
-    Bm[a](0,0) = Nx(0,a)*F(0,0);
-    Bm[a](0,1) = Nx(0,a)*F(1,0);
+    const auto g = Nxm.col(a);   // grad(N_a)
 
-    Bm[a](1,0) = Nx(1,a)*F(0,1);
-    Bm[a](1,1) = Nx(1,a)*F(1,1);
-
-    Bm[a](2,0) = (Nx(0,a)*F(0,1) + F(0,0)*Nx(1,a));
-    Bm[a](2,1) = (Nx(0,a)*F(1,1) + F(1,0)*Nx(1,a));
+    Bm[a].row(0) = g(0) * Ft.row(0);                     // dE_11
+    Bm[a].row(1) = g(1) * Ft.row(1);                     // dE_22
+    Bm[a].row(2) = g(0) * Ft.row(1) + g(1) * Ft.row(0);  // 2 dE_12
   }
 
   // Local stiffness tensor
@@ -527,22 +526,22 @@ void struct_2d(ComMod &com_mod, CepMod &cep_mod, const int eNoN, const int nFn,
       // dM1/du1
       BmDBm = Bm[a].col(0).dot(DBm.col(0));
 
-      lK(0,a,b) = lK(0,a,b) + w*( T1 + afu*(BmDBm + Kvis_u(0,a,b)) + afv*Kvis_v(0,a,b) );
+      lK(0,a,b) += w*( T1 + afu*(BmDBm + Kvis_u(0,a,b)) + afv*Kvis_v(0,a,b) );
 
       // dM1/du2
       BmDBm = Bm[a].col(0).dot(DBm.col(1));
 
-      lK(1,a,b) = lK(1,a,b) + w*( afu*(BmDBm + Kvis_u(1,a,b)) + afv*Kvis_v(1,a,b) );
+      lK(1,a,b) += w*( afu*(BmDBm + Kvis_u(1,a,b)) + afv*Kvis_v(1,a,b) );
 
       // dM2/du1
       BmDBm = Bm[a].col(1).dot(DBm.col(0));
 
-      lK(dof+0,a,b) = lK(dof+0,a,b) + w*( afu*(BmDBm + Kvis_u(2,a,b)) + afv*Kvis_v(2,a,b) );
+      lK(dof+0,a,b) += w*( afu*(BmDBm + Kvis_u(2,a,b)) + afv*Kvis_v(2,a,b) );
 
       // dM2/du2
       BmDBm = Bm[a].col(1).dot(DBm.col(1));
 
-      lK(dof+1,a,b) = lK(dof+1,a,b) + w*( T1 + afu*(BmDBm + Kvis_u(3,a,b)) + afv*Kvis_v(3,a,b) );
+      lK(dof+1,a,b) += w*( T1 + afu*(BmDBm + Kvis_u(3,a,b)) + afv*Kvis_v(3,a,b) );
     }
   }
 }
@@ -631,12 +630,12 @@ void struct_3d(ComMod &com_mod, CepMod &cep_mod, const int eNoN, const int nFn,
   Matrix<3> S0 = Matrix<3>::Zero();
 
   for (int a = 0; a < eNoN; a++) {
-    S0(0,0) = S0(0,0) + N(a)*pS0l(0,a);
-    S0(1,1) = S0(1,1) + N(a)*pS0l(1,a);
-    S0(2,2) = S0(2,2) + N(a)*pS0l(2,a);
-    S0(0,1) = S0(0,1) + N(a)*pS0l(3,a);
-    S0(1,2) = S0(1,2) + N(a)*pS0l(4,a);
-    S0(2,0) = S0(2,0) + N(a)*pS0l(5,a);
+    S0(0,0) += N(a)*pS0l(0,a);
+    S0(1,1) += N(a)*pS0l(1,a);
+    S0(2,2) += N(a)*pS0l(2,a);
+    S0(0,1) += N(a)*pS0l(3,a);
+    S0(1,2) += N(a)*pS0l(4,a);
+    S0(2,0) += N(a)*pS0l(5,a);
   }
 
   S0(1,0) = S0(0,1);
@@ -703,30 +702,17 @@ void struct_3d(ComMod &com_mod, CepMod &cep_mod, const int eNoN, const int nFn,
 
   // Strain-displacement matrix; Bm[a] maps node a displacement to Voigt strain
   //
+  const Matrix<3> Ft = F.transpose();
+
   for (int a = 0; a < eNoN; a++) {
-    Bm[a](0,0) = Nx(0,a)*F(0,0);
-    Bm[a](0,1) = Nx(0,a)*F(1,0);
-    Bm[a](0,2) = Nx(0,a)*F(2,0);
+    const auto g = Nxm.col(a);   // grad(N_a)
 
-    Bm[a](1,0) = Nx(1,a)*F(0,1);
-    Bm[a](1,1) = Nx(1,a)*F(1,1);
-    Bm[a](1,2) = Nx(1,a)*F(2,1);
-
-    Bm[a](2,0) = Nx(2,a)*F(0,2);
-    Bm[a](2,1) = Nx(2,a)*F(1,2);
-    Bm[a](2,2) = Nx(2,a)*F(2,2);
-
-    Bm[a](3,0) = (Nx(0,a)*F(0,1) + F(0,0)*Nx(1,a));
-    Bm[a](3,1) = (Nx(0,a)*F(1,1) + F(1,0)*Nx(1,a));
-    Bm[a](3,2) = (Nx(0,a)*F(2,1) + F(2,0)*Nx(1,a));
-
-    Bm[a](4,0) = (Nx(1,a)*F(0,2) + F(0,1)*Nx(2,a));
-    Bm[a](4,1) = (Nx(1,a)*F(1,2) + F(1,1)*Nx(2,a));
-    Bm[a](4,2) = (Nx(1,a)*F(2,2) + F(2,1)*Nx(2,a));
-
-    Bm[a](5,0) = (Nx(2,a)*F(0,0) + F(0,2)*Nx(0,a));
-    Bm[a](5,1) = (Nx(2,a)*F(1,0) + F(1,2)*Nx(0,a));
-    Bm[a](5,2) = (Nx(2,a)*F(2,0) + F(2,2)*Nx(0,a));
+    Bm[a].row(0) = g(0) * Ft.row(0);                     // dE_11
+    Bm[a].row(1) = g(1) * Ft.row(1);                     // dE_22
+    Bm[a].row(2) = g(2) * Ft.row(2);                     // dE_33
+    Bm[a].row(3) = g(0) * Ft.row(1) + g(1) * Ft.row(0);  // 2 dE_12
+    Bm[a].row(4) = g(1) * Ft.row(2) + g(2) * Ft.row(1);  // 2 dE_23
+    Bm[a].row(5) = g(2) * Ft.row(0) + g(0) * Ft.row(2);  // 2 dE_31
   }
 
   // Local stiffness tensor
@@ -751,47 +737,47 @@ void struct_3d(ComMod &com_mod, CepMod &cep_mod, const int eNoN, const int nFn,
       // dM1/du1
       BmDBm = Bm[a].col(0).dot(DBm.col(0));
 
-      lK(0,a,b) = lK(0,a,b) + w*( T1 + afu*(BmDBm + Kvis_u(0,a,b)) + afv*Kvis_v(0,a,b) );
+      lK(0,a,b) += w*( T1 + afu*(BmDBm + Kvis_u(0,a,b)) + afv*Kvis_v(0,a,b) );
 
       // dM1/du2
       BmDBm = Bm[a].col(0).dot(DBm.col(1));
 
-      lK(1,a,b) = lK(1,a,b) + w*( afu*(BmDBm + Kvis_u(1,a,b)) + afv*(Kvis_v(1,a,b)) );
+      lK(1,a,b) += w*( afu*(BmDBm + Kvis_u(1,a,b)) + afv*Kvis_v(1,a,b) );
 
       // dM1/du3
       BmDBm = Bm[a].col(0).dot(DBm.col(2));
 
-      lK(2,a,b) = lK(2,a,b) + w*( afu*(BmDBm + Kvis_u(2,a,b)) + afv*Kvis_v(2,a,b) );
+      lK(2,a,b) += w*( afu*(BmDBm + Kvis_u(2,a,b)) + afv*Kvis_v(2,a,b) );
 
       // dM2/du1
       BmDBm = Bm[a].col(1).dot(DBm.col(0));
 
-      lK(dof+0,a,b) = lK(dof+0,a,b) + w*( afu*(BmDBm + Kvis_u(3,a,b)) + afv*Kvis_v(3,a,b) );
+      lK(dof+0,a,b) += w*( afu*(BmDBm + Kvis_u(3,a,b)) + afv*Kvis_v(3,a,b) );
 
       // dM2/du2
       BmDBm = Bm[a].col(1).dot(DBm.col(1));
 
-      lK(dof+1,a,b) = lK(dof+1,a,b) + w*(T1 + afu*(BmDBm + Kvis_u(4,a,b)) + afv*Kvis_v(4,a,b) );
+      lK(dof+1,a,b) += w*(T1 + afu*(BmDBm + Kvis_u(4,a,b)) + afv*Kvis_v(4,a,b) );
 
       // dM2/du3
       BmDBm = Bm[a].col(1).dot(DBm.col(2));
 
-      lK(dof+2,a,b) = lK(dof+2,a,b) + w*( afu*(BmDBm + Kvis_u(5,a,b)) + afv*Kvis_v(5,a,b) );
+      lK(dof+2,a,b) += w*( afu*(BmDBm + Kvis_u(5,a,b)) + afv*Kvis_v(5,a,b) );
 
       // dM3/du1
       BmDBm = Bm[a].col(2).dot(DBm.col(0));
 
-      lK(2*dof+0,a,b) = lK(2*dof+0,a,b) + w*( afu*(BmDBm + Kvis_u(6,a,b)) + afv*Kvis_v(6,a,b) );
+      lK(2*dof+0,a,b) += w*( afu*(BmDBm + Kvis_u(6,a,b)) + afv*Kvis_v(6,a,b) );
 
       // dM3/du2
       BmDBm = Bm[a].col(2).dot(DBm.col(1));
 
-     lK(2*dof+1,a,b) = lK(2*dof+1,a,b) + w*( afu*(BmDBm + Kvis_u(7,a,b)) + afv*Kvis_v(7,a,b) );
+     lK(2*dof+1,a,b) += w*( afu*(BmDBm + Kvis_u(7,a,b)) + afv*Kvis_v(7,a,b) );
 
       // dM3/du3
       BmDBm = Bm[a].col(2).dot(DBm.col(2));
 
-      lK(2*dof+2,a,b) = lK(2*dof+2,a,b) + w*( T1 + afu*(BmDBm + Kvis_u(8,a,b)) + afv*Kvis_v(8,a,b) );
+      lK(2*dof+2,a,b) += w*( T1 + afu*(BmDBm + Kvis_u(8,a,b)) + afv*Kvis_v(8,a,b) );
     }
   }
 }

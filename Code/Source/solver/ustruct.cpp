@@ -57,10 +57,10 @@ void b_ustruct_2d(const ComMod& com_mod, const int eNoN, const double w, const V
 
   for (int a = 0; a  < eNoN; a++) {
     h  = h + N(a)*hl(a);
-    F(0,0) = F(0,0) + Nx(0,a)*dl(i,a);
-    F(0,1) = F(0,1) + Nx(1,a)*dl(i,a);
-    F(1,0) = F(1,0) + Nx(0,a)*dl(j,a);
-    F(1,1) = F(1,1) + Nx(1,a)*dl(j,a);
+    F(0,0) += Nx(0,a)*dl(i,a);
+    F(0,1) += Nx(1,a)*dl(i,a);
+    F(1,0) += Nx(0,a)*dl(j,a);
+    F(1,1) += Nx(1,a)*dl(j,a);
   }
 
   double Jac = F(0,0)*F(1,1) - F(0,1)*F(1,0);
@@ -81,8 +81,8 @@ void b_ustruct_2d(const ComMod& com_mod, const int eNoN, const double w, const V
 
     for (int b = 0; b < eNoN; b++) {
       double Ku = wl*af*N(a)*(nFi(1)*NxFi(0,b) - nFi(0)*NxFi(1,b));
-      lKd(1,a,b) = lKd(1,a,b) + Ku;
-      lK(1,a,b) = lK(1,a,b) + afm*Ku;
+      lKd(1,a,b) += Ku;
+      lK(1,a,b) += afm*Ku;
 
       lKd(2,a,b) = lKd(2,a,b) - Ku;
       lK(3,a,b)  = lK(3,a,b)  - afm*Ku;
@@ -128,15 +128,15 @@ void b_ustruct_3d(const ComMod& com_mod, const int eNoN, const double w, const V
 
   for (int a = 0; a  < eNoN; a++) {
     h  = h + N(a)*hl(a);
-    F(0,0) = F(0,0) + Nx(0,a)*dl(i,a);
-    F(0,1) = F(0,1) + Nx(1,a)*dl(i,a);
-    F(0,2) = F(0,2) + Nx(2,a)*dl(i,a);
-    F(1,0) = F(1,0) + Nx(0,a)*dl(j,a);
-    F(1,1) = F(1,1) + Nx(1,a)*dl(j,a);
-    F(1,2) = F(1,2) + Nx(2,a)*dl(j,a);
-    F(2,0) = F(2,0) + Nx(0,a)*dl(k,a);
-    F(2,1) = F(2,1) + Nx(1,a)*dl(k,a);
-    F(2,2) = F(2,2) + Nx(2,a)*dl(k,a);
+    F(0,0) += Nx(0,a)*dl(i,a);
+    F(0,1) += Nx(1,a)*dl(i,a);
+    F(0,2) += Nx(2,a)*dl(i,a);
+    F(1,0) += Nx(0,a)*dl(j,a);
+    F(1,1) += Nx(1,a)*dl(j,a);
+    F(1,2) += Nx(2,a)*dl(j,a);
+    F(2,0) += Nx(0,a)*dl(k,a);
+    F(2,1) += Nx(1,a)*dl(k,a);
+    F(2,2) += Nx(2,a)*dl(k,a);
   }
 
   double Jac = mat_fun::mat_det(F, 3);
@@ -161,21 +161,21 @@ void b_ustruct_3d(const ComMod& com_mod, const int eNoN, const double w, const V
 
     for (int b = 0; b < eNoN; b++) {
       double Ku = wl*af*N(a)*(nFi(1)*NxFi(0,b) - nFi(0)*NxFi(1,b));
-      lKd(1,a,b) = lKd(1,a,b) + Ku;
-      lK(1,a,b) = lK(1,a,b) + afm*Ku;
+      lKd(1,a,b) += Ku;
+      lK(1,a,b) += afm*Ku;
 
       lKd(3,a,b) = lKd(3,a,b) - Ku;
       lK(4,a,b)  = lK(4,a,b)  - afm*Ku;
 
       Ku = wl*af*N(a)*(nFi(2)*NxFi(0,b) - nFi(0)*NxFi(2,b));
-      lKd(2,a,b) = lKd(2,a,b) + Ku;
+      lKd(2,a,b) += Ku;
       lK(2,a,b) = lK(2,a,b)  + afm*Ku;
 
       lKd(6,a,b) = lKd(6,a,b) - Ku;
       lK(8,a,b)  = lK(8,a,b)  - afm*Ku;
 
       Ku = wl*af*N(a)*(nFi(2)*NxFi(1,b) - nFi(1)*NxFi(2,b));
-      lKd(5,a,b) = lKd(5,a,b) + Ku;
+      lKd(5,a,b) += Ku;
       lK(6,a,b)  = lK(6,a,b)  + afm*Ku;
 
       lKd(7,a,b) = lKd(7,a,b) - Ku;
@@ -504,8 +504,8 @@ void ustruct_2d_c(ComMod& com_mod, CepMod& cep_mod, const bool vmsFlag, const in
   for (int a = 0; a < eNoNq; a++) {
     p = p + Nq(a)*yl(k,a);
     pd = pd + Nq(a)*al(k,a);
-    px(0) = px(0) + Nqx(0,a)*yl(k,a);
-    px(1) = px(1) + Nqx(1,a)*yl(k,a);
+    px(0) += Nqx(0,a)*yl(k,a);
+    px(1) += Nqx(1,a)*yl(k,a);
   }
 
   // Compute rho and beta depending on the volumetric penalty model
@@ -547,7 +547,7 @@ void ustruct_2d_c(ComMod& com_mod, CepMod& cep_mod, const bool vmsFlag, const in
   const NodalVector rMNqx = NqxFi.transpose() * eigen_view<2>(rM);
 
   for (int a = 0; a < eNoNq; a++) {
-    lR(2,a) = lR(2,a) + w*Jac*(Nq(a)*rC + tauM*rMNqx(a));
+    lR(2,a) += w*Jac*(Nq(a)*rC + tauM*rMNqx(a));
   }
 
   const NodalMatrix<2> VxNwx = VxFi.transpose() * NwxFi;
@@ -560,7 +560,7 @@ void ustruct_2d_c(ComMod& com_mod, CepMod& cep_mod, const bool vmsFlag, const in
 
   for (int b = 0; b < eNoNw; b++) {
     for (int a = 0; a < eNoNq; a++) {
-      NxNx = NqxFi(0,a)*NwxFi(0,b) + NqxFi(1,a)*NwxFi(1,b);
+      NxNx = NqxFi.col(a).dot(NwxFi.col(b));
 
       // dC/dV_1 + af/am *dC/dU_1 
       //
@@ -568,31 +568,31 @@ void ustruct_2d_c(ComMod& com_mod, CepMod& cep_mod, const bool vmsFlag, const in
       T1 = tauM*(rMNqx(a)*NwxFi(0,b) - rMNwx(b)*NqxFi(0,a));
       T2 = -tauM*NxNx*PxFi(0);
       Ku = w*af*Jac*(T0 + T1 + T2);
-      lKd(4,a,b) = lKd(4,a,b) + Ku;
+      lKd(4,a,b) += Ku;
 
       T1  = (am*tauM*rho)*NqxFi(0,a)*Nw(b) + af*Nq(a)*NwxFi(0,b);
-      lK(6,a,b) = lK(6,a,b) + w*Jac*T1 + afm*Ku;
+      lK(6,a,b) += w*Jac*T1 + afm*Ku;
 
       // dC/dV_2 + af/am *dC/dU_2 
       T0 = Nq(a)*(rC*NwxFi(1,b) - VxNwx(1,b));
       T1 = tauM*(rMNqx(a)*NwxFi(1,b) - rMNwx(b)*NqxFi(1,a));
       T2 = -tauM*NxNx*PxFi(1);
       Ku = w*af*Jac*(T0 + T1 + T2);
-      lKd(5,a,b) = lKd(5,a,b) + Ku;
+      lKd(5,a,b) += Ku;
 
       T1 = (am*tauM*rho)*NqxFi(1,a)*Nw(b) + af*Nq(a)*NwxFi(1,b);
-      lK(8,a,b) = lK(8,a,b) + w*Jac*T1 + afm*Ku;
+      lK(8,a,b) += w*Jac*T1 + afm*Ku;
     }
   }
 
   for (int b = 0; b < eNoNq; b++) {
     for (int a = 0; a < eNoNq; a++) {
       // dC/dP
-      NxNx = NqxFi(0,a)*NqxFi(0,b) + NqxFi(1,a)*NqxFi(1,b);
+      NxNx = NqxFi.col(a).dot(NqxFi.col(b));
       T0 = (am*beta + af*dbeta*pd)*Nq(a)*Nq(b);
-      T1 = NqxFi(0,a)*vd(0) + NqxFi(1,a)*vd(1);
+      T1 = NqxFi.col(a).dot(vd);
       T2 = T0 + af*tauM*(NxNx + drho*T1*Nq(b));
-      lK(9,a,b) = lK(9,a,b) + w*Jac*T2;
+      lK(9,a,b) += w*Jac*T2;
     }
   }
 }
@@ -676,9 +676,9 @@ void ustruct_3d_c(ComMod& com_mod, CepMod& cep_mod, const bool vmsFlag, const in
   for (int a = 0; a < eNoNq; a++) {
     p = p + Nq(a)*yl(l,a);
     pd = pd + Nq(a)*al(l,a);
-    px(0) = px(0) + Nqx(0,a)*yl(l,a);
-    px(1) = px(1) + Nqx(1,a)*yl(l,a);
-    px(2) = px(2) + Nqx(2,a)*yl(l,a);
+    px(0) += Nqx(0,a)*yl(l,a);
+    px(1) += Nqx(1,a)*yl(l,a);
+    px(2) += Nqx(2,a)*yl(l,a);
   }
 
   // Compute rho and beta depending on the volumetric penalty model
@@ -721,7 +721,7 @@ void ustruct_3d_c(ComMod& com_mod, CepMod& cep_mod, const bool vmsFlag, const in
   const NodalVector rMNqx = NqxFi.transpose() * eigen_view<3>(rM);
 
   for (int a = 0; a < eNoNq; a++) {
-    lR(3,a) = lR(3,a) + w*Jac*(Nq(a)*rC + tauM*rMNqx(a));
+    lR(3,a) += w*Jac*(Nq(a)*rC + tauM*rMNqx(a));
   }
 
   const NodalMatrix<3> VxNwx = VxFi.transpose() * NwxFi;
@@ -734,7 +734,7 @@ void ustruct_3d_c(ComMod& com_mod, CepMod& cep_mod, const bool vmsFlag, const in
 
   for (int b = 0; b < eNoNw; b++) {
     for (int a = 0; a < eNoNq; a++) {
-      NxNx = NqxFi(0,a)*NwxFi(0,b) + NqxFi(1,a)*NwxFi(1,b) + NqxFi(2,a)*NwxFi(2,b);
+      NxNx = NqxFi.col(a).dot(NwxFi.col(b));
 
       // dC/dV_1 + af/am *dC/dU_1 
       //
@@ -742,20 +742,20 @@ void ustruct_3d_c(ComMod& com_mod, CepMod& cep_mod, const bool vmsFlag, const in
       T1 = tauM*(rMNqx(a)*NwxFi(0,b) - rMNwx(b)*NqxFi(0,a));
       T2 = -tauM*NxNx*PxFi(0);
       Ku = w*af*Jac*(T0 + T1 + T2);
-      lKd(9,a,b) = lKd(9,a,b) + Ku;
+      lKd(9,a,b) += Ku;
 
       T1  = (am*tauM*rho)*NqxFi(0,a)*Nw(b) + af*Nq(a)*NwxFi(0,b);
-      lK(12,a,b) = lK(12,a,b) + w*Jac*T1 + afm*Ku;
+      lK(12,a,b) += w*Jac*T1 + afm*Ku;
 
       // dC/dV_2 + af/am *dC/dU_2 
       T0 = Nq(a)*(rC*NwxFi(1,b) - VxNwx(1,b));
       T1 = tauM*(rMNqx(a)*NwxFi(1,b) - rMNwx(b)*NqxFi(1,a));
       T2 = -tauM*NxNx*PxFi(1);
       Ku = w*af*Jac*(T0 + T1 + T2);
-      lKd(10,a,b) = lKd(10,a,b) + Ku;
+      lKd(10,a,b) += Ku;
 
       T1 = (am*tauM*rho)*NqxFi(1,a)*Nw(b) + af*Nq(a)*NwxFi(1,b);
-      lK(13,a,b) = lK(13,a,b) + w*Jac*T1 + afm*Ku;
+      lK(13,a,b) += w*Jac*T1 + afm*Ku;
 
       // dC/dV_3 + af/am *dC/dU_3 
       //
@@ -763,21 +763,21 @@ void ustruct_3d_c(ComMod& com_mod, CepMod& cep_mod, const bool vmsFlag, const in
       T1 = tauM*(rMNqx(a)*NwxFi(2,b) - rMNwx(b)*NqxFi(2,a));
       T2 = -tauM*NxNx*PxFi(2);
       Ku = w*af*Jac*(T0 + T1 + T2);
-      lKd(11,a,b) = lKd(11,a,b) + Ku;
+      lKd(11,a,b) += Ku;
 
       T1 = (am*tauM*rho)*NqxFi(2,a)*Nw(b) + af*Nq(a)*NwxFi(2,b);
-      lK(14,a,b) = lK(14,a,b) + w*Jac*T1 + afm*Ku;
+      lK(14,a,b) += w*Jac*T1 + afm*Ku;
     }
   }
 
   for (int b = 0; b < eNoNq; b++) {
     for (int a = 0; a < eNoNq; a++) {
       // dC/dP
-      NxNx = NqxFi(0,a)*NqxFi(0,b) + NqxFi(1,a)*NqxFi(1,b) + NqxFi(2,a)*NqxFi(2,b);
+      NxNx = NqxFi.col(a).dot(NqxFi.col(b));
       T0 = (am*beta + af*dbeta*pd)*Nq(a)*Nq(b);
-      T1 = NqxFi(0,a)*vd(0) + NqxFi(1,a)*vd(1) + NqxFi(2,a)*vd(2);
+      T1 = NqxFi.col(a).dot(vd);
       T2 = T0 + af*tauM*(NxNx + drho*T1*Nq(b));
-      lK(15,a,b) = lK(15,a,b) + w*Jac*T2;
+      lK(15,a,b) += w*Jac*T2;
     }
   }
 }
@@ -940,15 +940,14 @@ void ustruct_2d_m(ComMod &com_mod, CepMod &cep_mod, const bool vmsFlag,
   //
   std::array<Eigen::Matrix<double, 3, 2>, consts::maxNoN> Bm;
 
+  const Matrix<2> Ft = F.transpose();
+
   for (int a = 0; a < eNoNw; a++) {
-    Bm[a](0,0) = Nwx(0,a)*F(0,0);
-    Bm[a](0,1) = Nwx(0,a)*F(1,0);
+    const auto g = Nwxm.col(a);   // grad(N_a)
 
-    Bm[a](1,0) = Nwx(1,a)*F(0,1);
-    Bm[a](1,1) = Nwx(1,a)*F(1,1);
-
-    Bm[a](2,0) = Nwx(0,a)*F(0,1) + F(0,0)*Nwx(1,a);
-    Bm[a](2,1) = Nwx(0,a)*F(1,1) + F(1,0)*Nwx(1,a);
+    Bm[a].row(0) = g(0) * Ft.row(0);                     // dE_11
+    Bm[a].row(1) = g(1) * Ft.row(1);                     // dE_22
+    Bm[a].row(2) = g(0) * Ft.row(1) + g(1) * Ft.row(0);  // 2 dE_12
   }
 
   const NodalMatrix<2> VxNx = VxFi.transpose() * NxFi;
@@ -978,7 +977,7 @@ void ustruct_2d_m(ComMod &com_mod, CepMod &cep_mod, const bool vmsFlag,
       T2   = -tauC*Jac*NxFi(0,a)*VxNx(0,b);
 
       Ku   = w*af*(T1 + T2 + BtDB + NxSNx + Kvis_u(0,a,b));
-      lKd(0,a,b) = lKd(0,a,b) + Ku;
+      lKd(0,a,b) += Ku;
 
       T1   = am*Jac*rho*Nw(a)*Nw(b);
       T2   = T1 + af*Jac*tauC*rho*NxFi(0,a)*NxFi(0,b);
@@ -993,11 +992,11 @@ void ustruct_2d_m(ComMod &com_mod, CepMod &cep_mod, const bool vmsFlag,
       T3   = Jac*rCl*(NxFi(0,a)*NxFi(1,b) - NxFi(1,a)*NxFi(0,b));
 
       Ku   = w*af*(T1 + T2 + T3 + BtDB + Kvis_u(1,a,b));
-      lKd(1,a,b) = lKd(1,a,b) + Ku;
+      lKd(1,a,b) += Ku;
 
       T2   = af*Jac*tauC*rho*NxFi(0,a)*NxFi(1,b);
       Tv   = af*Kvis_v(1,a,b);
-      lK(1,a,b) = lK(1,a,b) + w*(T2 + Tv) + afm*Ku;
+      lK(1,a,b) += w*(T2 + Tv) + afm*Ku;
 
       // dM_2/dV_1 + af/am *dM_2/dU_1
       //
@@ -1007,11 +1006,11 @@ void ustruct_2d_m(ComMod &com_mod, CepMod &cep_mod, const bool vmsFlag,
       T3   = Jac*rCl*(NxFi(1,a)*NxFi(0,b) - NxFi(0,a)*NxFi(1,b));
 
       Ku   = w*af*(T1 + T2 + T3 + BtDB + Kvis_u(2,a,b));
-      lKd(2,a,b) = lKd(2,a,b) + Ku;
+      lKd(2,a,b) += Ku;
 
       T2   = af*Jac*tauC*rho*NxFi(1,a)*NxFi(0,b);
       Tv   = af*Kvis_v(2,a,b);
-      lK(3,a,b) = lK(3,a,b) + w*(T2 + Tv) + afm*Ku;
+      lK(3,a,b) += w*(T2 + Tv) + afm*Ku;
 
       // dM_2/dV_2 + af/am *dM_2/dU_2
       //
@@ -1020,12 +1019,12 @@ void ustruct_2d_m(ComMod &com_mod, CepMod &cep_mod, const bool vmsFlag,
       T2   = -tauC*Jac*NxFi(1,a)*VxNx(1,b);
 
       Ku   = w*af*(T1 + T2 + BtDB + NxSNx + Kvis_u(3,a,b));
-      lKd(3,a,b) = lKd(3,a,b) + Ku;
+      lKd(3,a,b) += Ku;
 
       T1   = am*Jac*rho*Nw(a)*Nw(b);
       T2   = T1 + af*Jac*tauC*rho*NxFi(1,a)*NxFi(1,b);
       Tv   = af*Kvis_v(3,a,b);
-      lK(4,a,b) = lK(4,a,b) + w*(T2 + Tv) + afm*Ku;
+      lK(4,a,b) += w*(T2 + Tv) + afm*Ku;
     }
   }
 
@@ -1036,11 +1035,11 @@ void ustruct_2d_m(ComMod &com_mod, CepMod &cep_mod, const bool vmsFlag,
       // dM_0/dP
       T0 = am*tauC*beta + af*(tauC*dbeta*pd - 1.0);
       T1 = T0*NxFi(0,a)*Nq(b) + af*drho*vd(0)*Nw(a)*Nq(b);
-      lK(2,a,b) = lK(2,a,b) + w*Jac*T1;
+      lK(2,a,b) += w*Jac*T1;
 
       // dM_1/dP
       T1 = T0*NxFi(1,a)*Nq(b) + af*drho*vd(1)*Nw(a)*Nq(b);
-      lK(6,a,b) = lK(6,a,b) + w*Jac*T1;
+      lK(6,a,b) += w*Jac*T1;
     }
   }
 }
@@ -1204,30 +1203,17 @@ void ustruct_3d_m(ComMod &com_mod, CepMod &cep_mod, const bool vmsFlag,
   //
   std::array<Eigen::Matrix<double, 6, 3>, consts::maxNoN> Bm;
 
+  const Matrix<3> Ft = F.transpose();
+
   for (int a = 0; a < eNoNw; a++) {
-    Bm[a](0,0) = Nwx(0,a)*F(0,0);
-    Bm[a](0,1) = Nwx(0,a)*F(1,0);
-    Bm[a](0,2) = Nwx(0,a)*F(2,0);
+    const auto g = Nwxm.col(a);   // grad(N_a)
 
-    Bm[a](1,0) = Nwx(1,a)*F(0,1);
-    Bm[a](1,1) = Nwx(1,a)*F(1,1);
-    Bm[a](1,2) = Nwx(1,a)*F(2,1);
-
-    Bm[a](2,0) = Nwx(2,a)*F(0,2);
-    Bm[a](2,1) = Nwx(2,a)*F(1,2);
-    Bm[a](2,2) = Nwx(2,a)*F(2,2);
-
-    Bm[a](3,0) = (Nwx(0,a)*F(0,1) + F(0,0)*Nwx(1,a));
-    Bm[a](3,1) = (Nwx(0,a)*F(1,1) + F(1,0)*Nwx(1,a));
-    Bm[a](3,2) = (Nwx(0,a)*F(2,1) + F(2,0)*Nwx(1,a));
-
-    Bm[a](4,0) = (Nwx(1,a)*F(0,2) + F(0,1)*Nwx(2,a));
-    Bm[a](4,1) = (Nwx(1,a)*F(1,2) + F(1,1)*Nwx(2,a));
-    Bm[a](4,2) = (Nwx(1,a)*F(2,2) + F(2,1)*Nwx(2,a));
-
-    Bm[a](5,0) = (Nwx(2,a)*F(0,0) + F(0,2)*Nwx(0,a));
-    Bm[a](5,1) = (Nwx(2,a)*F(1,0) + F(1,2)*Nwx(0,a));
-    Bm[a](5,2) = (Nwx(2,a)*F(2,0) + F(2,2)*Nwx(0,a));
+    Bm[a].row(0) = g(0) * Ft.row(0);                     // dE_11
+    Bm[a].row(1) = g(1) * Ft.row(1);                     // dE_22
+    Bm[a].row(2) = g(2) * Ft.row(2);                     // dE_33
+    Bm[a].row(3) = g(0) * Ft.row(1) + g(1) * Ft.row(0);  // 2 dE_12
+    Bm[a].row(4) = g(1) * Ft.row(2) + g(2) * Ft.row(1);  // 2 dE_23
+    Bm[a].row(5) = g(2) * Ft.row(0) + g(0) * Ft.row(2);  // 2 dE_31
   }
 
   const NodalMatrix<3> VxNx = VxFi.transpose() * NxFi;
@@ -1257,7 +1243,7 @@ void ustruct_3d_m(ComMod &com_mod, CepMod &cep_mod, const bool vmsFlag,
       T2   = -tauC*Jac*NxFi(0,a)*VxNx(0,b);
  
       Ku   = w*af*(T1 + T2 + BtDB + NxSNx + Kvis_u(0,a,b));
-      lKd(0,a,b) = lKd(0,a,b) + Ku;
+      lKd(0,a,b) += Ku;
  
       T1   = am*Jac*rho*Nw(a)*Nw(b);
       T2   = T1 + af*Jac*tauC*rho*NxFi(0,a)*NxFi(0,b);
@@ -1271,11 +1257,11 @@ void ustruct_3d_m(ComMod &com_mod, CepMod &cep_mod, const bool vmsFlag,
       T3   = Jac*rCl*(NxFi(0,a)*NxFi(1,b) - NxFi(1,a)*NxFi(0,b));
  
       Ku   = w*af*(T1 + T2 + T3 + BtDB + Kvis_u(1,a,b));
-      lKd(1,a,b) = lKd(1,a,b) + Ku;
+      lKd(1,a,b) += Ku;
  
       T2   = af*Jac*tauC*rho*NxFi(0,a)*NxFi(1,b);
       Tv   = af*Kvis_v(1,a,b);
-      lK(1,a,b) = lK(1,a,b) + w*(T2 + Tv) + afm*Ku;
+      lK(1,a,b) += w*(T2 + Tv) + afm*Ku;
 
       // dM_1/dV_3 + af/am *dM_1/dU_3
       //
@@ -1285,11 +1271,11 @@ void ustruct_3d_m(ComMod &com_mod, CepMod &cep_mod, const bool vmsFlag,
       T3   = Jac*rCl*(NxFi(0,a)*NxFi(2,b) - NxFi(2,a)*NxFi(0,b));
  
       Ku   = w*af*(T1 + T2 + T3 + BtDB + Kvis_u(2,a,b));
-      lKd(2,a,b) = lKd(2,a,b) + Ku;
+      lKd(2,a,b) += Ku;
  
       T2   = af*Jac*tauC*rho*NxFi(0,a)*NxFi(2,b);
       Tv   = af*Kvis_v(2,a,b);
-      lK(2,a,b) = lK(2,a,b) + w*(T2 + Tv) + afm*Ku;
+      lK(2,a,b) += w*(T2 + Tv) + afm*Ku;
 
       // dM_2/dV_1 + af/am *dM_2/dU_1
       //
@@ -1300,12 +1286,12 @@ void ustruct_3d_m(ComMod &com_mod, CepMod &cep_mod, const bool vmsFlag,
       T3   = Jac*rCl*(NxFi(1,a)*NxFi(0,b) - NxFi(0,a)*NxFi(1,b));
  
       Ku   = w*af*(T1 + T2 + T3 + BtDB + Kvis_u(3,a,b));
-      lKd(3,a,b) = lKd(3,a,b) + Ku;
+      lKd(3,a,b) += Ku;
  
       T2   = af*Jac*tauC*rho*NxFi(1,a)*NxFi(0,b);
       Tv   = af*Kvis_v(3,a,b);
 
-      lK(4,a,b) = lK(4,a,b) + w*(T2 + Tv) + afm*Ku;
+      lK(4,a,b) += w*(T2 + Tv) + afm*Ku;
 
       // dM_2/dV_2 + af/am *dM_2/dU_2
       //
@@ -1317,12 +1303,12 @@ void ustruct_3d_m(ComMod &com_mod, CepMod &cep_mod, const bool vmsFlag,
 
  
       Ku   = w*af*(T1 + T2 + BtDB + NxSNx + Kvis_u(4,a,b));
-      lKd(4,a,b) = lKd(4,a,b) + Ku;
+      lKd(4,a,b) += Ku;
  
       T1   = am*Jac*rho*Nw(a)*Nw(b);
       T2   = T1 + af*Jac*tauC*rho*NxFi(1,a)*NxFi(1,b);
       Tv   = af*Kvis_v(4,a,b);
-      lK(5,a,b) = lK(5,a,b) + w*(T2 + Tv) + afm*Ku;
+      lK(5,a,b) += w*(T2 + Tv) + afm*Ku;
 
       // dM_2/dV_3 + af/am *dM_2/dU_3
       //
@@ -1334,11 +1320,11 @@ void ustruct_3d_m(ComMod &com_mod, CepMod &cep_mod, const bool vmsFlag,
 
  
       Ku   = w*af*(T1 + T2 + T3 + BtDB + Kvis_u(5,a,b));
-      lKd(5,a,b) = lKd(5,a,b) + Ku;
+      lKd(5,a,b) += Ku;
  
       T2   = af*Jac*tauC*rho*NxFi(1,a)*NxFi(2,b);
       Tv   = af*Kvis_v(5,a,b);
-      lK(6,a,b) = lK(6,a,b) + w*(T2 + Tv) + afm*Ku;
+      lK(6,a,b) += w*(T2 + Tv) + afm*Ku;
 
       // dM_3/dV_1 + af/am *dM_3/dU_1
       //
@@ -1349,11 +1335,11 @@ void ustruct_3d_m(ComMod &com_mod, CepMod &cep_mod, const bool vmsFlag,
       T3   = Jac*rCl*(NxFi(2,a)*NxFi(0,b) - NxFi(0,a)*NxFi(2,b));
  
       Ku   = w*af*(T1 + T2 + T3 + BtDB + Kvis_u(6,a,b));
-      lKd(6,a,b) = lKd(6,a,b) + Ku;
+      lKd(6,a,b) += Ku;
  
       T2   = af*Jac*tauC*rho*NxFi(2,a)*NxFi(0,b);
       Tv   = af*Kvis_v(6,a,b);
-      lK(8,a,b) = lK(8,a,b) + w*(T2 + Tv) + afm*Ku;
+      lK(8,a,b) += w*(T2 + Tv) + afm*Ku;
 
       // dM_3/dV_2 + af/am *dM_3/dU_2
       //
@@ -1364,12 +1350,12 @@ void ustruct_3d_m(ComMod &com_mod, CepMod &cep_mod, const bool vmsFlag,
       T3   = Jac*rCl*(NxFi(2,a)*NxFi(1,b) - NxFi(1,a)*NxFi(2,b));
  
       Ku   = w*af*(T1 + T2 + T3 + BtDB + Kvis_u(7,a,b));
-      lKd(7,a,b) = lKd(7,a,b) + Ku;
+      lKd(7,a,b) += Ku;
  
       T2   = af*Jac*tauC*rho*NxFi(2,a)*NxFi(1,b);
       Tv   = af*Kvis_v(7,a,b);
 
-      lK(9,a,b) = lK(9,a,b) + w*(T2 + Tv) + afm*Ku;
+      lK(9,a,b) += w*(T2 + Tv) + afm*Ku;
 
       // dM_3/dV_3 + af/am *dM_3/dU_3
       //
@@ -1379,13 +1365,13 @@ void ustruct_3d_m(ComMod &com_mod, CepMod &cep_mod, const bool vmsFlag,
       T2   = -tauC*Jac*NxFi(2,a)*VxNx(2,b);
  
       Ku   = w*af*(T1 + T2 + BtDB + NxSNx + Kvis_u(8,a,b));
-      lKd(8,a,b) = lKd(8,a,b) + Ku;
+      lKd(8,a,b) += Ku;
  
       T1   = am*Jac*rho*Nw(a)*Nw(b);
       T2   = T1 + af*Jac*tauC*rho*NxFi(2,a)*NxFi(2,b);
       Tv   = af*Kvis_v(8,a,b);
 
-      lK(10,a,b) = lK(10,a,b) + w*(T2 + Tv) + afm*Ku;
+      lK(10,a,b) += w*(T2 + Tv) + afm*Ku;
     }
   }
 
@@ -1396,15 +1382,15 @@ void ustruct_3d_m(ComMod &com_mod, CepMod &cep_mod, const bool vmsFlag,
       // dM_0/dP
       T0 = am*tauC*beta + af*(tauC*dbeta*pd - 1.0);
       T1 = T0*NxFi(0,a)*Nq(b) + af*drho*vd(0)*Nw(a)*Nq(b);
-      lK(3,a,b) = lK(3,a,b) + w*Jac*T1;
+      lK(3,a,b) += w*Jac*T1;
 
       // dM_1/dP
       T1 = T0*NxFi(1,a)*Nq(b) + af*drho*vd(1)*Nw(a)*Nq(b);
-      lK(7,a,b) = lK(7,a,b) + w*Jac*T1;
+      lK(7,a,b) += w*Jac*T1;
 
       // dM_2/dP
       T1 = T0*NxFi(2,a)*Nq(b) + af*drho*vd(2)*Nw(a)*Nq(b);
-      lK(11,a,b) = lK(11,a,b) + w*Jac*T1;
+      lK(11,a,b) += w*Jac*T1;
     }
   }
 }
@@ -1424,12 +1410,12 @@ void ustruct_do_assem(ComMod& com_mod, const int d, const Vector<int>& eqN, cons
     // Momentum equation residual is assembled at mapped rows
     int rowN = idMap(eqN(a));
     for (int i = 0; i < nsd; i++) {
-      R(i,rowN) = R(i,rowN) + lR(i,a);
+      R(i,rowN) += lR(i,a);
     }
 
     // Continuity equation residual is assembled at unmapped rows
     rowN = eqN(a);
-    R(nsd,rowN) = R(nsd,rowN) + lR(nsd,a);
+    R(nsd,rowN) += lR(nsd,a);
   }
 
   if (nsd == 3) {
@@ -1450,9 +1436,9 @@ void ustruct_do_assem(ComMod& com_mod, const int d, const Vector<int>& eqN, cons
         }
 
         for (int i = 0; i < 3; i++) {
-          Val(i,ptr) = Val(i,ptr) + lK (i,a,b);
-          Val(i+4,ptr) = Val(i+4,ptr) + lK(i+4,a,b);
-          Val(i+8,ptr) = Val(i+8,ptr) + lK(i+8,a,b);
+          Val(i,ptr) += lK (i,a,b);
+          Val(i+4,ptr) += lK(i+4,a,b);
+          Val(i+8,ptr) += lK(i+8,a,b);
         }
       }
 
@@ -1460,9 +1446,9 @@ void ustruct_do_assem(ComMod& com_mod, const int d, const Vector<int>& eqN, cons
       for (int b = 0; b < d; b++) {
         int colN = eqN(b);
         int ptr = get_col_ptr(com_mod, rowN, colN);
-        Val(3 ,ptr) = Val(3 ,ptr) + lK(3 ,a,b);
-        Val(7 ,ptr) = Val(7 ,ptr) + lK(7 ,a,b);
-        Val(11,ptr) = Val(11,ptr) + lK(11,a,b);
+        Val(3 ,ptr) += lK(3 ,a,b);
+        Val(7 ,ptr) += lK(7 ,a,b);
+        Val(11,ptr) += lK(11,a,b);
       }
     }
 
@@ -1479,8 +1465,8 @@ void ustruct_do_assem(ComMod& com_mod, const int d, const Vector<int>& eqN, cons
         int ptr = get_col_ptr(com_mod, rowN, colN);
 
         for (int i = 0; i < 3; i++) {
-          Kd(i+9,ptr) = Kd(i+9,ptr) + lKd(i+9,a,b);
-          Val(i+12,ptr) = Val(i+12,ptr) + lK(i+12,a,b);
+          Kd(i+9,ptr) += lKd(i+9,a,b);
+          Val(i+12,ptr) += lK(i+12,a,b);
         }
       }
 
@@ -1489,7 +1475,7 @@ void ustruct_do_assem(ComMod& com_mod, const int d, const Vector<int>& eqN, cons
         int colN = eqN(b);
         int ptr = get_col_ptr(com_mod, rowN, colN);
 
-        Val(15,ptr) = Val(15,ptr) + lK(15,a,b);
+        Val(15,ptr) += lK(15,a,b);
       }
     }
 
@@ -1508,12 +1494,12 @@ void ustruct_do_assem(ComMod& com_mod, const int d, const Vector<int>& eqN, cons
         int ptr = get_col_ptr(com_mod, rowN, colN);
 
         for (int i = 0; i < 4; i++) {
-          Kd(i,ptr) = Kd(i,ptr) + lKd(i,a,b);
+          Kd(i,ptr) += lKd(i,a,b);
         }
 
         for (int i = 0; i < 2; i++) {
-          Val(i,ptr) = Val(i,ptr) + lK(i,a,b);
-          Val(i+3,ptr) = Val(i+3,ptr) + lK(i+3,a,b);
+          Val(i,ptr) += lK(i,a,b);
+          Val(i+3,ptr) += lK(i+3,a,b);
         }
       }
 
@@ -1522,8 +1508,8 @@ void ustruct_do_assem(ComMod& com_mod, const int d, const Vector<int>& eqN, cons
         int colN = eqN(b);
         int ptr = get_col_ptr(com_mod, rowN, colN);
 
-        Val(2,ptr) = Val(2,ptr) + lK(2,a,b);
-        Val(5,ptr) = Val(5,ptr) + lK(5,a,b);
+        Val(2,ptr) += lK(2,a,b);
+        Val(5,ptr) += lK(5,a,b);
       }
     }
 
@@ -1541,7 +1527,7 @@ void ustruct_do_assem(ComMod& com_mod, const int d, const Vector<int>& eqN, cons
 
         for (int i = 0; i < 2; i++) {
           Kd (i+4,ptr) = Kd(i+4,ptr) + lKd(i+4,a,b);
-          Val(i+6,ptr) = Val(i+6,ptr) + lK(i+6,a,b);
+          Val(i+6,ptr) += lK(i+6,a,b);
         }
       }
 
@@ -1549,7 +1535,7 @@ void ustruct_do_assem(ComMod& com_mod, const int d, const Vector<int>& eqN, cons
       for (int b = 0; b < d; b++) {
         int colN = eqN(b);
         int ptr = get_col_ptr(com_mod, rowN, colN);
-        Val(8,ptr) = Val(8,ptr) + lK(8,a,b);
+        Val(8,ptr) += lK(8,a,b);
       }
     }
   }
@@ -1621,10 +1607,10 @@ void ustruct_r(ComMod& com_mod, const SolutionStates& solutions)
         for (int i = rowPtr(a); i <= rowPtr(a+1)-1; i++) {
           int c = colPtr(i);
 
-          KU(0,a) = KU(0,a) + Kd(0 ,i)*Rd(0,c) + Kd(1 ,i)*Rd(1,c) + Kd(2 ,i)*Rd(2,c);
-          KU(1,a) = KU(1,a) + Kd(3 ,i)*Rd(0,c) + Kd(4 ,i)*Rd(1,c) + Kd(5 ,i)*Rd(2,c);
-          KU(2,a) = KU(2,a) + Kd(6 ,i)*Rd(0,c) + Kd(7 ,i)*Rd(1,c) + Kd(8 ,i)*Rd(2,c);
-          KU(3,a) = KU(3,a) + Kd(9,i)*Rd(0,c) + Kd(10,i)*Rd(1,c) + Kd(11,i)*Rd(2,c);
+          KU(0,a) += Kd(0 ,i)*Rd(0,c) + Kd(1 ,i)*Rd(1,c) + Kd(2 ,i)*Rd(2,c);
+          KU(1,a) += Kd(3 ,i)*Rd(0,c) + Kd(4 ,i)*Rd(1,c) + Kd(5 ,i)*Rd(2,c);
+          KU(2,a) += Kd(6 ,i)*Rd(0,c) + Kd(7 ,i)*Rd(1,c) + Kd(8 ,i)*Rd(2,c);
+          KU(3,a) += Kd(9,i)*Rd(0,c) + Kd(10,i)*Rd(1,c) + Kd(11,i)*Rd(2,c);
         }
       }
 
@@ -1646,9 +1632,9 @@ void ustruct_r(ComMod& com_mod, const SolutionStates& solutions)
 
         for (int i = rowPtr(a); i <= rowPtr(a+1); i++) {
           int c = colPtr(i);
-          KU(0,a) = KU(0,a) + Kd(0,i)*Rd(0,c) + Kd(1,i)*Rd(1,c);
-          KU(1,a) = KU(1,a) + Kd(2,i)*Rd(0,c) + Kd(3,i)*Rd(1,c);
-          KU(2,a) = KU(2,a) + Kd(4,i)*Rd(0,c) + Kd(5,i)*Rd(1,c);
+          KU(0,a) += Kd(0,i)*Rd(0,c) + Kd(1,i)*Rd(1,c);
+          KU(1,a) += Kd(2,i)*Rd(0,c) + Kd(3,i)*Rd(1,c);
+          KU(2,a) += Kd(4,i)*Rd(0,c) + Kd(5,i)*Rd(1,c);
         }
       }
 
