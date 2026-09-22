@@ -454,19 +454,16 @@ void ustruct_2d_c(ComMod& com_mod, CepMod& cep_mod, const bool vmsFlag, const in
   auto& dmn = eq.dmn[cDmn];
   const double dt = com_mod.dt;
 
-  Vector<double> fb(2);
-  fb[0] = dmn.prop[PhysicalPropertyType::f_x];
-  fb[1] = dmn.prop[PhysicalPropertyType::f_y];
-  fb[2] = dmn.prop[PhysicalPropertyType::f_z];
+  const Eigen::Vector2d fb{dmn.prop[PhysicalPropertyType::f_x],
+                           dmn.prop[PhysicalPropertyType::f_y]};
 
   double am = eq.am;
   double af = eq.af * eq.gam * dt;
   double afm = af / am;
 
-  // {i,j} := velocity dofs; {k} := pressure dof
+  // Velocity dofs start at i; k is the pressure dof.
   int i = eq.s;
-  int j = i + 1;
-  int k = j + 1;
+  int k = i + 2;
 
   #ifdef debug_ustruct_2d_c
   dmsg << "am: " << am;
@@ -482,11 +479,10 @@ void ustruct_2d_c(ComMod& com_mod, CepMod& cep_mod, const bool vmsFlag, const in
   const auto vel  = eigen_view(yl).middleRows<2>(i);  // nodal velocities
   const auto acc  = eigen_view(al).middleRows<2>(i);  // nodal accelerations
   const auto bfm  = eigen_view<2>(bfl);               // nodal body force
-  const auto fbv  = eigen_view<2>(fb);                // domain body force, constant over the element
 
   // Velocity, and the inertia less body force, at this Gauss point
   const Eigen::Vector2d v  = vel * Nwm;
-  const Eigen::Vector2d vd = (acc - bfm) * Nwm - fbv;
+  const Eigen::Vector2d vd = (acc - bfm) * Nwm - fb;
 
   // Velocity and deformation gradients: Grad(v) and F = I + Grad(u)
   const Matrix<2> vx = vel * Nwxm.transpose();
@@ -625,20 +621,17 @@ void ustruct_3d_c(ComMod& com_mod, CepMod& cep_mod, const bool vmsFlag, const in
   auto& dmn = eq.dmn[cDmn];
   const double dt = com_mod.dt;
 
-  Vector<double> fb(3);
-  fb[0] = dmn.prop[PhysicalPropertyType::f_x];
-  fb[1] = dmn.prop[PhysicalPropertyType::f_y];
-  fb[2] = dmn.prop[PhysicalPropertyType::f_z];
+  const Eigen::Vector3d fb{dmn.prop[PhysicalPropertyType::f_x],
+                           dmn.prop[PhysicalPropertyType::f_y],
+                           dmn.prop[PhysicalPropertyType::f_z]};
 
   double am = eq.am;
   double af = eq.af * eq.gam * dt;
   double afm = af / am;
 
-  // {i,j} := velocity dofs; {k} := pressure dof
+  // Velocity dofs start at i; l is the pressure dof.
   int i = eq.s;
-  int j = i + 1;
-  int k = j + 1;
-  int l = k + 1;
+  int l = i + 3;
 
   #ifdef debug_ustruct_3d_c
   dmsg << "am: " << am;
@@ -654,11 +647,10 @@ void ustruct_3d_c(ComMod& com_mod, CepMod& cep_mod, const bool vmsFlag, const in
   const auto vel  = eigen_view(yl).middleRows<3>(i);  // nodal velocities
   const auto acc  = eigen_view(al).middleRows<3>(i);  // nodal accelerations
   const auto bfm  = eigen_view<3>(bfl);               // nodal body force
-  const auto fbv  = eigen_view<3>(fb);                // domain body force, constant over the element
 
   // Velocity, and the inertia less body force, at this Gauss point
   const Eigen::Vector3d v  = vel * Nwm;
-  const Eigen::Vector3d vd = (acc - bfm) * Nwm - fbv;
+  const Eigen::Vector3d vd = (acc - bfm) * Nwm - fb;
 
   // Velocity and deformation gradients: Grad(v) and F = I + Grad(u)
   const Matrix<3> vx = vel * Nwxm.transpose();
@@ -814,18 +806,16 @@ void ustruct_2d_m(ComMod &com_mod, CepMod &cep_mod, const bool vmsFlag,
 
   // Define parameters
   //
-  Vector<double> fb(2);
-  fb[0] = dmn.prop[PhysicalPropertyType::f_x];
-  fb[1] = dmn.prop[PhysicalPropertyType::f_y];
+  const Eigen::Vector2d fb{dmn.prop[PhysicalPropertyType::f_x],
+                           dmn.prop[PhysicalPropertyType::f_y]};
 
   double am = eq.am;
   double af = eq.af * eq.gam * dt;
   double afm = af / am;
 
-  // {i,j} := velocity dofs; {k} := pressure dof
+  // Velocity dofs start at i; k is the pressure dof.
   int i = eq.s;
-  int j = i + 1;
-  int k = j + 1;
+  int k = i + 2;
 
   #ifdef debug_ustruct_2d_m
   dmsg << "am: " << am;
@@ -834,10 +824,6 @@ void ustruct_2d_m(ComMod &com_mod, CepMod &cep_mod, const bool vmsFlag,
   dmsg << "i: " << i;
   #endif
 
-  double ya_g_f;
-  double ya_g_s;
-  double ya_g_n;
-
   // This element's nodal fields, as Eigen views over the caller's storage
   const auto Nwxm = eigen_view<2>(Nwx);               // grad(N_a) per column
   const auto Nwm  = eigen_view(Nw);                   // shape functions
@@ -845,17 +831,16 @@ void ustruct_2d_m(ComMod &com_mod, CepMod &cep_mod, const bool vmsFlag,
   const auto vel  = eigen_view(yl).middleRows<2>(i);  // nodal velocities
   const auto acc  = eigen_view(al).middleRows<2>(i);  // nodal accelerations
   const auto bfm  = eigen_view<2>(bfl);               // nodal body force
-  const auto fbv  = eigen_view<2>(fb);                // domain body force, constant over the element
   auto       lRv  = eigen_view_mut(lR).topRows<2>();  // rows this kernel adds to
 
   // Velocity, and the inertia less body force, at this Gauss point
   const Eigen::Vector2d v  = vel * Nwm;
-  const Eigen::Vector2d vd = (acc - bfm) * Nwm - fbv;
+  const Eigen::Vector2d vd = (acc - bfm) * Nwm - fb;
 
   // Active stress activation along fiber, sheet and sheet-normal
-  ya_g_f = eigen_view(ya_l_f).dot(Nwm);
-  ya_g_s = eigen_view(ya_l_s).dot(Nwm);
-  ya_g_n = eigen_view(ya_l_n).dot(Nwm);
+  const double ya_g_f = eigen_view(ya_l_f).dot(Nwm);
+  const double ya_g_s = eigen_view(ya_l_s).dot(Nwm);
+  const double ya_g_n = eigen_view(ya_l_n).dot(Nwm);
 
   // Velocity and deformation gradients: Grad(v) and F = I + Grad(u)
   const Matrix<2> vx = vel * Nwxm.transpose();
@@ -1076,20 +1061,17 @@ void ustruct_3d_m(ComMod &com_mod, CepMod &cep_mod, const bool vmsFlag,
 
   // Define parameters
 
-  Vector<double> fb(3);
-  fb[0] = dmn.prop[PhysicalPropertyType::f_x];
-  fb[1] = dmn.prop[PhysicalPropertyType::f_y];
-  fb[2] = dmn.prop[PhysicalPropertyType::f_z];
+  const Eigen::Vector3d fb{dmn.prop[PhysicalPropertyType::f_x],
+                           dmn.prop[PhysicalPropertyType::f_y],
+                           dmn.prop[PhysicalPropertyType::f_z]};
 
   double am = eq.am;
   double af = eq.af * eq.gam * dt;
   double afm = af / am;
 
-  // {i,j} := velocity dofs; {k} := pressure dof
+  // Velocity dofs start at i; l is the pressure dof.
   int i = eq.s;
-  int j = i + 1;
-  int k = j + 1;
-  int l = k + 1;
+  int l = i + 3;
 
   #ifdef debug_ustruct_3d_m
   dmsg << "fb: " << fb;
@@ -1099,10 +1081,6 @@ void ustruct_3d_m(ComMod &com_mod, CepMod &cep_mod, const bool vmsFlag,
   dmsg << "i: " << i;
   #endif
 
-  double ya_g_f;
-  double ya_g_s;
-  double ya_g_n;
-
   // This element's nodal fields, as Eigen views over the caller's storage
   const auto Nwxm = eigen_view<3>(Nwx);               // grad(N_a) per column
   const auto Nwm  = eigen_view(Nw);                   // shape functions
@@ -1110,17 +1088,16 @@ void ustruct_3d_m(ComMod &com_mod, CepMod &cep_mod, const bool vmsFlag,
   const auto vel  = eigen_view(yl).middleRows<3>(i);  // nodal velocities
   const auto acc  = eigen_view(al).middleRows<3>(i);  // nodal accelerations
   const auto bfm  = eigen_view<3>(bfl);               // nodal body force
-  const auto fbv  = eigen_view<3>(fb);                // domain body force, constant over the element
   auto       lRv  = eigen_view_mut(lR).topRows<3>();  // rows this kernel adds to
 
   // Velocity, and the inertia less body force, at this Gauss point
   const Eigen::Vector3d v  = vel * Nwm;
-  const Eigen::Vector3d vd = (acc - bfm) * Nwm - fbv;
+  const Eigen::Vector3d vd = (acc - bfm) * Nwm - fb;
 
   // Active stress activation along fiber, sheet and sheet-normal
-  ya_g_f = eigen_view(ya_l_f).dot(Nwm);
-  ya_g_s = eigen_view(ya_l_s).dot(Nwm);
-  ya_g_n = eigen_view(ya_l_n).dot(Nwm);
+  const double ya_g_f = eigen_view(ya_l_f).dot(Nwm);
+  const double ya_g_s = eigen_view(ya_l_s).dot(Nwm);
+  const double ya_g_n = eigen_view(ya_l_n).dot(Nwm);
 
   // Velocity and deformation gradients: Grad(v) and F = I + Grad(u)
   const Matrix<3> vx = vel * Nwxm.transpose();

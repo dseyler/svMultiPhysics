@@ -386,25 +386,20 @@ void struct_2d(ComMod &com_mod, CepMod &cep_mod, const int eNoN, const int nFn,
   //
   double rho = dmn.prop.at(PhysicalPropertyType::solid_density);
   double dmp = dmn.prop.at(PhysicalPropertyType::damping);
-  Vector<double> fb({dmn.prop.at(PhysicalPropertyType::f_x), dmn.prop.at(PhysicalPropertyType::f_y)});
+  const Eigen::Vector2d fb{dmn.prop.at(PhysicalPropertyType::f_x),
+                           dmn.prop.at(PhysicalPropertyType::f_y)};
   double afu = eq.af * eq.beta*dt*dt;
   double afv = eq.af * eq.gam*dt;
   double amd = eq.am * rho  +  eq.af * eq.gam * dt * dmp;
   double afl = eq.af * eq.beta * dt * dt;
 
   int i = eq.s;
-  int j = i + 1;
   #ifdef debug_struct_2d 
   dmsg << "i: " << i;
-  dmsg << "j: " << j;
   dmsg << "amd: " << amd;
   dmsg << "afl: " << afl;
   dmsg << "w: " << w;
   #endif
-
-  double ya_g_f;
-  double ya_g_s;
-  double ya_g_n;
 
   // This element's nodal fields, as Eigen views over the caller's storage
   const auto Nxm  = eigen_view<2>(Nx);                // grad(N_a) per column
@@ -413,16 +408,15 @@ void struct_2d(ComMod &com_mod, CepMod &cep_mod, const int eNoN, const int nFn,
   const auto vel  = eigen_view(yl).middleRows<2>(i);  // nodal velocities
   const auto acc  = eigen_view(al).middleRows<2>(i);  // nodal accelerations
   const auto bfm  = eigen_view<2>(bfl);               // nodal body force
-  const auto fbv  = eigen_view<2>(fb);                // domain body force, constant over the element
   auto       lRv  = eigen_view_mut(lR).topRows<2>();  // rows this kernel adds to
 
   // Inertia, damping and body force: the term the residual weights with N
-  const Eigen::Vector2d ud = (rho*(acc - bfm) + dmp*vel) * Nm - rho * fbv;
+  const Eigen::Vector2d ud = (rho*(acc - bfm) + dmp*vel) * Nm - rho * fb;
 
   // Active stress activation along fiber, sheet and sheet-normal
-  ya_g_f = eigen_view(ya_l_f).dot(Nm);
-  ya_g_s = eigen_view(ya_l_s).dot(Nm);
-  ya_g_n = eigen_view(ya_l_n).dot(Nm);
+  const double ya_g_f = eigen_view(ya_l_f).dot(Nm);
+  const double ya_g_s = eigen_view(ya_l_s).dot(Nm);
+  const double ya_g_n = eigen_view(ya_l_n).dot(Nm);
 
   // Prestress at this Gauss point: interpolate pS0l, held in Voigt
   // order [11, 22, 12], into the three independent components of S0.
@@ -433,6 +427,9 @@ void struct_2d(ComMod &com_mod, CepMod &cep_mod, const int eNoN, const int nFn,
     S0(1,1) += N(a)*pS0l(1,a);
     S0(0,1) += N(a)*pS0l(2,a);
   }
+
+  S0(1,0) = S0(0,1);
+  
   #ifdef debug_struct_2d 
   dmsg << "ud: " << ud(0) << " " << ud(1);
   dmsg << "F: " << F(0,0);
@@ -440,8 +437,6 @@ void struct_2d(ComMod &com_mod, CepMod &cep_mod, const int eNoN, const int nFn,
   dmsg << "ya_g_s: " << ya_g_s;
   dmsg << "ya_g_n: " << ya_g_n;
 #endif
-
-  S0(1,0) = S0(0,1);
 
   // Velocity and deformation gradients: Grad(v) and F = I + Grad(u)
   const Matrix<2> vx = vel * Nxm.transpose();
@@ -578,9 +573,9 @@ void struct_3d(ComMod &com_mod, CepMod &cep_mod, const int eNoN, const int nFn,
   //
   double rho = dmn.prop.at(PhysicalPropertyType::solid_density);
   double dmp = dmn.prop.at(PhysicalPropertyType::damping);
-  Vector<double> fb({dmn.prop.at(PhysicalPropertyType::f_x), 
-                     dmn.prop.at(PhysicalPropertyType::f_y), 
-                     dmn.prop.at(PhysicalPropertyType::f_z)});
+  const Eigen::Vector3d fb{dmn.prop.at(PhysicalPropertyType::f_x),
+                           dmn.prop.at(PhysicalPropertyType::f_y),
+                           dmn.prop.at(PhysicalPropertyType::f_z)};
 
   double afu = eq.af * eq.beta*dt*dt;
   double afv = eq.af * eq.gam*dt;
@@ -595,17 +590,6 @@ void struct_3d(ComMod &com_mod, CepMod &cep_mod, const int eNoN, const int nFn,
   #endif
 
   int i = eq.s;
-  int j = i + 1;
-  int k = j + 1;
-
-  double F_f[3][3]={}; 
-  F_f[0][0] = 1.0;
-  F_f[1][1] = 1.0;
-  F_f[2][2] = 1.0;
-
-  double ya_g_f;
-  double ya_g_s;
-  double ya_g_n;
 
   // This element's nodal fields, as Eigen views over the caller's storage
   const auto Nxm  = eigen_view<3>(Nx);                // grad(N_a) per column
@@ -614,16 +598,15 @@ void struct_3d(ComMod &com_mod, CepMod &cep_mod, const int eNoN, const int nFn,
   const auto vel  = eigen_view(yl).middleRows<3>(i);  // nodal velocities
   const auto acc  = eigen_view(al).middleRows<3>(i);  // nodal accelerations
   const auto bfm  = eigen_view<3>(bfl);               // nodal body force
-  const auto fbv  = eigen_view<3>(fb);                // domain body force, constant over the element
   auto       lRv  = eigen_view_mut(lR).topRows<3>();  // rows this kernel adds to
 
   // Inertia, damping and body force: the term the residual weights with N
-  const Eigen::Vector3d ud = (rho*(acc - bfm) + dmp*vel) * Nm - rho * fbv;
+  const Eigen::Vector3d ud = (rho*(acc - bfm) + dmp*vel) * Nm - rho * fb;
 
   // Active stress activation along fiber, sheet and sheet-normal
-  ya_g_f = eigen_view(ya_l_f).dot(Nm);
-  ya_g_s = eigen_view(ya_l_s).dot(Nm);
-  ya_g_n = eigen_view(ya_l_n).dot(Nm);
+  const double ya_g_f = eigen_view(ya_l_f).dot(Nm);
+  const double ya_g_s = eigen_view(ya_l_s).dot(Nm);
+  const double ya_g_n = eigen_view(ya_l_n).dot(Nm);
 
   // Prestress at this Gauss point: interpolate pS0l, held in Voigt
   // order [11, 22, 33, 12, 23, 31], into the six independent components of S0.
@@ -647,7 +630,7 @@ void struct_3d(ComMod &com_mod, CepMod &cep_mod, const int eNoN, const int nFn,
   const Matrix<3> F  = Matrix<3>::Identity() + disp * Nxm.transpose();
 
   // 2nd Piola-Kirchhoff tensor (S) and material stiffness tensor in
-  // Voigt notationa (Dm)
+  // Voigt notation (Dm)
   //
   Matrix<3> S;
   Matrix<6> Dm;
