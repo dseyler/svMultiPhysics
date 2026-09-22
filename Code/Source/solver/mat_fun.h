@@ -34,6 +34,10 @@ namespace mat_fun {
     template <int nsd>
     using NodalMatrix = Eigen::Matrix<double, nsd, Eigen::Dynamic, 0, nsd, consts::maxNoN>;
 
+    /// @brief One scalar per element node. Stack allocated, so the entry count
+    /// is bounded by the largest element the solver supports.
+    using NodalVector = Eigen::Matrix<double, Eigen::Dynamic, 1, 0, consts::maxNoN, 1>;
+
     /// @brief Read-only Eigen view of an Array, sharing its storage.
     ///
     /// The Array must outlive the view.

@@ -553,20 +553,15 @@ void ustruct_2d_c(ComMod& com_mod, CepMod& cep_mod, const bool vmsFlag, const in
 
   // Local residual
   //
-  Vector<double> rMNqx(eNoNq);
+  const NodalVector rMNqx = NqxFi.transpose() * eigen_view<2>(rM);
 
   for (int a = 0; a < eNoNq; a++) {
-    rMNqx(a) = rM(0)*NqxFi(0,a) + rM(1)*NqxFi(1,a);
     lR(2,a) = lR(2,a) + w*Jac*(Nq(a)*rC + tauM*rMNqx(a));
   }
 
   const NodalMatrix<2> VxNwx = VxFi.transpose() * NwxFi;
 
-  Vector<double> rMNwx(eNoNw);
-
-  for (int a = 0; a < eNoNw; a++) {
-    rMNwx(a) = rM(0)*NwxFi(0,a) + rM(1)*NwxFi(1,a);
-  }
+  const NodalVector rMNwx = NwxFi.transpose() * eigen_view<2>(rM);
 
   // Tangent (stiffness) matrices
   //
@@ -757,20 +752,15 @@ void ustruct_3d_c(ComMod& com_mod, CepMod& cep_mod, const bool vmsFlag, const in
 
   // Local residual
   //
-  Vector<double> rMNqx(eNoNq);
+  const NodalVector rMNqx = NqxFi.transpose() * eigen_view<3>(rM);
 
   for (int a = 0; a < eNoNq; a++) {
-    rMNqx(a) = rM(0)*NqxFi(0,a) + rM(1)*NqxFi(1,a) + rM(2)*NqxFi(2,a);
     lR(3,a) = lR(3,a) + w*Jac*(Nq(a)*rC + tauM*rMNqx(a));
   }
 
   const NodalMatrix<3> VxNwx = VxFi.transpose() * NwxFi;
 
-  Vector<double> rMNwx(eNoNw);
-
-  for (int a = 0; a < eNoNw; a++) {
-    rMNwx(a) = rM(0)*NwxFi(0,a) + rM(1)*NwxFi(1,a) + rM(2)*NwxFi(2,a);
-  }
+  const NodalVector rMNwx = NwxFi.transpose() * eigen_view<3>(rM);
 
   // Tangent (stiffness) matrices
   //
