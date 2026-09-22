@@ -512,8 +512,6 @@ void struct_2d(ComMod &com_mod, CepMod &cep_mod, const int eNoN, const int nFn,
     Bm[a](2,1) = (Nx(0,a)*F(1,1) + F(1,0)*Nx(1,a));
   }
 
-  Array<double> NxFi(2,eNoN), DdNx(2,eNoN), VxNx(2,eNoN);
-
   // Local stiffness tensor
   double T1, NxNx, NxSNx, BmDBm;
 

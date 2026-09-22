@@ -1559,12 +1559,6 @@ void g_vol_pen(const ComMod& com_mod, const dmnType& lDmn, const double p,
 
 namespace {
 
-/// @brief A quantity carrying one nsd-vector per element node, so nsd x eNoN.
-///
-template <int nsd>
-using NodalMatrix =
-    Eigen::Matrix<double, nsd, Eigen::Dynamic, 0, nsd, consts::maxNoN>;
-
 /**
  * @brief Viscous PK2 stress and tangent contributions for the viscous
  * pseudo-potential model.

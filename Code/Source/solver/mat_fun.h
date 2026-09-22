@@ -9,6 +9,7 @@
 #include <stdexcept>
 
 #include "Array.h"
+#include "consts.h"
 #include "Tensor4.h"
 #include "Vector.h"
 #include "FE/Common/FEException.h"
@@ -28,6 +29,11 @@ namespace mat_fun {
     template<int nsd>
     using Tensor = Eigen::TensorFixedSize<double, Eigen::Sizes<nsd, nsd, nsd, nsd>>;
 
+    /// @brief One nsd-vector per element node, so nsd x eNoN. Stack allocated,
+    /// so the column count is bounded by the largest element the solver supports.
+    template <int nsd>
+    using NodalMatrix = Eigen::Matrix<double, nsd, Eigen::Dynamic, 0, nsd, consts::maxNoN>;
+
     /// @brief Read-only Eigen view of an Array, sharing its storage.
     ///
     /// The Array must outlive the view.
@@ -42,6 +48,22 @@ namespace mat_fun {
               std::to_string(A.nrows()) + " rows.");
         }
         return {A.data(), rows, A.ncols()};
+    }
+
+    /// @brief Read-only Eigen view of a Vector, sharing its storage.
+    ///
+    /// The Vector must outlive the view.
+    ///
+    /// @tparam rows Entry count, fixed at compile time.
+    template <int rows>
+    Eigen::Map<const Eigen::Matrix<double, rows, 1>>
+    eigen_view(const Vector<double>& v) {
+        if (v.size() != rows) {
+          svmp::raise<svmp::FE::InvalidArgumentException>(
+              "A view of " + std::to_string(rows) + " entries was requested for a vector with " +
+              std::to_string(v.size()) + " entries.");
+        }
+        return Eigen::Map<const Eigen::Matrix<double, rows, 1>>(v.data());
     }
 
     // Function to convert Array<double> to Eigen::Matrix

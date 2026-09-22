@@ -537,25 +537,13 @@ void ustruct_2d_c(ComMod& com_mod, CepMod& cep_mod, const bool vmsFlag, const in
     tauC = 0.0;
   }
 
-  Array<double> NwxFi(2,eNoNw);
+  const NodalMatrix<2> NwxFi = Fi.transpose() * eigen_view<2>(Nwx);
 
-  for (int a = 0; a < eNoNw; a++) {
-    NwxFi(0,a) = Nwx(0,a)*Fi(0,0) + Nwx(1,a)*Fi(1,0);
-    NwxFi(1,a) = Nwx(0,a)*Fi(0,1) + Nwx(1,a)*Fi(1,1);
-  }
-
-  Array<double> NqxFi(2,eNoNw);
-
-  for (int a = 0; a < eNoNq; a++) {
-    NqxFi(0,a) = Nqx(0,a)*Fi(0,0) + Nqx(1,a)*Fi(1,0);
-    NqxFi(1,a) = Nqx(0,a)*Fi(0,1) + Nqx(1,a)*Fi(1,1);
-  }
+  const NodalMatrix<2> NqxFi = Fi.transpose() * eigen_view<2>(Nqx);
 
   const Matrix<2> VxFi = vx * Fi;
 
-  Vector<double> PxFi(2);
-  PxFi(0) = px(0)*Fi(0,0) + px(1)*Fi(1,0);
-  PxFi(1) = px(0)*Fi(0,1) + px(1)*Fi(1,1);
+  const Eigen::Vector2d PxFi = Fi.transpose() * eigen_view<2>(px);
 
   double rC  = beta*pd + VxFi(0,0) + VxFi(1,1);
 
@@ -572,13 +560,12 @@ void ustruct_2d_c(ComMod& com_mod, CepMod& cep_mod, const bool vmsFlag, const in
     lR(2,a) = lR(2,a) + w*Jac*(Nq(a)*rC + tauM*rMNqx(a));
   }
 
+  const NodalMatrix<2> VxNwx = VxFi.transpose() * NwxFi;
+
   Vector<double> rMNwx(eNoNw);
-  Array<double> VxNwx(3,eNoNw);
 
   for (int a = 0; a < eNoNw; a++) {
     rMNwx(a) = rM(0)*NwxFi(0,a) + rM(1)*NwxFi(1,a);
-    VxNwx(0,a) = VxFi(0,0)*NwxFi(0,a) + VxFi(1,0)*NwxFi(1,a);
-    VxNwx(1,a) = VxFi(0,1)*NwxFi(0,a) + VxFi(1,1)*NwxFi(1,a);
   }
 
   // Tangent (stiffness) matrices
@@ -753,28 +740,13 @@ void ustruct_3d_c(ComMod& com_mod, CepMod& cep_mod, const bool vmsFlag, const in
     tauC = 0.0;
   }
 
-  Array<double> NwxFi(3,eNoNw);
+  const NodalMatrix<3> NwxFi = Fi.transpose() * eigen_view<3>(Nwx);
 
-  for (int a = 0; a < eNoNw; a++) {
-    NwxFi(0,a) = Nwx(0,a)*Fi(0,0) + Nwx(1,a)*Fi(1,0) + Nwx(2,a)*Fi(2,0);
-    NwxFi(1,a) = Nwx(0,a)*Fi(0,1) + Nwx(1,a)*Fi(1,1) + Nwx(2,a)*Fi(2,1);
-    NwxFi(2,a) = Nwx(0,a)*Fi(0,2) + Nwx(1,a)*Fi(1,2) + Nwx(2,a)*Fi(2,2);
-  }
-
-  Array<double> NqxFi(3,eNoNw);
-
-  for (int a = 0; a < eNoNq; a++) {
-    NqxFi(0,a) = Nqx(0,a)*Fi(0,0) + Nqx(1,a)*Fi(1,0) + Nqx(2,a)*Fi(2,0);
-    NqxFi(1,a) = Nqx(0,a)*Fi(0,1) + Nqx(1,a)*Fi(1,1) + Nqx(2,a)*Fi(2,1);
-    NqxFi(2,a) = Nqx(0,a)*Fi(0,2) + Nqx(1,a)*Fi(1,2) + Nqx(2,a)*Fi(2,2);
-  }
+  const NodalMatrix<3> NqxFi = Fi.transpose() * eigen_view<3>(Nqx);
 
   const Matrix<3> VxFi = vx * Fi;
 
-  Vector<double> PxFi(3);
-  PxFi(0) = px(0)*Fi(0,0) + px(1)*Fi(1,0) + px(2)*Fi(2,0);
-  PxFi(1) = px(0)*Fi(0,1) + px(1)*Fi(1,1) + px(2)*Fi(2,1);
-  PxFi(2) = px(0)*Fi(0,2) + px(1)*Fi(1,2) + px(2)*Fi(2,2);
+  const Eigen::Vector3d PxFi = Fi.transpose() * eigen_view<3>(px);
 
   double rC  = beta*pd + VxFi(0,0) + VxFi(1,1) + VxFi(2,2);
 
@@ -792,14 +764,12 @@ void ustruct_3d_c(ComMod& com_mod, CepMod& cep_mod, const bool vmsFlag, const in
     lR(3,a) = lR(3,a) + w*Jac*(Nq(a)*rC + tauM*rMNqx(a));
   }
 
+  const NodalMatrix<3> VxNwx = VxFi.transpose() * NwxFi;
+
   Vector<double> rMNwx(eNoNw);
-  Array<double> VxNwx(3,eNoNw);
 
   for (int a = 0; a < eNoNw; a++) {
     rMNwx(a) = rM(0)*NwxFi(0,a) + rM(1)*NwxFi(1,a) + rM(2)*NwxFi(2,a);
-    VxNwx(0,a) = VxFi(0,0)*NwxFi(0,a) + VxFi(1,0)*NwxFi(1,a) + VxFi(2,0)*NwxFi(2,a);
-    VxNwx(1,a) = VxFi(0,1)*NwxFi(0,a) + VxFi(1,1)*NwxFi(1,a) + VxFi(2,1)*NwxFi(2,a);
-    VxNwx(2,a) = VxFi(0,2)*NwxFi(0,a) + VxFi(1,2)*NwxFi(1,a) + VxFi(2,2)*NwxFi(2,a);
   }
 
   // Tangent (stiffness) matrices
@@ -1007,12 +977,7 @@ void ustruct_2d_m(ComMod &com_mod, CepMod &cep_mod, const bool vmsFlag,
 
   // Shape function gradients in the current configuration
   //
-  Array<double> NxFi(2,eNoNw);
-
-  for (int a = 0; a < eNoNw; a++) {
-    NxFi(0,a) = Nwx(0,a)*Fi(0,0) + Nwx(1,a)*Fi(1,0);
-    NxFi(1,a) = Nwx(0,a)*Fi(0,1) + Nwx(1,a)*Fi(1,1);
-  }
+  const NodalMatrix<2> NxFi = Fi.transpose() * eigen_view<2>(Nwx);
 
    // Velocity gradient in current configuration
   const Matrix<2> VxFi = vx * Fi;
@@ -1048,12 +1013,7 @@ void ustruct_2d_m(ComMod &com_mod, CepMod &cep_mod, const bool vmsFlag,
     Bm[a](2,1) = Nwx(0,a)*F(1,1) + F(1,0)*Nwx(1,a);
   }
 
-  Array<double> VxNx(2,eNoNw);
-
-  for (int a = 0; a < eNoNw; a++) {
-    VxNx(0,a) = VxFi(0,0)*NxFi(0,a) + VxFi(1,0)*NxFi(1,a);
-    VxNx(1,a) = VxFi(0,1)*NxFi(0,a) + VxFi(1,1)*NxFi(1,a);
-  }
+  const NodalMatrix<2> VxNx = VxFi.transpose() * NxFi;
 
   // Tangent (stiffness) matrices
   //
@@ -1318,13 +1278,7 @@ void ustruct_3d_m(ComMod &com_mod, CepMod &cep_mod, const bool vmsFlag,
 
   // Shape function gradients in the current configuration
   //
-  Array<double> NxFi(3,eNoNw);
-
-  for (int a = 0; a < eNoNw; a++) {
-    NxFi(0,a) = Nwx(0,a)*Fi(0,0) + Nwx(1,a)*Fi(1,0) + Nwx(2,a)*Fi(2,0);
-    NxFi(1,a) = Nwx(0,a)*Fi(0,1) + Nwx(1,a)*Fi(1,1) + Nwx(2,a)*Fi(2,1);
-    NxFi(2,a) = Nwx(0,a)*Fi(0,2) + Nwx(1,a)*Fi(1,2) + Nwx(2,a)*Fi(2,2);
-  } 
+  const NodalMatrix<3> NxFi = Fi.transpose() * eigen_view<3>(Nwx);
 
   // Velocity gradient in current configuration
   const Matrix<3> VxFi = vx * Fi;
@@ -1382,13 +1336,7 @@ void ustruct_3d_m(ComMod &com_mod, CepMod &cep_mod, const bool vmsFlag,
     Bm[a](5,2) = (Nwx(2,a)*F(2,0) + F(2,2)*Nwx(0,a));
   }
 
-  Array<double> VxNx(3,eNoNw);
-
-  for (int a = 0; a < eNoNw; a++) {
-    VxNx(0,a) = VxFi(0,0)*NxFi(0,a) + VxFi(1,0)*NxFi(1,a) + VxFi(2,0)*NxFi(2,a);
-    VxNx(1,a) = VxFi(0,1)*NxFi(0,a) + VxFi(1,1)*NxFi(1,a) + VxFi(2,1)*NxFi(2,a);
-    VxNx(2,a) = VxFi(0,2)*NxFi(0,a) + VxFi(1,2)*NxFi(1,a) + VxFi(2,2)*NxFi(2,a);
-  }
+  const NodalMatrix<3> VxNx = VxFi.transpose() * NxFi;
 
   // Tangent (stiffness) matrices
   //
