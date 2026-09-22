@@ -20,6 +20,7 @@ namespace mat_models {
 using mat_fun::Matrix;
 using mat_fun::Tensor;
 using mat_fun::NodalMatrix;
+using mat_fun::eigen_view;
 
 void actv_strain(const ComMod& com_mod, const CepMod& cep_mod, const double gf,
     const int nfd, const Array<double>& fl, Array<double>& Fa);

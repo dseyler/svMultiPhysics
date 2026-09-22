@@ -1586,7 +1586,7 @@ void compute_visc_stress_potential(const double mu, const int eNoN, const Array<
                            const Matrix<nsd>& vx, const Matrix<nsd>& F,
                            Matrix<nsd>& Svis, Array3<double>& Kvis_u, Array3<double>& Kvis_v) {
 
-    Eigen::Map<const NodalMatrix<nsd>> Nx_map(Nx.data(), nsd, eNoN);
+    const auto Nxm = eigen_view<nsd>(Nx);
 
     // Required intermediate terms for stress and tangent
     const Matrix<nsd> F_Ft  = F * F.transpose();
@@ -1594,8 +1594,8 @@ void compute_visc_stress_potential(const double mu, const int eNoN, const Array<
     const Matrix<nsd> F_vxt = F * vx.transpose();
 
     // F_Nx(i,a) = sum_j F(i,j) * Nx(j,a), and likewise for vx.
-    const NodalMatrix<nsd> F_Nx  = F  * Nx_map;
-    const NodalMatrix<nsd> vx_Nx = vx * Nx_map;
+    const NodalMatrix<nsd> F_Nx  = F  * Nxm;
+    const NodalMatrix<nsd> vx_Nx = vx * Nxm;
 
     // 2nd Piola-Kirchhoff stress due to viscosity
     // Svis = mu * 1/2 * ( (F^T * dv/dX) + (F^T * dv/dX)^T )
@@ -1604,10 +1604,7 @@ void compute_visc_stress_potential(const double mu, const int eNoN, const Array<
     // Tangent matrix contributions due to viscosity
     for (int b = 0; b < eNoN; ++b) {
         for (int a = 0; a < eNoN; ++a) {
-            double Nx_Nx = 0.0;
-            for (int i = 0; i < nsd; ++i) {
-                Nx_Nx += Nx(i,a) * Nx(i,b);
-            }
+            const double Nx_Nx = Nxm.col(a).dot(Nxm.col(b));
 
             for (int i = 0; i < nsd; ++i) {
                 for (int j = 0; j < nsd; ++j) {
@@ -1648,10 +1645,9 @@ void compute_visc_stress_newtonian(const double mu, const int eNoN, const Array<
                            const Matrix<nsd>& vx, const Matrix<nsd>& F,
                            Matrix<nsd>& Svis, Array3<double>& Kvis_u, Array3<double>& Kvis_v) {
     
-    Eigen::Map<const NodalMatrix<nsd>> Nx_map(Nx.data(), nsd, eNoN);
+    const auto Nxm = eigen_view<nsd>(Nx);
 
     // Get identity matrix, Jacobian, and F^-1
-    const auto Idm = Matrix<nsd>::Identity();
     const double J = F.determinant();
     const Matrix<nsd> Fi = F.inverse();
 
@@ -1662,7 +1658,7 @@ void compute_visc_stress_newtonian(const double mu, const int eNoN, const Array<
     const Matrix<nsd> ddev = mat_fun::mat_dev<nsd>(vx_Fi_symm);
 
     // Nx_Fi(i,a) = sum_j Nx(j,a) * Fi(j,i), which is Fi^T * Nx.
-    const NodalMatrix<nsd> Nx_Fi       = Fi.transpose() * Nx_map;
+    const NodalMatrix<nsd> Nx_Fi       = Fi.transpose() * Nxm;
     const NodalMatrix<nsd> ddev_Nx_Fi  = ddev  * Nx_Fi;
     const NodalMatrix<nsd> vx_Fi_Nx_Fi = vx_Fi * Nx_Fi;
 
@@ -1674,10 +1670,7 @@ void compute_visc_stress_newtonian(const double mu, const int eNoN, const Array<
     constexpr double r2d = 2.0 / nsd;
     for (int b = 0; b < eNoN; ++b) {
         for (int a = 0; a < eNoN; ++a) {
-            double Nx_Fi_Nx_Fi = 0.0;
-            for (int i = 0; i < nsd; ++i) {
-                Nx_Fi_Nx_Fi += Nx_Fi(i,a) * Nx_Fi(i,b);
-            }
+            const double Nx_Fi_Nx_Fi = Nx_Fi.col(a).dot(Nx_Fi.col(b));
 
             for (int i = 0; i < nsd; ++i) {
                 for (int j = 0; j < nsd; ++j) {
@@ -1690,7 +1683,7 @@ void compute_visc_stress_newtonian(const double mu, const int eNoN, const Array<
                                     r2d * Nx_Fi(i,a) * vx_Fi_Nx_Fi(j,b)));
 
                     // Derivative of the residual w.r.t velocity
-                    Kvis_v(ii,a,b) = mu * J * (Nx_Fi_Nx_Fi * Idm(i,j) +
+                    Kvis_v(ii,a,b) = mu * J * (Nx_Fi_Nx_Fi * (i == j) +
                                     Nx_Fi(i,b) * Nx_Fi(j,a) - r2d * Nx_Fi(i,a) * Nx_Fi(j,b));
                 }
             }
