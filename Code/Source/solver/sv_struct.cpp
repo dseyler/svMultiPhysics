@@ -418,17 +418,12 @@ void struct_2d(ComMod &com_mod, CepMod &cep_mod, const int eNoN, const int nFn,
   const double ya_g_s = eigen_view(ya_l_s).dot(Nm);
   const double ya_g_n = eigen_view(ya_l_n).dot(Nm);
 
-  // Prestress at this Gauss point: interpolate pS0l, held in Voigt
-  // order [11, 22, 12], into the three independent components of S0.
-  Matrix<2> S0 = Matrix<2>::Zero();
+  // Prestress at this Gauss point, in Voigt order [11, 22, 12]
+  const Eigen::Vector<double,3> pS0g = eigen_view<3>(pS0l) * Nm;
 
-  for (int a = 0; a < eNoN; a++) {
-    S0(0,0) += N(a)*pS0l(0,a);
-    S0(1,1) += N(a)*pS0l(1,a);
-    S0(0,1) += N(a)*pS0l(2,a);
-  }
-
-  S0(1,0) = S0(0,1);
+  Matrix<2> S0;
+  S0 << pS0g(0), pS0g(2),
+        pS0g(2), pS0g(1);
   
   #ifdef debug_struct_2d 
   dmsg << "ud: " << ud(0) << " " << ud(1);
@@ -602,22 +597,13 @@ void struct_3d(ComMod &com_mod, CepMod &cep_mod, const int eNoN, const int nFn,
   const double ya_g_s = eigen_view(ya_l_s).dot(Nm);
   const double ya_g_n = eigen_view(ya_l_n).dot(Nm);
 
-  // Prestress at this Gauss point: interpolate pS0l, held in Voigt
-  // order [11, 22, 33, 12, 23, 31], into the six independent components of S0.
-  Matrix<3> S0 = Matrix<3>::Zero();
+  // Prestress at this Gauss point, in Voigt order [11, 22, 33, 12, 23, 31]
+  const Eigen::Vector<double,6> pS0g = eigen_view<6>(pS0l) * Nm;
 
-  for (int a = 0; a < eNoN; a++) {
-    S0(0,0) += N(a)*pS0l(0,a);
-    S0(1,1) += N(a)*pS0l(1,a);
-    S0(2,2) += N(a)*pS0l(2,a);
-    S0(0,1) += N(a)*pS0l(3,a);
-    S0(1,2) += N(a)*pS0l(4,a);
-    S0(2,0) += N(a)*pS0l(5,a);
-  }
-
-  S0(1,0) = S0(0,1);
-  S0(2,1) = S0(1,2);
-  S0(0,2) = S0(2,0);
+  Matrix<3> S0;
+  S0 << pS0g(0), pS0g(3), pS0g(5),
+        pS0g(3), pS0g(1), pS0g(4),
+        pS0g(5), pS0g(4), pS0g(2);
 
   // Velocity and deformation gradients: Grad(v) and F = I + Grad(u)
   const Matrix<3> vx = vel * Nxm.transpose();
