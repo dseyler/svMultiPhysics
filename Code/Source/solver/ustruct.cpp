@@ -1063,15 +1063,17 @@ void ustruct_2d_m(ComMod &com_mod, CepMod &cep_mod, const bool vmsFlag,
 
   Eigen::Matrix<double, 3, 2> DBm;
 
+  const auto Nwxm = eigen_view<2>(Nwx);
+
   for (int b = 0; b < eNoNw; b++) {
 
     DBm.noalias() = Dm * Bm[b];
 
+    // Geometric stiffness: Siso*grad(N_b)
+    const Eigen::Vector2d SisoNx = Siso * Nwxm.col(b);
+
     for (int a = 0; a < eNoNw; a++) {
-      NxSNx = Nwx(0,a)*Siso(0,0)*Nwx(0,b)
-            + Nwx(0,a)*Siso(0,1)*Nwx(1,b)
-            + Nwx(1,a)*Siso(1,0)*Nwx(0,b)
-            + Nwx(1,a)*Siso(1,1)*Nwx(1,b);
+      NxSNx = Nwxm.col(a).dot(SisoNx);
 
       // dM1_dV1 + af/am *dM_1/dU_1
       //
@@ -1397,16 +1399,17 @@ void ustruct_3d_m(ComMod &com_mod, CepMod &cep_mod, const bool vmsFlag,
 
   Eigen::Matrix<double, 6, 3> DBm;
 
+  const auto Nwxm = eigen_view<3>(Nwx);
+
   for (int b = 0; b < eNoNw; b++) {
 
     DBm.noalias() = Dm * Bm[b];
 
+    // Geometric stiffness: Siso*grad(N_b)
+    const Eigen::Vector3d SisoNx = Siso * Nwxm.col(b);
+
     for (int a = 0; a < eNoNw; a++) {
-      NxSNx = Nwx(0,a)*Siso(0,0)*Nwx(0,b)
-       + Nwx(0,a)*Siso(0,1)*Nwx(1,b) + Nwx(0,a)*Siso(0,2)*Nwx(2,b)
-       + Nwx(1,a)*Siso(1,0)*Nwx(0,b) + Nwx(1,a)*Siso(1,1)*Nwx(1,b)
-       + Nwx(1,a)*Siso(1,2)*Nwx(2,b) + Nwx(2,a)*Siso(2,0)*Nwx(0,b)
-       + Nwx(2,a)*Siso(2,1)*Nwx(1,b) + Nwx(2,a)*Siso(2,2)*Nwx(2,b);
+      NxSNx = Nwxm.col(a).dot(SisoNx);
 
       // dM1_dV1 + af/am *dM_1/dU_1
       BtDB = Bm[a].col(0).dot(DBm.col(0));

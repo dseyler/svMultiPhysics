@@ -484,6 +484,8 @@ void struct_2d(ComMod &com_mod, CepMod &cep_mod, const int eNoN, const int nFn,
   //
   Matrix<2> P;
   Eigen::Matrix<double, 3, 2> DBm;
+
+  const auto Nxm = eigen_view<2>(Nx);
   std::array<Eigen::Matrix<double, 3, 2>, consts::maxNoN> Bm;
   P.noalias() = F * S;
   #ifdef debug_struct_2d 
@@ -520,11 +522,13 @@ void struct_2d(ComMod &com_mod, CepMod &cep_mod, const int eNoN, const int nFn,
     // Material stiffness (D*B) for node b
     DBm.noalias() = Dm * Bm[b];
 
+    // Geometric stiffness: S*grad(N_b)
+    const Eigen::Vector2d SNx = S * Nxm.col(b);
+
     for (int a = 0; a < eNoN; a++) { 
 
       // Geometric stiffness
-      NxSNx = Nx(0,a)*S(0,0)*Nx(0,b) + Nx(1,a)*S(1,0)*Nx(0,b) +
-              Nx(0,a)*S(0,1)*Nx(1,b) + Nx(1,a)*S(1,1)*Nx(1,b);
+      NxSNx = Nxm.col(a).dot(SNx);
       T1 = amd*N(a)*N(b) + afu*NxSNx;
 
 
@@ -754,19 +758,19 @@ void struct_3d(ComMod &com_mod, CepMod &cep_mod, const int eNoN, const int nFn,
 
   Eigen::Matrix<double, 6, 3> DBm;
 
+  const auto Nxm = eigen_view<3>(Nx);
+
   for (int b = 0; b < eNoN; b++) {
 
     // Material stiffness (D*B) for node b
     DBm.noalias() = Dm * Bm[b];
 
+    // Geometric stiffness: S*grad(N_b)
+    const Eigen::Vector3d SNx = S * Nxm.col(b);
+
     for (int a = 0; a < eNoN; a++) {
 
-      // Geometric stiffness
-      NxSNx = Nx(0,a)*S(0,0)*Nx(0,b) + Nx(1,a)*S(1,0)*Nx(0,b) +
-              Nx(2,a)*S(2,0)*Nx(0,b) + Nx(0,a)*S(0,1)*Nx(1,b) +
-              Nx(1,a)*S(1,1)*Nx(1,b) + Nx(2,a)*S(2,1)*Nx(1,b) +
-              Nx(0,a)*S(0,2)*Nx(2,b) + Nx(1,a)*S(1,2)*Nx(2,b) +
-              Nx(2,a)*S(2,2)*Nx(2,b);
+      NxSNx = Nxm.col(a).dot(SNx);
 
       T1 = amd*N(a)*N(b) + afu*NxSNx;
 

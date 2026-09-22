@@ -28,6 +28,22 @@ namespace mat_fun {
     template<int nsd>
     using Tensor = Eigen::TensorFixedSize<double, Eigen::Sizes<nsd, nsd, nsd, nsd>>;
 
+    /// @brief Read-only Eigen view of an Array, sharing its storage.
+    ///
+    /// The Array must outlive the view.
+    ///
+    /// @tparam rows Row count, fixed at compile time; the columns are taken from the Array.
+    template <int rows>
+    Eigen::Map<const Eigen::Matrix<double, rows, Eigen::Dynamic>>
+    eigen_view(const Array<double>& A) {
+        if (A.nrows() != rows) {
+          svmp::raise<svmp::FE::InvalidArgumentException>(
+              "A view of " + std::to_string(rows) + " rows was requested for an array with " +
+              std::to_string(A.nrows()) + " rows.");
+        }
+        return {A.data(), rows, A.ncols()};
+    }
+
     // Function to convert Array<double> to Eigen::Matrix
     template <typename MatrixType>
     MatrixType convert_to_eigen_matrix(const Array<double>& src) {
