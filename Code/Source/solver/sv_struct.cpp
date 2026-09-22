@@ -451,6 +451,7 @@ void struct_2d(ComMod &com_mod, CepMod &cep_mod, const int eNoN, const int nFn,
 
   // Viscous 2nd Piola-Kirchhoff stress and tangent contributions
   static Matrix<2> Svis;
+  // Kvis_u and Kvis_v only need to be sized once per element.
   static Array3<double> Kvis_u, Kvis_v;
   if (Kvis_u.ncols() != eNoN) {
     Kvis_u.resize(4, eNoN, eNoN);
@@ -520,22 +521,18 @@ void struct_2d(ComMod &com_mod, CepMod &cep_mod, const int eNoN, const int nFn,
 
       // dM1/du1
       BmDBm = Bm[a].col(0).dot(DBm.col(0));
-
       lK(0,a,b) += w*( T1 + afu*(BmDBm + Kvis_u(0,a,b)) + afv*Kvis_v(0,a,b) );
 
       // dM1/du2
       BmDBm = Bm[a].col(0).dot(DBm.col(1));
-
       lK(1,a,b) += w*( afu*(BmDBm + Kvis_u(1,a,b)) + afv*Kvis_v(1,a,b) );
 
       // dM2/du1
       BmDBm = Bm[a].col(1).dot(DBm.col(0));
-
       lK(dof+0,a,b) += w*( afu*(BmDBm + Kvis_u(2,a,b)) + afv*Kvis_v(2,a,b) );
 
       // dM2/du2
       BmDBm = Bm[a].col(1).dot(DBm.col(1));
-
       lK(dof+1,a,b) += w*( T1 + afu*(BmDBm + Kvis_u(3,a,b)) + afv*Kvis_v(3,a,b) );
     }
   }
@@ -640,6 +637,7 @@ void struct_3d(ComMod &com_mod, CepMod &cep_mod, const int eNoN, const int nFn,
 
   // Viscous 2nd Piola-Kirchhoff stress and tangent contributions
   static Matrix<3> Svis;
+  // Kvis_u and Kvis_v only need to be sized once per element.
   static Array3<double> Kvis_u, Kvis_v;
   if (Kvis_u.ncols() != eNoN) {
     Kvis_u.resize(9, eNoN, eNoN);
@@ -714,52 +712,42 @@ void struct_3d(ComMod &com_mod, CepMod &cep_mod, const int eNoN, const int nFn,
     for (int a = 0; a < eNoN; a++) {
 
       NxSNx = Nxm.col(a).dot(SNx);
-
       T1 = amd*N(a)*N(b) + afu*NxSNx;
 
       // dM1/du1
       BmDBm = Bm[a].col(0).dot(DBm.col(0));
-
       lK(0,a,b) += w*( T1 + afu*(BmDBm + Kvis_u(0,a,b)) + afv*Kvis_v(0,a,b) );
 
       // dM1/du2
       BmDBm = Bm[a].col(0).dot(DBm.col(1));
-
       lK(1,a,b) += w*( afu*(BmDBm + Kvis_u(1,a,b)) + afv*Kvis_v(1,a,b) );
 
       // dM1/du3
       BmDBm = Bm[a].col(0).dot(DBm.col(2));
-
       lK(2,a,b) += w*( afu*(BmDBm + Kvis_u(2,a,b)) + afv*Kvis_v(2,a,b) );
 
       // dM2/du1
       BmDBm = Bm[a].col(1).dot(DBm.col(0));
-
       lK(dof+0,a,b) += w*( afu*(BmDBm + Kvis_u(3,a,b)) + afv*Kvis_v(3,a,b) );
 
       // dM2/du2
       BmDBm = Bm[a].col(1).dot(DBm.col(1));
-
       lK(dof+1,a,b) += w*(T1 + afu*(BmDBm + Kvis_u(4,a,b)) + afv*Kvis_v(4,a,b) );
 
       // dM2/du3
       BmDBm = Bm[a].col(1).dot(DBm.col(2));
-
       lK(dof+2,a,b) += w*( afu*(BmDBm + Kvis_u(5,a,b)) + afv*Kvis_v(5,a,b) );
 
       // dM3/du1
       BmDBm = Bm[a].col(2).dot(DBm.col(0));
-
       lK(2*dof+0,a,b) += w*( afu*(BmDBm + Kvis_u(6,a,b)) + afv*Kvis_v(6,a,b) );
 
       // dM3/du2
       BmDBm = Bm[a].col(2).dot(DBm.col(1));
-
-     lK(2*dof+1,a,b) += w*( afu*(BmDBm + Kvis_u(7,a,b)) + afv*Kvis_v(7,a,b) );
+      lK(2*dof+1,a,b) += w*( afu*(BmDBm + Kvis_u(7,a,b)) + afv*Kvis_v(7,a,b) );
 
       // dM3/du3
       BmDBm = Bm[a].col(2).dot(DBm.col(2));
-
       lK(2*dof+2,a,b) += w*( T1 + afu*(BmDBm + Kvis_u(8,a,b)) + afv*Kvis_v(8,a,b) );
     }
   }

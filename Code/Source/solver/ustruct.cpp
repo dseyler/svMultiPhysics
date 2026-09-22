@@ -869,6 +869,7 @@ void ustruct_2d_m(ComMod &com_mod, CepMod &cep_mod, const bool vmsFlag,
 
   // Viscous 2nd Piola-Kirchhoff stress and tangent contributions
   static Matrix<2> Svis;
+  // Kvis_u and Kvis_v only need to be sized once per element.
   static Array3<double> Kvis_u, Kvis_v;
   if (Kvis_u.ncols() != eNoNw) {
     Kvis_u.resize(4, eNoNw, eNoNw);
@@ -1127,6 +1128,7 @@ void ustruct_3d_m(ComMod &com_mod, CepMod &cep_mod, const bool vmsFlag,
 
   // Viscous 2nd Piola-Kirchhoff stress and tangent contributions
   static Matrix<3> Svis;
+  // Kvis_u and Kvis_v only need to be sized once per element.
   static Array3<double> Kvis_u, Kvis_v;
   if (Kvis_u.ncols() != eNoNw) {
     Kvis_u.resize(9, eNoNw, eNoNw);
