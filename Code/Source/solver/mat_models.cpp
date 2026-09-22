@@ -256,14 +256,12 @@ std::pair<Matrix<nsd>, Tensor<nsd>> bar_to_iso(
  * Validates that the directions are not parallel and that the operation is valid in 3D.
  *
  * @tparam nsd Number of spatial dimensions.
- * @param[in] f Fiber direction.
- * @param[in] s Sheet direction.
+ * @param[in] fl Fiber directions matrix (nsd x nfd), where col(0) is fiber, col(1) is sheet.
  * @return Normalized sheet-normal direction vector.
  * @throws std::runtime_error if directions are parallel or if called in 2D.
  */
 template <int nsd>
-Eigen::Matrix<double, nsd, 1> compute_sheet_normal(const Eigen::Matrix<double, nsd, 1>& f,
-                                                   const Eigen::Matrix<double, nsd, 1>& s)
+Eigen::Matrix<double, nsd, 1> compute_sheet_normal(const Eigen::Map<const Eigen::Matrix<double, nsd, Eigen::Dynamic>>& fl)
 {
   using namespace mat_fun;
   
@@ -271,7 +269,7 @@ Eigen::Matrix<double, nsd, 1> compute_sheet_normal(const Eigen::Matrix<double, n
     throw std::runtime_error("Sheet-normal active stress (eta_n > 0) is not defined in 2D.");
     
   } else {  // nsd == 3
-    auto n_normal = cross_product<nsd>(f, s);
+    auto n_normal = cross_product<nsd>(fl.col(0), fl.col(1));
     double norm_n = sqrt(n_normal.dot(n_normal));
     
     static constexpr double sheet_normal_tol = 1.0e-10; 
@@ -286,15 +284,12 @@ Eigen::Matrix<double, nsd, 1> compute_sheet_normal(const Eigen::Matrix<double, n
 template <int nsd>
 void compute_pk2cc(const ComMod &com_mod, const CepMod &cep_mod,
                    const dmnType &lDmn, const Matrix<nsd> &F, const int nfd,
-                   const Array<double> &fl,
+                   const Eigen::Map<const Eigen::Matrix<double, nsd, Eigen::Dynamic>> &fl,
                    const double ya_f, const double ya_s, const double ya_n,
                    Matrix<nsd> &S, Matrix<3 * (nsd - 1)> &Dm, double &Ja) {
   using namespace consts;
   using namespace mat_fun;
   using namespace utils;
-
-  // Fiber directions are the caller's storage. View rather than copying.
-  Eigen::Map<const Eigen::Matrix<double, nsd, Eigen::Dynamic>> fl_m(fl.data(), nsd, nfd);
 
   #define n_debug_compute_pk2cc
   #ifdef debug_compute_pk2cc
@@ -338,12 +333,12 @@ void compute_pk2cc(const ComMod &com_mod, const CepMod &cep_mod,
   }
 
   // Aliases for fiber directions
-  const auto& fib_dir1 = fl_m.col(0);
+  const auto& fib_dir1 = fl.col(0);
   
   // fib_dir2 only exists when nfd >= 2
   Eigen::Matrix<double, nsd, 1> fib_dir2;
   if (nfd >= 2) {
-    fib_dir2 = fl_m.col(1);
+    fib_dir2 = fl.col(1);
   } else {
     fib_dir2 = Eigen::Matrix<double, nsd, 1>::Zero();
   }
@@ -515,7 +510,7 @@ void compute_pk2cc(const ComMod &com_mod, const CepMod &cep_mod,
       }
 
       // Compute sheet-normal direction
-      auto fib_dir3 = compute_sheet_normal<nsd>(fl_m.col(0), fl_m.col(1));
+      auto fib_dir3 = compute_sheet_normal<nsd>(fl);
 
       // Compute isochoric component of E
       Matrix<nsd> E = 0.50 * (J2d*C - Idm);
@@ -586,7 +581,7 @@ void compute_pk2cc(const ComMod &com_mod, const CepMod &cep_mod,
       }
 
       // Compute sheet-normal direction
-      auto fib_dir3 = compute_sheet_normal<nsd>(fl_m.col(0), fl_m.col(1));
+      auto fib_dir3 = compute_sheet_normal<nsd>(fl);
 
       // Compute cross fiber-sheet structure tensor
       Matrix<nsd> Hfs = 0.5 * (fib_dir1 * fib_dir2.transpose() + fib_dir2 * fib_dir1.transpose());
@@ -683,7 +678,7 @@ void compute_pk2cc(const ComMod &com_mod, const CepMod &cep_mod,
       }
 
       // Compute sheet-normal direction
-      auto fib_dir3 = compute_sheet_normal<nsd>(fl_m.col(0), fl_m.col(1));
+      auto fib_dir3 = compute_sheet_normal<nsd>(fl);
 
       // Compute cross fiber-sheet structure tensor
       auto Hfs = 0.5 * (fib_dir1 * fib_dir2.transpose() + fib_dir2 * fib_dir1.transpose());
@@ -786,7 +781,7 @@ void compute_pk2cc(const ComMod &com_mod, const CepMod &cep_mod,
       Matrix<nsd> N1;
 
       // Compute and store invariants and derivatives wrt C in array of matrices/tensors
-      CANNModel.computeInvariantsAndDerivatives<nsd>(C, fl_m, nfd, J2d, J4d, Ci, Idm, Tfa, N1, psi, Inv, dInv, ddInv);
+      CANNModel.computeInvariantsAndDerivatives<nsd>(C, fl, nfd, J2d, J4d, Ci, Idm, Tfa, N1, psi, Inv, dInv, ddInv);
 
       // Strain energy function and derivatives
       CANNModel.evaluate(Inv, psi, dpsi, ddpsi);
@@ -820,11 +815,11 @@ void compute_pk2cc(const ComMod &com_mod, const CepMod &cep_mod,
 // this next to the definition: a signature change here that is not mirrored
 // below fails at link time rather than at compile time.
 template void compute_pk2cc<2>(const ComMod&, const CepMod&, const dmnType&,
-    const Matrix<2>&, const int, const Array<double>&,
+    const Matrix<2>&, const int, const Eigen::Map<const Eigen::Matrix<double, 2, Eigen::Dynamic>>&,
     const double, const double, const double, Matrix<2>&, Matrix<3>&, double&);
 
 template void compute_pk2cc<3>(const ComMod&, const CepMod&, const dmnType&,
-    const Matrix<3>&, const int, const Array<double>&,
+    const Matrix<3>&, const int, const Eigen::Map<const Eigen::Matrix<double, 3, Eigen::Dynamic>>&,
     const double, const double, const double, Matrix<3>&, Matrix<6>&, double&);
 
 /**
@@ -843,13 +838,14 @@ void compute_pk2cc(const ComMod& com_mod, const CepMod& cep_mod, const dmnType& 
         // Copy deformation gradient to Eigen matrix
         auto F_2D = mat_fun::convert_to_eigen_matrix<Eigen::Matrix2d>(F);
         
+        const auto fl_2D = eigen_view<2>(fl);
 
         // Initialize stress and elasticity tensors
         Eigen::Matrix2d S_2D = Eigen::Matrix2d::Zero();
         Eigen::Matrix3d Dm_2D = Eigen::Matrix3d::Zero();
 
         // Call templated function
-        compute_pk2cc<2>(com_mod, cep_mod, lDmn, F_2D, nfd, fl, ya_f, ya_s, ya_n, S_2D, Dm_2D, Ja);
+        compute_pk2cc<2>(com_mod, cep_mod, lDmn, F_2D, nfd, fl_2D, ya_f, ya_s, ya_n, S_2D, Dm_2D, Ja);
 
         // Copy results back
         mat_fun::convert_to_array(S_2D, S);
@@ -859,6 +855,7 @@ void compute_pk2cc(const ComMod& com_mod, const CepMod& cep_mod, const dmnType& 
         // Copy deformation gradient to Eigen matrix
         auto F_3D = mat_fun::convert_to_eigen_matrix<Eigen::Matrix3d>(F);
 
+        const auto fl_3D = eigen_view<3>(fl);
 
         // Initialize stress and elasticity tensors
         Eigen::Matrix3d S_3D = Eigen::Matrix3d::Zero();
@@ -866,7 +863,7 @@ void compute_pk2cc(const ComMod& com_mod, const CepMod& cep_mod, const dmnType& 
         Dm_3D.setZero();
 
         // Call templated function
-        compute_pk2cc<3>(com_mod, cep_mod, lDmn, F_3D, nfd, fl, ya_f, ya_s, ya_n, S_3D, Dm_3D, Ja);
+        compute_pk2cc<3>(com_mod, cep_mod, lDmn, F_3D, nfd, fl_3D, ya_f, ya_s, ya_n, S_3D, Dm_3D, Ja);
 
         // Copy results back
         mat_fun::convert_to_array(S_3D, S);

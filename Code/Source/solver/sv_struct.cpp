@@ -451,7 +451,7 @@ void struct_2d(ComMod &com_mod, CepMod &cep_mod, const int eNoN, const int nFn,
   Matrix<2> S;
   Matrix<3> Dm;
   double Ja;
-  mat_models::compute_pk2cc(com_mod, cep_mod, dmn, F, nFn, fN, ya_g_f, ya_g_s,
+  mat_models::compute_pk2cc(com_mod, cep_mod, dmn, F, nFn, eigen_view<2>(fN), ya_g_f, ya_g_s,
                             ya_g_n, S, Dm, Ja);
 
   // Viscous 2nd Piola-Kirchhoff stress and tangent contributions
@@ -652,7 +652,7 @@ void struct_3d(ComMod &com_mod, CepMod &cep_mod, const int eNoN, const int nFn,
   Matrix<3> S;
   Matrix<6> Dm;
   double Ja;
-  mat_models::compute_pk2cc(com_mod, cep_mod, dmn, F, nFn, fN, ya_g_f, ya_g_s,
+  mat_models::compute_pk2cc(com_mod, cep_mod, dmn, F, nFn, eigen_view<3>(fN), ya_g_f, ya_g_s,
                             ya_g_n, S, Dm, Ja);
 
   // Viscous 2nd Piola-Kirchhoff stress and tangent contributions

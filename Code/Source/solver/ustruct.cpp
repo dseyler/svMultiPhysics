@@ -879,7 +879,7 @@ void ustruct_2d_m(ComMod &com_mod, CepMod &cep_mod, const bool vmsFlag,
   Matrix<2> Siso;
   Matrix<3> Dm;
   double Ja = 0;
-  mat_models::compute_pk2cc(com_mod, cep_mod, eq.dmn[cDmn], F, nFn, fN, ya_g_f,
+  mat_models::compute_pk2cc(com_mod, cep_mod, eq.dmn[cDmn], F, nFn, eigen_view<2>(fN), ya_g_f,
                             ya_g_s, ya_g_n, Siso, Dm, Ja);
 
   // Viscous 2nd Piola-Kirchhoff stress and tangent contributions
@@ -1145,7 +1145,7 @@ void ustruct_3d_m(ComMod &com_mod, CepMod &cep_mod, const bool vmsFlag,
   Matrix<3> Siso;
   Matrix<6> Dm;
   double Ja = 0;
-  mat_models::compute_pk2cc(com_mod, cep_mod, eq.dmn[cDmn], F, nFn, fN, ya_g_f,
+  mat_models::compute_pk2cc(com_mod, cep_mod, eq.dmn[cDmn], F, nFn, eigen_view<3>(fN), ya_g_f,
                             ya_g_s, ya_g_n, Siso, Dm, Ja);
 
   // Viscous 2nd Piola-Kirchhoff stress and tangent contributions

@@ -59,7 +59,7 @@ void voigt_to_cc(const int nsd, const Array<double>& Dm, Tensor4<double>& CC);
 template <int nsd>
 void compute_pk2cc(const ComMod &com_mod, const CepMod &cep_mod,
                    const dmnType &lDmn, const Matrix<nsd> &F, const int nfd,
-                   const Array<double> &fl, const double ya_f,
+                   const Eigen::Map<const Eigen::Matrix<double, nsd, Eigen::Dynamic>> &fl, const double ya_f,
                    const double ya_s, const double ya_n, Matrix<nsd> &S,
                    Matrix<3 * (nsd - 1)> &Dm, double &Ja);
 
