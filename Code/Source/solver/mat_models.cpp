@@ -836,13 +836,13 @@ void compute_pk2cc(const ComMod& com_mod, const CepMod& cep_mod, const dmnType& 
 
     if (nsd == 2) {
         // Copy deformation gradient to Eigen matrix
-        auto F_2D = mat_fun::convert_to_eigen_matrix<Eigen::Matrix2d>(F);
-        
+        auto F_2D = mat_fun::convert_to_eigen_matrix<Matrix<2>>(F);
+
         const auto fl_2D = eigen_view<2>(fl);
 
         // Initialize stress and elasticity tensors
-        Eigen::Matrix2d S_2D = Eigen::Matrix2d::Zero();
-        Eigen::Matrix3d Dm_2D = Eigen::Matrix3d::Zero();
+        Matrix<2> S_2D  = Matrix<2>::Zero();
+        Matrix<3> Dm_2D = Matrix<3>::Zero();
 
         // Call templated function
         compute_pk2cc<2>(com_mod, cep_mod, lDmn, F_2D, nfd, fl_2D, ya_f, ya_s, ya_n, S_2D, Dm_2D, Ja);
@@ -853,14 +853,13 @@ void compute_pk2cc(const ComMod& com_mod, const CepMod& cep_mod, const dmnType& 
 
     } else if (nsd == 3) {
         // Copy deformation gradient to Eigen matrix
-        auto F_3D = mat_fun::convert_to_eigen_matrix<Eigen::Matrix3d>(F);
+        auto F_3D = mat_fun::convert_to_eigen_matrix<Matrix<3>>(F);
 
         const auto fl_3D = eigen_view<3>(fl);
 
         // Initialize stress and elasticity tensors
-        Eigen::Matrix3d S_3D = Eigen::Matrix3d::Zero();
-        Eigen::Matrix<double, 6, 6> Dm_3D;
-        Dm_3D.setZero();
+        Matrix<3> S_3D  = Matrix<3>::Zero();
+        Matrix<6> Dm_3D = Matrix<6>::Zero();
 
         // Call templated function
         compute_pk2cc<3>(com_mod, cep_mod, lDmn, F_3D, nfd, fl_3D, ya_f, ya_s, ya_n, S_3D, Dm_3D, Ja);
