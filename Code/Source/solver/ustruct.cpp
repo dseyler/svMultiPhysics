@@ -982,7 +982,7 @@ void ustruct_2d_m(ComMod &com_mod, CepMod &cep_mod, const bool vmsFlag,
       T1   = am*Jac*rho*Nw(a)*Nw(b);
       T2   = T1 + af*Jac*tauC*rho*NxFi(0,a)*NxFi(0,b);
       Tv   = af*Kvis_v(0,a,b);
-      lK(0,a,b)  = lK(0,a,b) + w*(T2 + Tv) + afm*Ku;
+      lK(0,a,b) += w*(T2 + Tv) + afm*Ku;
 
       // dM_1/dV_2 + af/am *dM_1/dU_2
       //
@@ -1248,7 +1248,7 @@ void ustruct_3d_m(ComMod &com_mod, CepMod &cep_mod, const bool vmsFlag,
       T1   = am*Jac*rho*Nw(a)*Nw(b);
       T2   = T1 + af*Jac*tauC*rho*NxFi(0,a)*NxFi(0,b);
       Tv   = af*Kvis_v(0,a,b);
-      lK(0,a,b)  = lK(0,a,b) + w*(T2 + Tv) + afm*Ku;
+      lK(0,a,b) += w*(T2 + Tv) + afm*Ku;
 
       // dM_1/dV_2 + af/am *dM_1/dU_2
       BtDB = Bm[a].col(0).dot(DBm.col(1));
@@ -1617,10 +1617,10 @@ void ustruct_r(ComMod& com_mod, const SolutionStates& solutions)
       all_fun::commu(com_mod, KU);
 
       for (int a = 0; a < tnNo; a++) { 
-        R(0,a) = R(0,a) - ami*KU(0,a);
-        R(1,a) = R(1,a) - ami*KU(1,a);
-        R(2,a) = R(2,a) - ami*KU(2,a);
-        R(3,a) = R(3,a) - ami*KU(3,a);
+        R(0,a) -= ami*KU(0,a);
+        R(1,a) -= ami*KU(1,a);
+        R(2,a) -= ami*KU(2,a);
+        R(3,a) -= ami*KU(3,a);
       }
     } else {
       Array<double> KU(3,tnNo);
@@ -1641,9 +1641,9 @@ void ustruct_r(ComMod& com_mod, const SolutionStates& solutions)
       all_fun::commu(com_mod, KU);
 
       for (int a = 0; a < tnNo; a++) { 
-        R(0,a) = R(0,a) - ami*KU(0,a);
-        R(1,a) = R(1,a) - ami*KU(1,a);
-        R(2,a) = R(2,a) - ami*KU(2,a);
+        R(0,a) -= ami*KU(0,a);
+        R(1,a) -= ami*KU(1,a);
+        R(2,a) -= ami*KU(2,a);
       }
     }
   } 
