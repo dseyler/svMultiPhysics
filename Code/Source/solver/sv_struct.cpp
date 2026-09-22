@@ -17,6 +17,8 @@
 #include "utils.h"
 #include "DebugMsg.h"
 
+#include <array>
+
 namespace struct_ns {
 
 void b_struct_2d(const ComMod& com_mod, const int eNoN, const double w, const Vector<double>& N, 
@@ -481,8 +483,8 @@ void struct_2d(ComMod &com_mod, CepMod &cep_mod, const int eNoN, const int nFn,
   // 1st Piola-Kirchhoff tensor (P)
   //
   Matrix<2> P;
-  Array<double> DBm(3,2);
-  Array3<double> Bm(3,2,eNoN);
+  Eigen::Matrix<double, 3, 2> DBm;
+  std::array<Eigen::Matrix<double, 3, 2>, consts::maxNoN> Bm;
   P.noalias() = F * S;
   #ifdef debug_struct_2d 
   dmsg << "P: " << P(0,0) << " " << P(0,1);
@@ -495,17 +497,17 @@ void struct_2d(ComMod &com_mod, CepMod &cep_mod, const int eNoN, const int nFn,
     lR(1,a) = lR(1,a) + w*(N(a)*ud(1) + Nx(0,a)*P(1,0) + Nx(1,a)*P(1,1));
   }
 
-  // Auxilary quantities for computing stiffness tensor
+  // Strain-displacement matrix; Bm[a] maps node a displacement to Voigt strain
   //
   for (int a = 0; a < eNoN; a++) {
-    Bm(0,0,a) = Nx(0,a)*F(0,0);
-    Bm(0,1,a) = Nx(0,a)*F(1,0);
+    Bm[a](0,0) = Nx(0,a)*F(0,0);
+    Bm[a](0,1) = Nx(0,a)*F(1,0);
 
-    Bm(1,0,a) = Nx(1,a)*F(0,1);
-    Bm(1,1,a) = Nx(1,a)*F(1,1);
+    Bm[a](1,0) = Nx(1,a)*F(0,1);
+    Bm[a](1,1) = Nx(1,a)*F(1,1);
 
-    Bm(2,0,a) = (Nx(0,a)*F(0,1) + F(0,0)*Nx(1,a));
-    Bm(2,1,a) = (Nx(0,a)*F(1,1) + F(1,0)*Nx(1,a));
+    Bm[a](2,0) = (Nx(0,a)*F(0,1) + F(0,0)*Nx(1,a));
+    Bm[a](2,1) = (Nx(0,a)*F(1,1) + F(1,0)*Nx(1,a));
   }
 
   Array<double> NxFi(2,eNoN), DdNx(2,eNoN), VxNx(2,eNoN);
@@ -515,15 +517,8 @@ void struct_2d(ComMod &com_mod, CepMod &cep_mod, const int eNoN, const int nFn,
 
   for (int b = 0; b < eNoN; b++) { 
 
-    // Material stiffness (Bt*D*B)
-    DBm(0,0) = Dm(0,0)*Bm(0,0,b) + Dm(0,1)*Bm(1,0,b) + Dm(0,2)*Bm(2,0,b);
-    DBm(0,1) = Dm(0,0)*Bm(0,1,b) + Dm(0,1)*Bm(1,1,b) + Dm(0,2)*Bm(2,1,b);
-
-    DBm(1,0) = Dm(1,0)*Bm(0,0,b) + Dm(1,1)*Bm(1,0,b) + Dm(1,2)*Bm(2,0,b);
-    DBm(1,1) = Dm(1,0)*Bm(0,1,b) + Dm(1,1)*Bm(1,1,b) + Dm(1,2)*Bm(2,1,b);
-
-    DBm(2,0) = Dm(2,0)*Bm(0,0,b) + Dm(2,1)*Bm(1,0,b) + Dm(2,2)*Bm(2,0,b);
-    DBm(2,1) = Dm(2,0)*Bm(0,1,b) + Dm(2,1)*Bm(1,1,b) + Dm(2,2)*Bm(2,1,b);
+    // Material stiffness (D*B) for node b
+    DBm.noalias() = Dm * Bm[b];
 
     for (int a = 0; a < eNoN; a++) { 
 
@@ -534,26 +529,22 @@ void struct_2d(ComMod &com_mod, CepMod &cep_mod, const int eNoN, const int nFn,
 
 
       // dM1/du1
-      // Material stiffness: Bt*D*B
-      BmDBm = Bm(0,0,a)*DBm(0,0) + Bm(1,0,a)*DBm(1,0) + Bm(2,0,a)*DBm(2,0);
+      BmDBm = Bm[a].col(0).dot(DBm.col(0));
 
       lK(0,a,b) = lK(0,a,b) + w*( T1 + afu*(BmDBm + Kvis_u(0,a,b)) + afv*Kvis_v(0,a,b) );
 
       // dM1/du2
-      // Material stiffness: Bt*D*B
-      BmDBm = Bm(0,0,a)*DBm(0,1) + Bm(1,0,a)*DBm(1,1) + Bm(2,0,a)*DBm(2,1);
+      BmDBm = Bm[a].col(0).dot(DBm.col(1));
 
       lK(1,a,b) = lK(1,a,b) + w*( afu*(BmDBm + Kvis_u(1,a,b)) + afv*Kvis_v(1,a,b) );
 
       // dM2/du1
-      // Material stiffness: Bt*D*B
-      BmDBm = Bm(0,1,a)*DBm(0,0) + Bm(1,1,a)*DBm(1,0) + Bm(2,1,a)*DBm(2,0);
+      BmDBm = Bm[a].col(1).dot(DBm.col(0));
 
       lK(dof+0,a,b) = lK(dof+0,a,b) + w*( afu*(BmDBm + Kvis_u(2,a,b)) + afv*Kvis_v(2,a,b) );
 
       // dM2/du2
-      // Material stiffness: Bt*D*B
-      BmDBm = Bm(0,1,a)*DBm(0,1) + Bm(1,1,a)*DBm(1,1) + Bm(2,1,a)*DBm(2,1);
+      BmDBm = Bm[a].col(1).dot(DBm.col(1));
 
       lK(dof+1,a,b) = lK(dof+1,a,b) + w*( T1 + afu*(BmDBm + Kvis_u(3,a,b)) + afv*Kvis_v(3,a,b) );
     }
@@ -720,7 +711,7 @@ void struct_3d(ComMod &com_mod, CepMod &cep_mod, const int eNoN, const int nFn,
   // 1st Piola-Kirchhoff tensor (P)
   //
   Matrix<3> P;
-  Array3<double> Bm(6,3,eNoN); 
+  std::array<Eigen::Matrix<double, 6, 3>, consts::maxNoN> Bm;
   P.noalias() = F * S;
 
   // Local residual
@@ -730,45 +721,43 @@ void struct_3d(ComMod &com_mod, CepMod &cep_mod, const int eNoN, const int nFn,
     lR(2,a) = lR(2,a) + w*(N(a)*ud(2) + Nx(0,a)*P(2,0) + Nx(1,a)*P(2,1) + Nx(2,a)*P(2,2));
   }
 
-  // Auxilary quantities for computing stiffness tensor
+  // Strain-displacement matrix; Bm[a] maps node a displacement to Voigt strain
   //
   for (int a = 0; a < eNoN; a++) {
-    Bm(0,0,a) = Nx(0,a)*F(0,0);
-    Bm(0,1,a) = Nx(0,a)*F(1,0);
-    Bm(0,2,a) = Nx(0,a)*F(2,0);
+    Bm[a](0,0) = Nx(0,a)*F(0,0);
+    Bm[a](0,1) = Nx(0,a)*F(1,0);
+    Bm[a](0,2) = Nx(0,a)*F(2,0);
 
-    Bm(1,0,a) = Nx(1,a)*F(0,1);
-    Bm(1,1,a) = Nx(1,a)*F(1,1);
-    Bm(1,2,a) = Nx(1,a)*F(2,1);
+    Bm[a](1,0) = Nx(1,a)*F(0,1);
+    Bm[a](1,1) = Nx(1,a)*F(1,1);
+    Bm[a](1,2) = Nx(1,a)*F(2,1);
 
-    Bm(2,0,a) = Nx(2,a)*F(0,2);
-    Bm(2,1,a) = Nx(2,a)*F(1,2);
-    Bm(2,2,a) = Nx(2,a)*F(2,2);
+    Bm[a](2,0) = Nx(2,a)*F(0,2);
+    Bm[a](2,1) = Nx(2,a)*F(1,2);
+    Bm[a](2,2) = Nx(2,a)*F(2,2);
 
-    Bm(3,0,a) = (Nx(0,a)*F(0,1) + F(0,0)*Nx(1,a));
-    Bm(3,1,a) = (Nx(0,a)*F(1,1) + F(1,0)*Nx(1,a));
-    Bm(3,2,a) = (Nx(0,a)*F(2,1) + F(2,0)*Nx(1,a));
+    Bm[a](3,0) = (Nx(0,a)*F(0,1) + F(0,0)*Nx(1,a));
+    Bm[a](3,1) = (Nx(0,a)*F(1,1) + F(1,0)*Nx(1,a));
+    Bm[a](3,2) = (Nx(0,a)*F(2,1) + F(2,0)*Nx(1,a));
 
-    Bm(4,0,a) = (Nx(1,a)*F(0,2) + F(0,1)*Nx(2,a));
-    Bm(4,1,a) = (Nx(1,a)*F(1,2) + F(1,1)*Nx(2,a));
-    Bm(4,2,a) = (Nx(1,a)*F(2,2) + F(2,1)*Nx(2,a));
+    Bm[a](4,0) = (Nx(1,a)*F(0,2) + F(0,1)*Nx(2,a));
+    Bm[a](4,1) = (Nx(1,a)*F(1,2) + F(1,1)*Nx(2,a));
+    Bm[a](4,2) = (Nx(1,a)*F(2,2) + F(2,1)*Nx(2,a));
 
-    Bm(5,0,a) = (Nx(2,a)*F(0,0) + F(0,2)*Nx(0,a));
-    Bm(5,1,a) = (Nx(2,a)*F(1,0) + F(1,2)*Nx(0,a));
-    Bm(5,2,a) = (Nx(2,a)*F(2,0) + F(2,2)*Nx(0,a));
+    Bm[a](5,0) = (Nx(2,a)*F(0,0) + F(0,2)*Nx(0,a));
+    Bm[a](5,1) = (Nx(2,a)*F(1,0) + F(1,2)*Nx(0,a));
+    Bm[a](5,2) = (Nx(2,a)*F(2,0) + F(2,2)*Nx(0,a));
   }
 
   // Local stiffness tensor
   double NxSNx, T1, NxNx, BmDBm, Tv;
 
-  Array<double> DBm(6,3);
+  Eigen::Matrix<double, 6, 3> DBm;
 
   for (int b = 0; b < eNoN; b++) {
 
-    // Material stiffness (D*B) for node b. Dm is Eigen and Bm/DBm are Arrays,
-    // so view them; this is what mat_mul<6,6,3> did internally.
-    Eigen::Map<Eigen::Matrix<double, 6, 3>> dbm(DBm.data());
-    dbm.noalias() = Dm * Eigen::Map<const Eigen::Matrix<double, 6, 3>>(Bm.slice_data(b));
+    // Material stiffness (D*B) for node b
+    DBm.noalias() = Dm * Bm[b];
 
     for (int a = 0; a < eNoN; a++) {
 
@@ -782,75 +771,47 @@ void struct_3d(ComMod &com_mod, CepMod &cep_mod, const int eNoN, const int nFn,
       T1 = amd*N(a)*N(b) + afu*NxSNx;
 
       // dM1/du1
-      // Material stiffness: Bt*D*B
-      BmDBm = Bm(0,0,a)*DBm(0,0) + Bm(1,0,a)*DBm(1,0) +
-              Bm(2,0,a)*DBm(2,0) + Bm(3,0,a)*DBm(3,0) +
-              Bm(4,0,a)*DBm(4,0) + Bm(5,0,a)*DBm(5,0);
+      BmDBm = Bm[a].col(0).dot(DBm.col(0));
 
       lK(0,a,b) = lK(0,a,b) + w*( T1 + afu*(BmDBm + Kvis_u(0,a,b)) + afv*Kvis_v(0,a,b) );
 
       // dM1/du2
-      // Material stiffness: Bt*D*B
-      BmDBm = Bm(0,0,a)*DBm(0,1) + Bm(1,0,a)*DBm(1,1) +
-              Bm(2,0,a)*DBm(2,1) + Bm(3,0,a)*DBm(3,1) +
-              Bm(4,0,a)*DBm(4,1) + Bm(5,0,a)*DBm(5,1);
-
+      BmDBm = Bm[a].col(0).dot(DBm.col(1));
 
       lK(1,a,b) = lK(1,a,b) + w*( afu*(BmDBm + Kvis_u(1,a,b)) + afv*(Kvis_v(1,a,b)) );
 
       // dM1/du3
-      // Material stiffness: Bt*D*B
-      BmDBm = Bm(0,0,a)*DBm(0,2) + Bm(1,0,a)*DBm(1,2) +
-              Bm(2,0,a)*DBm(2,2) + Bm(3,0,a)*DBm(3,2) +
-              Bm(4,0,a)*DBm(4,2) + Bm(5,0,a)*DBm(5,2);
+      BmDBm = Bm[a].col(0).dot(DBm.col(2));
 
       lK(2,a,b) = lK(2,a,b) + w*( afu*(BmDBm + Kvis_u(2,a,b)) + afv*Kvis_v(2,a,b) );
 
       // dM2/du1
-      // Material stiffness: Bt*D*B
-      BmDBm = Bm(0,1,a)*DBm(0,0) + Bm(1,1,a)*DBm(1,0) +
-              Bm(2,1,a)*DBm(2,0) + Bm(3,1,a)*DBm(3,0) +
-              Bm(4,1,a)*DBm(4,0) + Bm(5,1,a)*DBm(5,0);
+      BmDBm = Bm[a].col(1).dot(DBm.col(0));
 
       lK(dof+0,a,b) = lK(dof+0,a,b) + w*( afu*(BmDBm + Kvis_u(3,a,b)) + afv*Kvis_v(3,a,b) );
 
       // dM2/du2
-      // Material stiffness: Bt*D*B
-      BmDBm = Bm(0,1,a)*DBm(0,1) + Bm(1,1,a)*DBm(1,1) +
-              Bm(2,1,a)*DBm(2,1) + Bm(3,1,a)*DBm(3,1) +
-              Bm(4,1,a)*DBm(4,1) + Bm(5,1,a)*DBm(5,1);
+      BmDBm = Bm[a].col(1).dot(DBm.col(1));
 
       lK(dof+1,a,b) = lK(dof+1,a,b) + w*(T1 + afu*(BmDBm + Kvis_u(4,a,b)) + afv*Kvis_v(4,a,b) );
 
       // dM2/du3
-      // Material stiffness: Bt*D*B
-      BmDBm = Bm(0,1,a)*DBm(0,2) + Bm(1,1,a)*DBm(1,2) +
-              Bm(2,1,a)*DBm(2,2) + Bm(3,1,a)*DBm(3,2) +
-              Bm(4,1,a)*DBm(4,2) + Bm(5,1,a)*DBm(5,2);
+      BmDBm = Bm[a].col(1).dot(DBm.col(2));
 
       lK(dof+2,a,b) = lK(dof+2,a,b) + w*( afu*(BmDBm + Kvis_u(5,a,b)) + afv*Kvis_v(5,a,b) );
 
       // dM3/du1
-      // Material stiffness: Bt*D*B
-      BmDBm = Bm(0,2,a)*DBm(0,0) + Bm(1,2,a)*DBm(1,0) +
-              Bm(2,2,a)*DBm(2,0) + Bm(3,2,a)*DBm(3,0) +
-              Bm(4,2,a)*DBm(4,0) + Bm(5,2,a)*DBm(5,0);
+      BmDBm = Bm[a].col(2).dot(DBm.col(0));
 
       lK(2*dof+0,a,b) = lK(2*dof+0,a,b) + w*( afu*(BmDBm + Kvis_u(6,a,b)) + afv*Kvis_v(6,a,b) );
 
       // dM3/du2
-      // Material stiffness: Bt*D*B
-      BmDBm = Bm(0,2,a)*DBm(0,1) + Bm(1,2,a)*DBm(1,1) +
-              Bm(2,2,a)*DBm(2,1) + Bm(3,2,a)*DBm(3,1) +
-              Bm(4,2,a)*DBm(4,1) + Bm(5,2,a)*DBm(5,1);
+      BmDBm = Bm[a].col(2).dot(DBm.col(1));
 
      lK(2*dof+1,a,b) = lK(2*dof+1,a,b) + w*( afu*(BmDBm + Kvis_u(7,a,b)) + afv*Kvis_v(7,a,b) );
 
       // dM3/du3
-      // Material stiffness: Bt*D*B
-      BmDBm = Bm(0,2,a)*DBm(0,2) + Bm(1,2,a)*DBm(1,2) +
-              Bm(2,2,a)*DBm(2,2) + Bm(3,2,a)*DBm(3,2) +
-              Bm(4,2,a)*DBm(4,2) + Bm(5,2,a)*DBm(5,2);
+      BmDBm = Bm[a].col(2).dot(DBm.col(2));
 
       lK(2*dof+2,a,b) = lK(2*dof+2,a,b) + w*( T1 + afu*(BmDBm + Kvis_u(8,a,b)) + afv*Kvis_v(8,a,b) );
     }

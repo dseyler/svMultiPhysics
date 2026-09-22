@@ -28,6 +28,7 @@
 #include "nn.h"
 #include "utils.h"
 
+#include <array>
 #include <math.h>
 
 namespace ustruct {
@@ -550,12 +551,7 @@ void ustruct_2d_c(ComMod& com_mod, CepMod& cep_mod, const bool vmsFlag, const in
     NqxFi(1,a) = Nqx(0,a)*Fi(0,1) + Nqx(1,a)*Fi(1,1);
   }
 
-  Array<double> VxFi(2,2);
-
-  VxFi(0,0) = vx(0,0)*Fi(0,0) + vx(0,1)*Fi(1,0);
-  VxFi(0,1) = vx(0,0)*Fi(0,1) + vx(0,1)*Fi(1,1);
-  VxFi(1,0) = vx(1,0)*Fi(0,0) + vx(1,1)*Fi(1,0);
-  VxFi(1,1) = vx(1,0)*Fi(0,1) + vx(1,1)*Fi(1,1);
+  const Matrix<2> VxFi = vx * Fi;
 
   Vector<double> PxFi(2);
   PxFi(0) = px(0)*Fi(0,0) + px(1)*Fi(1,0);
@@ -773,19 +769,7 @@ void ustruct_3d_c(ComMod& com_mod, CepMod& cep_mod, const bool vmsFlag, const in
     NqxFi(2,a) = Nqx(0,a)*Fi(0,2) + Nqx(1,a)*Fi(1,2) + Nqx(2,a)*Fi(2,2);
   }
 
-  Array<double> VxFi(3,3);
-
-  VxFi(0,0) = vx(0,0)*Fi(0,0) + vx(0,1)*Fi(1,0) + vx(0,2)*Fi(2,0);
-  VxFi(0,1) = vx(0,0)*Fi(0,1) + vx(0,1)*Fi(1,1) + vx(0,2)*Fi(2,1);
-  VxFi(0,2) = vx(0,0)*Fi(0,2) + vx(0,1)*Fi(1,2) + vx(0,2)*Fi(2,2);
-
-  VxFi(1,0) = vx(1,0)*Fi(0,0) + vx(1,1)*Fi(1,0) + vx(1,2)*Fi(2,0);
-  VxFi(1,1) = vx(1,0)*Fi(0,1) + vx(1,1)*Fi(1,1) + vx(1,2)*Fi(2,1);
-  VxFi(1,2) = vx(1,0)*Fi(0,2) + vx(1,1)*Fi(1,2) + vx(1,2)*Fi(2,2);
-
-  VxFi(2,0) = vx(2,0)*Fi(0,0) + vx(2,1)*Fi(1,0) + vx(2,2)*Fi(2,0);
-  VxFi(2,1) = vx(2,0)*Fi(0,1) + vx(2,1)*Fi(1,1) + vx(2,2)*Fi(2,1);
-  VxFi(2,2) = vx(2,0)*Fi(0,2) + vx(2,1)*Fi(1,2) + vx(2,2)*Fi(2,2);
+  const Matrix<3> VxFi = vx * Fi;
 
   Vector<double> PxFi(3);
   PxFi(0) = px(0)*Fi(0,0) + px(1)*Fi(1,0) + px(2)*Fi(2,0);
@@ -1049,19 +1033,19 @@ void ustruct_2d_m(ComMod &com_mod, CepMod &cep_mod, const bool vmsFlag,
     lR(1,a) = lR(1,a) + w*(T1 + T2 + T3);
   }
 
-  // Auxilary quantities for computing stiffness tensors
+  // Strain-displacement matrix; Bm[a] maps node a displacement to Voigt strain
   //
-  Array3<double> Bm(3,2,eNoNw);
+  std::array<Eigen::Matrix<double, 3, 2>, consts::maxNoN> Bm;
 
   for (int a = 0; a < eNoNw; a++) {
-    Bm(0,0,a) = Nwx(0,a)*F(0,0);
-    Bm(0,1,a) = Nwx(0,a)*F(1,0);
+    Bm[a](0,0) = Nwx(0,a)*F(0,0);
+    Bm[a](0,1) = Nwx(0,a)*F(1,0);
 
-    Bm(1,0,a) = Nwx(1,a)*F(0,1);
-    Bm(1,1,a) = Nwx(1,a)*F(1,1);
+    Bm[a](1,0) = Nwx(1,a)*F(0,1);
+    Bm[a](1,1) = Nwx(1,a)*F(1,1);
 
-    Bm(2,0,a) = Nwx(2,a)*F(0,2) + F(0,0)*Nwx(1,a);
-    Bm(2,1,a) = Nwx(2,a)*F(1,2) + F(1,0)*Nwx(1,a);
+    Bm[a](2,0) = Nwx(0,a)*F(0,1) + F(0,0)*Nwx(1,a);
+    Bm[a](2,1) = Nwx(0,a)*F(1,1) + F(1,0)*Nwx(1,a);
   }
 
   Array<double> VxNx(2,eNoNw);
@@ -1080,25 +1064,18 @@ void ustruct_2d_m(ComMod &com_mod, CepMod &cep_mod, const bool vmsFlag,
   Eigen::Matrix<double, 3, 2> DBm;
 
   for (int b = 0; b < eNoNw; b++) {
+
+    DBm.noalias() = Dm * Bm[b];
+
     for (int a = 0; a < eNoNw; a++) {
       NxSNx = Nwx(0,a)*Siso(0,0)*Nwx(0,b)
             + Nwx(0,a)*Siso(0,1)*Nwx(1,b)
             + Nwx(1,a)*Siso(1,0)*Nwx(0,b)
             + Nwx(1,a)*Siso(1,1)*Nwx(1,b);
 
-      DBm(0,0) = Dm(0,0)*Bm(0,0,b) + Dm(0,1)*Bm(1,0,b) + Dm(0,2)*Bm(2,0,b);
-      DBm(0,1) = Dm(0,0)*Bm(0,1,b) + Dm(0,1)*Bm(1,1,b) + Dm(0,2)*Bm(2,1,b);
-
-      DBm(1,0) = Dm(1,0)*Bm(0,0,b) + Dm(1,1)*Bm(1,0,b) + Dm(1,2)*Bm(2,0,b);
-      DBm(1,1) = Dm(1,0)*Bm(0,1,b) + Dm(1,1)*Bm(1,1,b) + Dm(1,2)*Bm(2,1,b);
-
-      DBm(2,0) = Dm(2,0)*Bm(0,0,b) + Dm(2,1)*Bm(1,0,b) + Dm(2,2)*Bm(2,0,b);
-      DBm(2,1) = Dm(2,0)*Bm(0,1,b) + Dm(2,1)*Bm(1,1,b) + Dm(2,2)*Bm(2,1,b);
-
-
       // dM1_dV1 + af/am *dM_1/dU_1
       //
-      BtDB = Bm(0,0,a)*DBm(0,0) + Bm(1,0,a)*DBm(1,0) + Bm(2,0,a)*DBm(2,0);
+      BtDB = Bm[a].col(0).dot(DBm.col(0));
       T1   = Jac*rho*vd(0)*Nw(a)*NxFi(0,b);
       T2   = -tauC*Jac*NxFi(0,a)*VxNx(0,b);
 
@@ -1112,7 +1089,7 @@ void ustruct_2d_m(ComMod &com_mod, CepMod &cep_mod, const bool vmsFlag,
 
       // dM_1/dV_2 + af/am *dM_1/dU_2
       //
-      BtDB = Bm(0,0,a)*DBm(0,1) + Bm(1,0,a)*DBm(1,1) + Bm(2,0,a)*DBm(2,1);
+      BtDB = Bm[a].col(0).dot(DBm.col(1));
       T1   = Jac*rho*vd(0)*Nw(a)*NxFi(1,b);
       T2   = -tauC*Jac*NxFi(0,a)*VxNx(1,b);
       T3   = Jac*rCl*(NxFi(0,a)*NxFi(1,b) - NxFi(1,a)*NxFi(0,b));
@@ -1126,7 +1103,7 @@ void ustruct_2d_m(ComMod &com_mod, CepMod &cep_mod, const bool vmsFlag,
 
       // dM_2/dV_1 + af/am *dM_2/dU_1
       //
-      BtDB = Bm(0,1,a)*DBm(0,0) + Bm(1,1,a)*DBm(1,0) + Bm(2,1,a)*DBm(2,0);
+      BtDB = Bm[a].col(1).dot(DBm.col(0));
       T1   = Jac*rho*vd(1)*Nw(a)*NxFi(0,b);
       T2   = -tauC*Jac*NxFi(1,a)*VxNx(0,b);
       T3   = Jac*rCl*(NxFi(1,a)*NxFi(0,b) - NxFi(0,a)*NxFi(1,b));
@@ -1140,7 +1117,7 @@ void ustruct_2d_m(ComMod &com_mod, CepMod &cep_mod, const bool vmsFlag,
 
       // dM_2/dV_2 + af/am *dM_2/dU_2
       //
-      BtDB = Bm(0,1,a)*DBm(0,1) + Bm(1,1,a)*DBm(1,1) + Bm(2,1,a)*DBm(2,1);
+      BtDB = Bm[a].col(1).dot(DBm.col(1));
       T1   = Jac*rho*vd(1)*Nw(a)*NxFi(1,b);
       T2   = -tauC*Jac*NxFi(1,a)*VxNx(1,b);
 
@@ -1373,34 +1350,34 @@ void ustruct_3d_m(ComMod &com_mod, CepMod &cep_mod, const bool vmsFlag,
     lR(2,a) = lR(2,a) + w*(T1 + T2 + T3);
   }
 
-  // Auxilary quantities for computing stiffness tensors
+  // Strain-displacement matrix; Bm[a] maps node a displacement to Voigt strain
   //
-  Array3<double> Bm(6,3,eNoNw);
+  std::array<Eigen::Matrix<double, 6, 3>, consts::maxNoN> Bm;
 
   for (int a = 0; a < eNoNw; a++) {
-    Bm(0,0,a) = Nwx(0,a)*F(0,0);
-    Bm(0,1,a) = Nwx(0,a)*F(1,0);
-    Bm(0,2,a) = Nwx(0,a)*F(2,0);
+    Bm[a](0,0) = Nwx(0,a)*F(0,0);
+    Bm[a](0,1) = Nwx(0,a)*F(1,0);
+    Bm[a](0,2) = Nwx(0,a)*F(2,0);
 
-    Bm(1,0,a) = Nwx(1,a)*F(0,1);
-    Bm(1,1,a) = Nwx(1,a)*F(1,1);
-    Bm(1,2,a) = Nwx(1,a)*F(2,1);
+    Bm[a](1,0) = Nwx(1,a)*F(0,1);
+    Bm[a](1,1) = Nwx(1,a)*F(1,1);
+    Bm[a](1,2) = Nwx(1,a)*F(2,1);
 
-    Bm(2,0,a) = Nwx(2,a)*F(0,2);
-    Bm(2,1,a) = Nwx(2,a)*F(1,2);
-    Bm(2,2,a) = Nwx(2,a)*F(2,2);
+    Bm[a](2,0) = Nwx(2,a)*F(0,2);
+    Bm[a](2,1) = Nwx(2,a)*F(1,2);
+    Bm[a](2,2) = Nwx(2,a)*F(2,2);
 
-    Bm(3,0,a) = (Nwx(0,a)*F(0,1) + F(0,0)*Nwx(1,a));
-    Bm(3,1,a) = (Nwx(0,a)*F(1,1) + F(1,0)*Nwx(1,a));
-    Bm(3,2,a) = (Nwx(0,a)*F(2,1) + F(2,0)*Nwx(1,a));
+    Bm[a](3,0) = (Nwx(0,a)*F(0,1) + F(0,0)*Nwx(1,a));
+    Bm[a](3,1) = (Nwx(0,a)*F(1,1) + F(1,0)*Nwx(1,a));
+    Bm[a](3,2) = (Nwx(0,a)*F(2,1) + F(2,0)*Nwx(1,a));
 
-    Bm(4,0,a) = (Nwx(1,a)*F(0,2) + F(0,1)*Nwx(2,a));
-    Bm(4,1,a) = (Nwx(1,a)*F(1,2) + F(1,1)*Nwx(2,a));
-    Bm(4,2,a) = (Nwx(1,a)*F(2,2) + F(2,1)*Nwx(2,a));
+    Bm[a](4,0) = (Nwx(1,a)*F(0,2) + F(0,1)*Nwx(2,a));
+    Bm[a](4,1) = (Nwx(1,a)*F(1,2) + F(1,1)*Nwx(2,a));
+    Bm[a](4,2) = (Nwx(1,a)*F(2,2) + F(2,1)*Nwx(2,a));
 
-    Bm(5,0,a) = (Nwx(2,a)*F(0,0) + F(0,2)*Nwx(0,a));
-    Bm(5,1,a) = (Nwx(2,a)*F(1,0) + F(1,2)*Nwx(0,a));
-    Bm(5,2,a) = (Nwx(2,a)*F(2,0) + F(2,2)*Nwx(0,a));
+    Bm[a](5,0) = (Nwx(2,a)*F(0,0) + F(0,2)*Nwx(0,a));
+    Bm[a](5,1) = (Nwx(2,a)*F(1,0) + F(1,2)*Nwx(0,a));
+    Bm[a](5,2) = (Nwx(2,a)*F(2,0) + F(2,2)*Nwx(0,a));
   }
 
   Array<double> VxNx(3,eNoNw);
@@ -1422,7 +1399,7 @@ void ustruct_3d_m(ComMod &com_mod, CepMod &cep_mod, const bool vmsFlag,
 
   for (int b = 0; b < eNoNw; b++) {
 
-    DBm.noalias() = Dm * Eigen::Map<const Eigen::Matrix<double, 6, 3>>(Bm.slice_data(b));
+    DBm.noalias() = Dm * Bm[b];
 
     for (int a = 0; a < eNoNw; a++) {
       NxSNx = Nwx(0,a)*Siso(0,0)*Nwx(0,b)
@@ -1432,9 +1409,7 @@ void ustruct_3d_m(ComMod &com_mod, CepMod &cep_mod, const bool vmsFlag,
        + Nwx(2,a)*Siso(2,1)*Nwx(1,b) + Nwx(2,a)*Siso(2,2)*Nwx(2,b);
 
       // dM1_dV1 + af/am *dM_1/dU_1
-      BtDB = Bm(0,0,a)*DBm(0,0) + Bm(1,0,a)*DBm(1,0) +
-             Bm(2,0,a)*DBm(2,0) + Bm(3,0,a)*DBm(3,0) +
-             Bm(4,0,a)*DBm(4,0) + Bm(5,0,a)*DBm(5,0);
+      BtDB = Bm[a].col(0).dot(DBm.col(0));
       T1   = Jac*rho*vd(0)*Nw(a)*NxFi(0,b);
       T2   = -tauC*Jac*NxFi(0,a)*VxNx(0,b);
  
@@ -1447,9 +1422,7 @@ void ustruct_3d_m(ComMod &com_mod, CepMod &cep_mod, const bool vmsFlag,
       lK(0,a,b)  = lK(0,a,b) + w*(T2 + Tv) + afm*Ku;
 
       // dM_1/dV_2 + af/am *dM_1/dU_2
-      BtDB = Bm(0,0,a)*DBm(0,1) + Bm(1,0,a)*DBm(1,1) +
-             Bm(2,0,a)*DBm(2,1) + Bm(3,0,a)*DBm(3,1) +
-             Bm(4,0,a)*DBm(4,1) + Bm(5,0,a)*DBm(5,1);
+      BtDB = Bm[a].col(0).dot(DBm.col(1));
       T1   = Jac*rho*vd(0)*Nw(a)*NxFi(1,b);
       T2   = -tauC*Jac*NxFi(0,a)*VxNx(1,b);
       T3   = Jac*rCl*(NxFi(0,a)*NxFi(1,b) - NxFi(1,a)*NxFi(0,b));
@@ -1463,9 +1436,7 @@ void ustruct_3d_m(ComMod &com_mod, CepMod &cep_mod, const bool vmsFlag,
 
       // dM_1/dV_3 + af/am *dM_1/dU_3
       //
-      BtDB = Bm(0,0,a)*DBm(0,2) + Bm(1,0,a)*DBm(1,2) +
-             Bm(2,0,a)*DBm(2,2) + Bm(3,0,a)*DBm(3,2) +
-             Bm(4,0,a)*DBm(4,2) + Bm(5,0,a)*DBm(5,2);
+      BtDB = Bm[a].col(0).dot(DBm.col(2));
       T1   = Jac*rho*vd(0)*Nw(a)*NxFi(2,b);
       T2   = -tauC*Jac*NxFi(0,a)*VxNx(2,b);
       T3   = Jac*rCl*(NxFi(0,a)*NxFi(2,b) - NxFi(2,a)*NxFi(0,b));
@@ -1479,9 +1450,7 @@ void ustruct_3d_m(ComMod &com_mod, CepMod &cep_mod, const bool vmsFlag,
 
       // dM_2/dV_1 + af/am *dM_2/dU_1
       //
-      BtDB = Bm(0,1,a)*DBm(0,0) + Bm(1,1,a)*DBm(1,0) +
-             Bm(2,1,a)*DBm(2,0) + Bm(3,1,a)*DBm(3,0) +
-             Bm(4,1,a)*DBm(4,0) + Bm(5,1,a)*DBm(5,0);
+      BtDB = Bm[a].col(1).dot(DBm.col(0));
 
       T1   = Jac*rho*vd(1)*Nw(a)*NxFi(0,b);
       T2   = -tauC*Jac*NxFi(1,a)*VxNx(0,b);
@@ -1497,9 +1466,7 @@ void ustruct_3d_m(ComMod &com_mod, CepMod &cep_mod, const bool vmsFlag,
 
       // dM_2/dV_2 + af/am *dM_2/dU_2
       //
-      BtDB = Bm(0,1,a)*DBm(0,1) + Bm(1,1,a)*DBm(1,1) +
-             Bm(2,1,a)*DBm(2,1) + Bm(3,1,a)*DBm(3,1) +
-             Bm(4,1,a)*DBm(4,1) + Bm(5,1,a)*DBm(5,1);
+      BtDB = Bm[a].col(1).dot(DBm.col(1));
 
       T1   = Jac*rho*vd(1)*Nw(a)*NxFi(1,b);
 
@@ -1517,9 +1484,7 @@ void ustruct_3d_m(ComMod &com_mod, CepMod &cep_mod, const bool vmsFlag,
 
       // dM_2/dV_3 + af/am *dM_2/dU_3
       //
-      BtDB = Bm(0,1,a)*DBm(0,2) + Bm(1,1,a)*DBm(1,2) +
-             Bm(2,1,a)*DBm(2,2) + Bm(3,1,a)*DBm(3,2) +
-             Bm(4,1,a)*DBm(4,2) + Bm(5,1,a)*DBm(5,2);
+      BtDB = Bm[a].col(1).dot(DBm.col(2));
 
       T1   = Jac*rho*vd(1)*Nw(a)*NxFi(2,b);
       T2   = -tauC*Jac*NxFi(1,a)*VxNx(2,b);
@@ -1535,9 +1500,7 @@ void ustruct_3d_m(ComMod &com_mod, CepMod &cep_mod, const bool vmsFlag,
 
       // dM_3/dV_1 + af/am *dM_3/dU_1
       //
-      BtDB = Bm(0,2,a)*DBm(0,0) + Bm(1,2,a)*DBm(1,0) +
-             Bm(2,2,a)*DBm(2,0) + Bm(3,2,a)*DBm(3,0) +
-             Bm(4,2,a)*DBm(4,0) + Bm(5,2,a)*DBm(5,0);
+      BtDB = Bm[a].col(2).dot(DBm.col(0));
 
       T1   = Jac*rho*vd(2)*Nw(a)*NxFi(0,b);
       T2   = -tauC*Jac*NxFi(2,a)*VxNx(0,b);
@@ -1552,9 +1515,7 @@ void ustruct_3d_m(ComMod &com_mod, CepMod &cep_mod, const bool vmsFlag,
 
       // dM_3/dV_2 + af/am *dM_3/dU_2
       //
-      BtDB = Bm(0,2,a)*DBm(0,1) + Bm(1,2,a)*DBm(1,1) +
-             Bm(2,2,a)*DBm(2,1) + Bm(3,2,a)*DBm(3,1) +
-             Bm(4,2,a)*DBm(4,1) + Bm(5,2,a)*DBm(5,1);
+      BtDB = Bm[a].col(2).dot(DBm.col(1));
 
       T1   = Jac*rho*vd(2)*Nw(a)*NxFi(1,b);
       T2   = -tauC*Jac*NxFi(2,a)*VxNx(1,b);
@@ -1570,9 +1531,7 @@ void ustruct_3d_m(ComMod &com_mod, CepMod &cep_mod, const bool vmsFlag,
 
       // dM_3/dV_3 + af/am *dM_3/dU_3
       //
-      BtDB = Bm(0,2,a)*DBm(0,2) + Bm(1,2,a)*DBm(1,2) +
-             Bm(2,2,a)*DBm(2,2) + Bm(3,2,a)*DBm(3,2) +
-             Bm(4,2,a)*DBm(4,2) + Bm(5,2,a)*DBm(5,2);
+      BtDB = Bm[a].col(2).dot(DBm.col(2));
 
       T1   = Jac*rho*vd(2)*Nw(a)*NxFi(2,b);
       T2   = -tauC*Jac*NxFi(2,a)*VxNx(2,b);
