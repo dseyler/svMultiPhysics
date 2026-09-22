@@ -944,11 +944,9 @@ void ustruct_2d_m(ComMod &com_mod, CepMod &cep_mod, const bool vmsFlag,
       T1{0.0}, T2{0.0}, T3{0.0},
       Tv{0.0}, Ku{0.0};
 
-  Eigen::Matrix<double, 3, 2> DBm;
-
   for (int b = 0; b < eNoNw; b++) {
 
-    DBm.noalias() = Dm * Bm[b];
+    const Eigen::Matrix<double, 3, 2> DBm = Dm * Bm[b];
 
     // Geometric stiffness: Siso*grad(N_b)
     const Eigen::Vector2d SisoNx = Siso * Nwxm.col(b);
@@ -1204,11 +1202,9 @@ void ustruct_3d_m(ComMod &com_mod, CepMod &cep_mod, const bool vmsFlag,
   double NxSNx{0.0}, BtDB{0.0}, T1{0.0}, T2{0.0}, T3{0.0};
   double Tv{0.0}, Ku{0.0};
 
-  Eigen::Matrix<double, 6, 3> DBm;
-
   for (int b = 0; b < eNoNw; b++) {
 
-    DBm.noalias() = Dm * Bm[b];
+    const Eigen::Matrix<double, 6, 3> DBm = Dm * Bm[b];
 
     // Geometric stiffness: Siso*grad(N_b)
     const Eigen::Vector3d SisoNx = Siso * Nwxm.col(b);

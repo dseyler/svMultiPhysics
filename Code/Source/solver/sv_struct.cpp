@@ -477,11 +477,7 @@ void struct_2d(ComMod &com_mod, CepMod &cep_mod, const int eNoN, const int nFn,
 
   // 1st Piola-Kirchhoff tensor (P)
   //
-  Matrix<2> P;
-  Eigen::Matrix<double, 3, 2> DBm;
-
-  std::array<Eigen::Matrix<double, 3, 2>, consts::maxNoN> Bm;
-  P.noalias() = F * S;
+  const Matrix<2> P = F * S;
   #ifdef debug_struct_2d 
   dmsg << "P: " << P(0,0) << " " << P(0,1);
   dmsg << "   " << P(1,0) << " " << P(1,1);
@@ -492,6 +488,7 @@ void struct_2d(ComMod &com_mod, CepMod &cep_mod, const int eNoN, const int nFn,
 
   // Strain-displacement matrix; Bm[a] maps node a displacement to Voigt strain
   //
+  std::array<Eigen::Matrix<double, 3, 2>, consts::maxNoN> Bm;
   const Matrix<2> Ft = F.transpose();
 
   for (int a = 0; a < eNoN; a++) {
@@ -503,12 +500,12 @@ void struct_2d(ComMod &com_mod, CepMod &cep_mod, const int eNoN, const int nFn,
   }
 
   // Local stiffness tensor
-  double T1, NxNx, NxSNx, BmDBm;
+  double T1, NxSNx, BmDBm;
 
-  for (int b = 0; b < eNoN; b++) { 
+  for (int b = 0; b < eNoN; b++) {
 
     // Material stiffness (D*B) for node b
-    DBm.noalias() = Dm * Bm[b];
+    const Eigen::Matrix<double, 3, 2> DBm = Dm * Bm[b];
 
     // Geometric stiffness: S*grad(N_b)
     const Eigen::Vector2d SNx = S * Nxm.col(b);
@@ -674,15 +671,14 @@ void struct_3d(ComMod &com_mod, CepMod &cep_mod, const int eNoN, const int nFn,
 
   // 1st Piola-Kirchhoff tensor (P)
   //
-  Matrix<3> P;
-  std::array<Eigen::Matrix<double, 6, 3>, consts::maxNoN> Bm;
-  P.noalias() = F * S;
+  const Matrix<3> P = F * S;
 
   // Local residual: inertia and body force, plus the divergence of P
   lRv += w * (ud * Nm.transpose() + P * Nxm);
 
   // Strain-displacement matrix; Bm[a] maps node a displacement to Voigt strain
   //
+  std::array<Eigen::Matrix<double, 6, 3>, consts::maxNoN> Bm;
   const Matrix<3> Ft = F.transpose();
 
   for (int a = 0; a < eNoN; a++) {
@@ -697,14 +693,12 @@ void struct_3d(ComMod &com_mod, CepMod &cep_mod, const int eNoN, const int nFn,
   }
 
   // Local stiffness tensor
-  double NxSNx, T1, NxNx, BmDBm, Tv;
-
-  Eigen::Matrix<double, 6, 3> DBm;
+  double NxSNx, T1, BmDBm;
 
   for (int b = 0; b < eNoN; b++) {
 
     // Material stiffness (D*B) for node b
-    DBm.noalias() = Dm * Bm[b];
+    const Eigen::Matrix<double, 6, 3> DBm = Dm * Bm[b];
 
     // Geometric stiffness: S*grad(N_b)
     const Eigen::Vector3d SNx = S * Nxm.col(b);
