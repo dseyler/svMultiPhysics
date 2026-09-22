@@ -85,22 +85,43 @@ void g_vol_pen(const ComMod& com_mod, const dmnType& lDmn, const double p,
     double& ro, double& bt, double& dro, double& dbt, const double Ja);
 
 
-/// @brief Computes viscous PK2 stress and tangent
-/// for the viscosity model configured for the domain.
+/// @brief Viscous 2nd Piola-Kirchhoff stress and tangent contributions at a
+/// Gauss point, for the viscosity model configured for the domain.
 ///
-/// @param[in] lDmn Domain, supplying the viscosity model and its parameters.
-/// @param[in] eNoN Number of element nodes.
-/// @param[in] Nx Shape function spatial derivatives.
-/// @param[in] vx Velocity gradient.
-/// @param[in] F Deformation gradient.
-/// @param[out] Svis Viscous 2nd Piola-Kirchhoff stress.
-/// @param[out] Kvis_u,Kvis_v Tangent contributions w.r.t. displacement and velocity.
+/// Owns the buffers it computes into, so a kernel can hold one instance across
+/// an element's Gauss points and skip the calls it does not need.
 ///
-/// @tparam nsd Number of spatial dimensions, deduced from F.
+/// @tparam nsd Number of spatial dimensions.
+///
+/// Defined in mat_models.cpp and explicitly instantiated there for nsd = 2 and
+/// nsd = 3, the only dimensions the solver supports.
 template <int nsd>
-void compute_visc_stress_and_tangent(const dmnType& lDmn, const int eNoN,
-                        const Array<double>& Nx, const Matrix<nsd>& vx, const Matrix<nsd>& F,
-                        Matrix<nsd>& Svis, Array3<double>& Kvis_u, Array3<double>& Kvis_v);
+class ViscousResponse {
+  public:
+    /// @brief Evaluate the domain's viscosity model at this Gauss point.
+    ///
+    /// @param[in] lDmn Domain, supplying the viscosity model and its parameters.
+    /// @param[in] eNoN Number of element nodes.
+    /// @param[in] Nx Shape function spatial derivatives.
+    /// @param[in] vx Velocity gradient.
+    /// @param[in] F Deformation gradient.
+    void update(const dmnType& lDmn, const int eNoN, const Array<double>& Nx,
+                const Matrix<nsd>& vx, const Matrix<nsd>& F);
+
+    /// @brief Viscous 2nd Piola-Kirchhoff stress.
+    const Matrix<nsd>& S() const { return Svis_; }
+
+    /// @brief Tangent w.r.t. displacement. du(i*nsd + j, a, b) is the (i,j)
+    /// entry of the block coupling nodes a and b.
+    double du(const int ij, const int a, const int b) const { return Kvis_u_(ij, a, b); }
+
+    /// @brief Tangent w.r.t. velocity, indexed as du().
+    double dv(const int ij, const int a, const int b) const { return Kvis_v_(ij, a, b); }
+
+  private:
+    Matrix<nsd> Svis_;
+    Array3<double> Kvis_u_, Kvis_v_;
+};
 };
 
 #endif

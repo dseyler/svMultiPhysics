@@ -1689,50 +1689,38 @@ void compute_visc_stress_newtonian(const double mu, const int eNoN, const Array<
 
 } // namespace
 
-/**
- * @brief Get the solid viscous PK2 stress and corresponding tangent matrix contributions
- * Calls the appropriate function based on the viscosity type, either viscous
- * pseudo-potential or Newtonian viscosity model.
- *
- * @param[in] lDmn Domain object
- * @param[in] eNoN Number of nodes in an element
- * @param[in] Nx Shape function gradient w.r.t. reference configuration coordinates (dN/dX)
- * @param[in] vx Velocity gradient matrix w.r.t reference configuration coordinates (dv/dX)
- * @param[in] F Deformation gradient matrix
- * @param[out] Svis Viscous 2nd Piola-Kirchhoff stress matrix
- * @param[out] Kvis_u Viscous tangent matrix contribution due to displacement
- * @param[out] Kvis_v Viscous tangent matrix contribution due to velocity
- */
+/// @brief Dispatches to the viscous pseudo-potential or Newtonian model, or
+/// zeroes the contributions when the domain has no viscosity model.
 template <int nsd>
-void compute_visc_stress_and_tangent(const dmnType& lDmn, const int eNoN,
-                                 const Array<double>& Nx, const Matrix<nsd>& vx, const Matrix<nsd>& F,
-                                 Matrix<nsd>& Svis, Array3<double>& Kvis_u, Array3<double>& Kvis_v) {
+void ViscousResponse<nsd>::update(const dmnType& lDmn, const int eNoN,
+                                 const Array<double>& Nx, const Matrix<nsd>& vx, const Matrix<nsd>& F) {
+
+    // The buffers only need resizing when the element node count changes.
+    if (Kvis_u_.ncols() != eNoN) {
+      Kvis_u_.resize(nsd*nsd, eNoN, eNoN);
+      Kvis_v_.resize(nsd*nsd, eNoN, eNoN);
+    }
 
     switch (lDmn.solid_visc.viscType) {
       case consts::SolidViscosityModelType::viscType_Newtonian:
-        compute_visc_stress_newtonian<nsd>(lDmn.solid_visc.mu, eNoN, Nx, vx, F, Svis, Kvis_u, Kvis_v);
+        compute_visc_stress_newtonian<nsd>(lDmn.solid_visc.mu, eNoN, Nx, vx, F, Svis_, Kvis_u_, Kvis_v_);
       break;
 
       case consts::SolidViscosityModelType::viscType_Potential:
-        compute_visc_stress_potential<nsd>(lDmn.solid_visc.mu, eNoN, Nx, vx, F, Svis, Kvis_u, Kvis_v);
+        compute_visc_stress_potential<nsd>(lDmn.solid_visc.mu, eNoN, Nx, vx, F, Svis_, Kvis_u_, Kvis_v_);
       break;
 
       default:
         // No viscosity model for this domain.
-        Svis.setZero();
-        Kvis_u = 0.0;
-        Kvis_v = 0.0;
+        Svis_.setZero();
+        Kvis_u_ = 0.0;
+        Kvis_v_ = 0.0;
       break;
     }
 }
 
 // Instantiate the dimensions the solver supports.
-template void compute_visc_stress_and_tangent<2>(const dmnType&, const int,
-    const Array<double>&, const Matrix<2>&, const Matrix<2>&,
-    Matrix<2>&, Array3<double>&, Array3<double>&);
-
-template void compute_visc_stress_and_tangent<3>(const dmnType&, const int,
-    const Array<double>&, const Matrix<3>&, const Matrix<3>&,
-    Matrix<3>&, Array3<double>&, Array3<double>&);
+template class ViscousResponse<2>;
+template class ViscousResponse<3>;
 
 };

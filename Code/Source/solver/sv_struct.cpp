@@ -444,23 +444,16 @@ void struct_2d(ComMod &com_mod, CepMod &cep_mod, const int eNoN, const int nFn,
   mat_models::compute_pk2cc(com_mod, cep_mod, dmn, F, nFn, eigen_view<2>(fN), ya_g_f, ya_g_s,
                             ya_g_n, S, Dm, Ja);
 
-  // Viscous 2nd Piola-Kirchhoff stress and tangent contributions
-  static Matrix<2> Svis;
-  // Kvis_u and Kvis_v only need to be sized once per element.
-  static Array3<double> Kvis_u, Kvis_v;
-  if (Kvis_u.ncols() != eNoN) {
-    Kvis_u.resize(4, eNoN, eNoN);
-    Kvis_v.resize(4, eNoN, eNoN);
-  }
-
-  // Reuse the previous Gauss point's viscous contributions when shape function
-  // gradients are constant within an element (e.g. linear triangles, tetrahedra).
+  // Viscous 2nd Piola-Kirchhoff stress and tangent contributions. Reuse the
+  // previous Gauss point's when shape function gradients are constant within an
+  // element (e.g. linear triangles, tetrahedra).
+  static mat_models::ViscousResponse<2> visc;
   if (recompute_visc) {
-    mat_models::compute_visc_stress_and_tangent(dmn, eNoN, Nx, vx, F, Svis, Kvis_u, Kvis_v);
+    visc.update(dmn, eNoN, Nx, vx, F);
   }
 
   // Elastic + Viscous stresses
-  S = S + Svis;
+  S = S + visc.S();
 
   // Prestress
   pSl(0) = S(0,0);
@@ -513,19 +506,19 @@ void struct_2d(ComMod &com_mod, CepMod &cep_mod, const int eNoN, const int nFn,
 
       // dM1/du1
       BmDBm = Bm[a].col(0).dot(DBm.col(0));
-      lK(0,a,b) += w*( T1 + afu*(BmDBm + Kvis_u(0,a,b)) + afv*Kvis_v(0,a,b) );
+      lK(0,a,b) += w*( T1 + afu*(BmDBm + visc.du(0,a,b)) + afv*visc.dv(0,a,b) );
 
       // dM1/du2
       BmDBm = Bm[a].col(0).dot(DBm.col(1));
-      lK(1,a,b) += w*( afu*(BmDBm + Kvis_u(1,a,b)) + afv*Kvis_v(1,a,b) );
+      lK(1,a,b) += w*( afu*(BmDBm + visc.du(1,a,b)) + afv*visc.dv(1,a,b) );
 
       // dM2/du1
       BmDBm = Bm[a].col(1).dot(DBm.col(0));
-      lK(dof+0,a,b) += w*( afu*(BmDBm + Kvis_u(2,a,b)) + afv*Kvis_v(2,a,b) );
+      lK(dof+0,a,b) += w*( afu*(BmDBm + visc.du(2,a,b)) + afv*visc.dv(2,a,b) );
 
       // dM2/du2
       BmDBm = Bm[a].col(1).dot(DBm.col(1));
-      lK(dof+1,a,b) += w*( T1 + afu*(BmDBm + Kvis_u(3,a,b)) + afv*Kvis_v(3,a,b) );
+      lK(dof+1,a,b) += w*( T1 + afu*(BmDBm + visc.du(3,a,b)) + afv*visc.dv(3,a,b) );
     }
   }
 }
@@ -618,23 +611,16 @@ void struct_3d(ComMod &com_mod, CepMod &cep_mod, const int eNoN, const int nFn,
   mat_models::compute_pk2cc(com_mod, cep_mod, dmn, F, nFn, eigen_view<3>(fN), ya_g_f, ya_g_s,
                             ya_g_n, S, Dm, Ja);
 
-  // Viscous 2nd Piola-Kirchhoff stress and tangent contributions
-  static Matrix<3> Svis;
-  // Kvis_u and Kvis_v only need to be sized once per element.
-  static Array3<double> Kvis_u, Kvis_v;
-  if (Kvis_u.ncols() != eNoN) {
-    Kvis_u.resize(9, eNoN, eNoN);
-    Kvis_v.resize(9, eNoN, eNoN);
-  }
-
-  // Reuse the previous Gauss point's viscous contributions when shape function
-  // gradients are constant within an element (e.g. linear triangles, tetrahedra).
+  // Viscous 2nd Piola-Kirchhoff stress and tangent contributions. Reuse the
+  // previous Gauss point's when shape function gradients are constant within an
+  // element (e.g. linear triangles, tetrahedra).
+  static mat_models::ViscousResponse<3> visc;
   if (recompute_visc) {
-    mat_models::compute_visc_stress_and_tangent(dmn, eNoN, Nx, vx, F, Svis, Kvis_u, Kvis_v);
+    visc.update(dmn, eNoN, Nx, vx, F);
   }
 
   // Elastic + Viscous stresses
-  S = S + Svis;
+  S = S + visc.S();
 
   #ifdef debug_struct_3d 
   dmsg << "Jac: " << Jac;
@@ -696,39 +682,39 @@ void struct_3d(ComMod &com_mod, CepMod &cep_mod, const int eNoN, const int nFn,
 
       // dM1/du1
       BmDBm = Bm[a].col(0).dot(DBm.col(0));
-      lK(0,a,b) += w*( T1 + afu*(BmDBm + Kvis_u(0,a,b)) + afv*Kvis_v(0,a,b) );
+      lK(0,a,b) += w*( T1 + afu*(BmDBm + visc.du(0,a,b)) + afv*visc.dv(0,a,b) );
 
       // dM1/du2
       BmDBm = Bm[a].col(0).dot(DBm.col(1));
-      lK(1,a,b) += w*( afu*(BmDBm + Kvis_u(1,a,b)) + afv*Kvis_v(1,a,b) );
+      lK(1,a,b) += w*( afu*(BmDBm + visc.du(1,a,b)) + afv*visc.dv(1,a,b) );
 
       // dM1/du3
       BmDBm = Bm[a].col(0).dot(DBm.col(2));
-      lK(2,a,b) += w*( afu*(BmDBm + Kvis_u(2,a,b)) + afv*Kvis_v(2,a,b) );
+      lK(2,a,b) += w*( afu*(BmDBm + visc.du(2,a,b)) + afv*visc.dv(2,a,b) );
 
       // dM2/du1
       BmDBm = Bm[a].col(1).dot(DBm.col(0));
-      lK(dof+0,a,b) += w*( afu*(BmDBm + Kvis_u(3,a,b)) + afv*Kvis_v(3,a,b) );
+      lK(dof+0,a,b) += w*( afu*(BmDBm + visc.du(3,a,b)) + afv*visc.dv(3,a,b) );
 
       // dM2/du2
       BmDBm = Bm[a].col(1).dot(DBm.col(1));
-      lK(dof+1,a,b) += w*(T1 + afu*(BmDBm + Kvis_u(4,a,b)) + afv*Kvis_v(4,a,b) );
+      lK(dof+1,a,b) += w*(T1 + afu*(BmDBm + visc.du(4,a,b)) + afv*visc.dv(4,a,b) );
 
       // dM2/du3
       BmDBm = Bm[a].col(1).dot(DBm.col(2));
-      lK(dof+2,a,b) += w*( afu*(BmDBm + Kvis_u(5,a,b)) + afv*Kvis_v(5,a,b) );
+      lK(dof+2,a,b) += w*( afu*(BmDBm + visc.du(5,a,b)) + afv*visc.dv(5,a,b) );
 
       // dM3/du1
       BmDBm = Bm[a].col(2).dot(DBm.col(0));
-      lK(2*dof+0,a,b) += w*( afu*(BmDBm + Kvis_u(6,a,b)) + afv*Kvis_v(6,a,b) );
+      lK(2*dof+0,a,b) += w*( afu*(BmDBm + visc.du(6,a,b)) + afv*visc.dv(6,a,b) );
 
       // dM3/du2
       BmDBm = Bm[a].col(2).dot(DBm.col(1));
-      lK(2*dof+1,a,b) += w*( afu*(BmDBm + Kvis_u(7,a,b)) + afv*Kvis_v(7,a,b) );
+      lK(2*dof+1,a,b) += w*( afu*(BmDBm + visc.du(7,a,b)) + afv*visc.dv(7,a,b) );
 
       // dM3/du3
       BmDBm = Bm[a].col(2).dot(DBm.col(2));
-      lK(2*dof+2,a,b) += w*( T1 + afu*(BmDBm + Kvis_u(8,a,b)) + afv*Kvis_v(8,a,b) );
+      lK(2*dof+2,a,b) += w*( T1 + afu*(BmDBm + visc.du(8,a,b)) + afv*visc.dv(8,a,b) );
     }
   }
 }
