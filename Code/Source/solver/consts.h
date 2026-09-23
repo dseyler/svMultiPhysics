@@ -18,7 +18,7 @@ namespace consts {
 
 const int maxNSD = 3;
 
-const int maxNoN = 27;
+const int maxNoN = 27; // Max node count in nn_elem_props.h
 
 const int maxNProp = 20;
 

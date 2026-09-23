@@ -29,19 +29,15 @@ namespace mat_fun {
     template<int nsd>
     using Tensor = Eigen::TensorFixedSize<double, Eigen::Sizes<nsd, nsd, nsd, nsd>>;
 
-    /// @brief One nsd-vector per element node, so nsd x eNoN. Stack allocated,
-    /// so the column count is bounded by the largest element the solver supports.
+    /// @brief One nsd-vector per element node, so nsd x eNoN, stack allocated.
     template <int nsd>
     using NodalMatrix = Eigen::Matrix<double, nsd, Eigen::Dynamic, 0, nsd, consts::maxNoN>;
 
-    /// @brief One scalar per element node. Stack allocated, so the entry count
-    /// is bounded by the largest element the solver supports.
+    /// @brief One scalar per element node, stack allocated.
     using NodalVector = Eigen::Matrix<double, Eigen::Dynamic, 1, 0, consts::maxNoN, 1>;
 
     // The eigen_view overloads below wrap an Array or Vector in an Eigen::Map that
-    // shares its storage, so the container must outlive the view. The templated
-    // forms fix one dimension at compile time and check it at run time. The
-    // untemplated forms take both dimensions from the container.
+    // shares its storage, so the container must outlive the view.
 
     /// @brief Read-only Eigen view of an Array, sharing its storage.
     ///
@@ -58,18 +54,12 @@ namespace mat_fun {
     }
 
     /// @brief Read-only Eigen view of a whole Array, sharing its storage.
-    ///
-    /// Both dimensions come from the Array, so a row block of a larger array is
-    /// reached with e.g. eigen_view(dl).middleRows<nsd>(i), letting Eigen derive
-    /// the stride.
     inline Eigen::Map<const Eigen::MatrixXd>
     eigen_view(const Array<double>& A) {
         return {A.data(), A.nrows(), A.ncols()};
     }
 
     /// @brief Writable Eigen view of a whole Array, sharing its storage.
-    ///
-    /// Lets a result be accumulated with a single Eigen expression.
     inline Eigen::Map<Eigen::MatrixXd>
     eigen_view_mut(Array<double>& A) {
         return {A.data(), A.nrows(), A.ncols()};
@@ -236,7 +226,6 @@ namespace mat_fun {
     }
 
     Array<double> mat_symm(const Array<double>& A, const int nd);
-
     Array<double> mat_symm_prod(const Vector<double>& u, const Vector<double>& v, const int nd);
 
     double mat_trace(const Array<double>& A, const int nd);
@@ -251,8 +240,7 @@ namespace mat_fun {
      *
      * @tparam nsd Number of spatial dimensions; each tensor is nsd^4.
      * @param[in] A,B Fourth order tensors to contract.
-     * @param[in] dimsA,dimsB Zero-based indices of the two dimensions of A and
-     *   of B to contract over.
+     * @param[in] dimsA,dimsB Indices of the contracted dimensions of A and B.
      * @return The contracted tensor.
      */
     template <int nsd>

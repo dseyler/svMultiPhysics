@@ -835,7 +835,7 @@ void compute_pk2cc(const ComMod& com_mod, const CepMod& cep_mod, const dmnType& 
     if (nsd == 2) {
         // Copy deformation gradient to Eigen matrix
         auto F_2D = mat_fun::convert_to_eigen_matrix<Matrix<2>>(F);
-
+        
         const auto fl_2D = eigen_view<2>(fl);
 
         // Initialize stress and elasticity tensors

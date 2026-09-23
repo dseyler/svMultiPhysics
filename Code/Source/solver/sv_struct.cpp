@@ -16,7 +16,6 @@
 #include "nn.h"
 #include "utils.h"
 #include "DebugMsg.h"
-
 #include <array>
 
 namespace struct_ns {
@@ -45,10 +44,10 @@ void b_struct_2d(const ComMod& com_mod, const int eNoN, const double w, const Ve
 
   for (int a = 0; a  < eNoN; a++) {
     h  = h + N(a)*hl(a);
-    F(0,0) += Nx(0,a)*dl(i,a);
-    F(0,1) += Nx(1,a)*dl(i,a);
-    F(1,0) += Nx(0,a)*dl(j,a);
-    F(1,1) += Nx(1,a)*dl(j,a);
+    F(0,0) = F(0,0) + Nx(0,a)*dl(i,a);
+    F(0,1) = F(0,1) + Nx(1,a)*dl(i,a);
+    F(1,0) = F(1,0) + Nx(0,a)*dl(j,a);
+    F(1,1) = F(1,1) + Nx(1,a)*dl(j,a);
   }
 
   double Jac = F(0,0)*F(1,1) - F(0,1)*F(1,0);
@@ -69,7 +68,7 @@ void b_struct_2d(const ComMod& com_mod, const int eNoN, const double w, const Ve
 
     for (int b = 0; b < eNoN; b++) {
       double Ku = wl*af*N(a)*(nFi(1)*NxFi(0,b) - nFi(0)*NxFi(1,b));
-      lK(1,a,b) += Ku;
+      lK(1,a,b) = lK(1,a,b) + Ku;
       lK(dof,a,b) = lK(dof,a,b) - Ku;
     }
   }
@@ -126,15 +125,15 @@ void b_struct_3d(const ComMod& com_mod, const int eNoN, const double w, const Ve
   // Compute deformation gradient tensor F
   for (int a = 0; a  < eNoN; a++) {
     h  = h + N(a)*hl(a);
-    F(0,0) += Nx(0,a)*dl(i,a);
-    F(0,1) += Nx(1,a)*dl(i,a);
-    F(0,2) += Nx(2,a)*dl(i,a);
-    F(1,0) += Nx(0,a)*dl(j,a);
-    F(1,1) += Nx(1,a)*dl(j,a);
-    F(1,2) += Nx(2,a)*dl(j,a);
-    F(2,0) += Nx(0,a)*dl(k,a);
-    F(2,1) += Nx(1,a)*dl(k,a);
-    F(2,2) += Nx(2,a)*dl(k,a);
+    F(0,0) = F(0,0) + Nx(0,a)*dl(i,a);
+    F(0,1) = F(0,1) + Nx(1,a)*dl(i,a);
+    F(0,2) = F(0,2) + Nx(2,a)*dl(i,a);
+    F(1,0) = F(1,0) + Nx(0,a)*dl(j,a);
+    F(1,1) = F(1,1) + Nx(1,a)*dl(j,a);
+    F(1,2) = F(1,2) + Nx(2,a)*dl(j,a);
+    F(2,0) = F(2,0) + Nx(0,a)*dl(k,a);
+    F(2,1) = F(2,1) + Nx(1,a)*dl(k,a);
+    F(2,2) = F(2,2) + Nx(2,a)*dl(k,a);
   }
 
   double Jac = mat_fun::mat_det(F, 3);
@@ -167,15 +166,15 @@ void b_struct_3d(const ComMod& com_mod, const int eNoN, const double w, const Ve
 
     for (int b = 0; b < eNoN; b++) {
       double Ku = wl * af * N(a) * (nFi(1)*NxFi(0,b) - nFi(0)*NxFi(1,b));
-      lK(1,a,b) += Ku;
+      lK(1,a,b) = lK(1,a,b) + Ku;
       lK(dof,a,b) = lK(dof,a,b) - Ku;
 
       Ku = wl*af*N(a)*(nFi(2)*NxFi(0,b) - nFi(0)*NxFi(2,b));
-      lK(2,a,b) += Ku;
+      lK(2,a,b) = lK(2,a,b) + Ku;
       lK(2*dof,a,b) = lK(2*dof,a,b) - Ku;
 
       Ku = wl*af*N(a)*(nFi(2)*NxFi(1,b) - nFi(1)*NxFi(2,b));
-      lK(dof+2,a,b) += Ku;
+      lK(dof+2,a,b) = lK(dof+2,a,b) + Ku;
       lK(2*dof+1,a,b) = lK(2*dof+1,a,b) - Ku;
     }
   }
@@ -183,14 +182,10 @@ void b_struct_3d(const ComMod& com_mod, const int eNoN, const double w, const Ve
 
 /// @brief Assemble the residual and tangent contributions of one solid mesh.
 ///
-/// @param[in,out] com_mod Global common variables. The current domain and, when
-///   prestress is active, the accumulated nodal stresses are updated here, and
-///   the assembled element contributions are written through it.
-/// @param[in] cep_mod Electrophysiology variables, supplying the active stress
-///   interpolated to each Gauss point.
+/// @param[in,out] com_mod Global common variables.
+/// @param[in] cep_mod Electrophysiology variables, supplying the active stress.
 /// @param[in] lM Mesh whose elements are assembled.
-/// @param[in] solutions Acceleration, velocity and displacement at the
-///   intermediate time level.
+/// @param[in] solutions Acceleration, velocity and displacement.
 void construct_dsolid(ComMod& com_mod, CepMod& cep_mod, const mshType& lM, const SolutionStates& solutions)
 {
   const auto& Ag = solutions.intermediate.get_acceleration();
@@ -443,9 +438,9 @@ void struct_2d(ComMod &com_mod, CepMod &cep_mod, const int eNoN, const int nFn,
   mat_models::compute_pk2cc<2>(com_mod, cep_mod, dmn, F, nFn, eigen_view<2>(fN), ya_g_f, ya_g_s,
                             ya_g_n, S, Dm, Ja);
 
-  // Viscous 2nd Piola-Kirchhoff stress and tangent contributions. Reuse the
-  // previous Gauss point's when shape function gradients are constant within an
-  // element (e.g. linear triangles, tetrahedra).
+  // Viscous 2nd Piola-Kirchhoff stress and tangent contributions.
+  // Reuse from the previous Gauss point when shape function gradients
+  // are constant within an element (e.g. linear triangles, tetrahedra).
   static mat_models::ViscousResponse<2> visc;
   if (recompute_visc) {
     visc.update(dmn, eNoN, Nx, vx, F);
@@ -470,10 +465,10 @@ void struct_2d(ComMod &com_mod, CepMod &cep_mod, const int eNoN, const int nFn,
   dmsg << "   " << P(1,0) << " " << P(1,1);
   #endif
 
-  // Local residual: inertia and body force, plus the divergence of P
+  // Local residual: inertia and body force, plus div P
   lRv += w * (ud * Nm.transpose() + P * Nxm);
 
-  // Strain-displacement matrix; Bm[a] maps node a displacement to Voigt strain
+  // Strain-displacement matrix; Bm[a] maps node a to Voigt strain
   //
   std::array<Eigen::Matrix<double, 3, 2>, consts::maxNoN> Bm;
   const Matrix<2> Ft = F.transpose();
@@ -491,7 +486,7 @@ void struct_2d(ComMod &com_mod, CepMod &cep_mod, const int eNoN, const int nFn,
 
   for (int b = 0; b < eNoN; b++) {
 
-    // Material stiffness (D*B) for node b
+    // Material stiffness for node b
     const Eigen::Matrix<double, 3, 2> DBm = Dm * Bm[b];
 
     // Geometric stiffness: S*grad(N_b)
@@ -530,8 +525,7 @@ void struct_3d(ComMod &com_mod, CepMod &cep_mod, const int eNoN, const int nFn,
                const Array<double> &fN, const Array<double> &pS0l,
                Vector<double> &pSl, const Vector<double> &ya_l_f,
                const Vector<double> &ya_l_s, const Vector<double> &ya_l_n,
-               Array<double> &lR, Array3<double> &lK,
-               const bool recompute_visc) {
+               Array<double> &lR, Array3<double> &lK, const bool recompute_visc) {          
   using namespace consts;
   using namespace mat_fun;
 
@@ -581,7 +575,7 @@ void struct_3d(ComMod &com_mod, CepMod &cep_mod, const int eNoN, const int nFn,
   const auto bfm  = eigen_view<3>(bfl);               // nodal body force
   auto       lRv  = eigen_view_mut(lR).topRows<3>();  // rows this kernel adds to
 
-  // Inertia, damping and body force: the term the residual weights with N
+  // Inertia, damping and body force.
   const Eigen::Vector3d ud = (rho*(acc - bfm) + dmp*vel) * Nm - rho * fb;
 
   // Active stress activation along fiber, sheet and sheet-normal
@@ -610,9 +604,9 @@ void struct_3d(ComMod &com_mod, CepMod &cep_mod, const int eNoN, const int nFn,
   mat_models::compute_pk2cc<3>(com_mod, cep_mod, dmn, F, nFn, eigen_view<3>(fN), ya_g_f, ya_g_s,
                             ya_g_n, S, Dm, Ja);
 
-  // Viscous 2nd Piola-Kirchhoff stress and tangent contributions. Reuse the
-  // previous Gauss point's when shape function gradients are constant within an
-  // element (e.g. linear triangles, tetrahedra).
+  // Viscous 2nd Piola-Kirchhoff stress and tangent contributions.
+  // Reuse from the previous Gauss point when shape function gradients
+  // are constant within an element (e.g. linear triangles, tetrahedra).
   static mat_models::ViscousResponse<3> visc;
   if (recompute_visc) {
     visc.update(dmn, eNoN, Nx, vx, F);
@@ -644,10 +638,10 @@ void struct_3d(ComMod &com_mod, CepMod &cep_mod, const int eNoN, const int nFn,
   //
   const Matrix<3> P = F * S;
 
-  // Local residual: inertia and body force, plus the divergence of P
+  // Local residual: inertia and body force, plus div P
   lRv += w * (ud * Nm.transpose() + P * Nxm);
 
-  // Strain-displacement matrix; Bm[a] maps node a displacement to Voigt strain
+  // Strain-displacement matrix; Bm[a] maps node a to Voigt strain
   //
   std::array<Eigen::Matrix<double, 6, 3>, consts::maxNoN> Bm;
   const Matrix<3> Ft = F.transpose();
@@ -668,7 +662,7 @@ void struct_3d(ComMod &com_mod, CepMod &cep_mod, const int eNoN, const int nFn,
 
   for (int b = 0; b < eNoN; b++) {
 
-    // Material stiffness (D*B) for node b
+    // Material stiffness for node b
     const Eigen::Matrix<double, 6, 3> DBm = Dm * Bm[b];
 
     // Geometric stiffness: S*grad(N_b)

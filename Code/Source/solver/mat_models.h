@@ -93,8 +93,6 @@ void g_vol_pen(const ComMod& com_mod, const dmnType& lDmn, const double p,
 ///
 /// @tparam nsd Number of spatial dimensions.
 ///
-/// Defined in mat_models.cpp and explicitly instantiated there for nsd = 2 and
-/// nsd = 3, the only dimensions the solver supports.
 template <int nsd>
 class ViscousResponse {
   public:
@@ -115,7 +113,7 @@ class ViscousResponse {
     /// entry of the block coupling nodes a and b.
     double du(const int ij, const int a, const int b) const { return Kvis_u_(ij, a, b); }
 
-    /// @brief Tangent w.r.t. velocity, indexed as du().
+    /// @brief Tangent w.r.t. velocity.
     double dv(const int ij, const int a, const int b) const { return Kvis_v_(ij, a, b); }
 
   private:
