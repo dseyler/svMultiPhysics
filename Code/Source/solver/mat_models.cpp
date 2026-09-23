@@ -811,9 +811,7 @@ void compute_pk2cc(const ComMod &com_mod, const CepMod &cep_mod,
 }
 
 // The element routines know their dimension at compile time and call the
-// template directly, so instantiate the dimensions the solver supports. Keep
-// this next to the definition: a signature change here that is not mirrored
-// below fails at link time rather than at compile time.
+// template directly, so instantiate the dimensions the solver supports.
 template void compute_pk2cc<2>(const ComMod&, const CepMod&, const dmnType&,
     const Matrix<2>&, const int, const Eigen::Map<const Eigen::Matrix<double, 2, Eigen::Dynamic>>&,
     const double, const double, const double, Matrix<2>&, Matrix<3>&, double&);
@@ -1556,8 +1554,8 @@ void g_vol_pen(const ComMod& com_mod, const dmnType& lDmn, const double p,
 namespace {
 
 /**
- * @brief Viscous PK2 stress and tangent contributions for the viscous
- * pseudo-potential model.
+ * @brief Get the viscous PK2 stress and corresponding tangent matrix contributions for a solid
+ * with a viscous pseudo-potential model.
  *
  * This is defined by a viscous pseudo-potential
  * Psi = mu/2 * tr(E_dot^2)
@@ -1582,7 +1580,6 @@ void compute_visc_stress_potential(const double mu, const int eNoN, const Array<
                            const Matrix<nsd>& vx, const Matrix<nsd>& F,
                            Matrix<nsd>& Svis, Array3<double>& Kvis_u, Array3<double>& Kvis_v) {
 
-    const auto Nxm = eigen_view<nsd>(Nx);
 
     // Required intermediate terms for stress and tangent
     const Matrix<nsd> F_Ft  = F * F.transpose();
@@ -1590,6 +1587,7 @@ void compute_visc_stress_potential(const double mu, const int eNoN, const Array<
     const Matrix<nsd> F_vxt = F * vx.transpose();
 
     // F_Nx(i,a) = sum_j F(i,j) * Nx(j,a), and likewise for vx.
+    const auto Nxm = eigen_view<nsd>(Nx);
     const NodalMatrix<nsd> F_Nx  = F  * Nxm;
     const NodalMatrix<nsd> vx_Nx = vx * Nxm;
 
@@ -1640,8 +1638,6 @@ template <int nsd>
 void compute_visc_stress_newtonian(const double mu, const int eNoN, const Array<double>& Nx,
                            const Matrix<nsd>& vx, const Matrix<nsd>& F,
                            Matrix<nsd>& Svis, Array3<double>& Kvis_u, Array3<double>& Kvis_v) {
-    
-    const auto Nxm = eigen_view<nsd>(Nx);
 
     // Get identity matrix, Jacobian, and F^-1
     const double J = F.determinant();
@@ -1654,6 +1650,7 @@ void compute_visc_stress_newtonian(const double mu, const int eNoN, const Array<
     const Matrix<nsd> ddev = mat_fun::mat_dev<nsd>(vx_Fi_symm);
 
     // Nx_Fi(i,a) = sum_j Nx(j,a) * Fi(j,i), which is Fi^T * Nx.
+    const auto Nxm = eigen_view<nsd>(Nx);
     const NodalMatrix<nsd> Nx_Fi       = Fi.transpose() * Nxm;
     const NodalMatrix<nsd> ddev_Nx_Fi  = ddev  * Nx_Fi;
     const NodalMatrix<nsd> vx_Fi_Nx_Fi = vx_Fi * Nx_Fi;
