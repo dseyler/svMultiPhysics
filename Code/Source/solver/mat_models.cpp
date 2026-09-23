@@ -234,7 +234,7 @@ std::pair<Matrix<nsd>, Tensor<nsd>> bar_to_iso(
   double r1 = J2d * double_dot_product<nsd>(C, S_bar) / nsd;
 
   // Compute isochoric 2nd Piola-Kirchhoff stress
-  auto S_iso = J2d*S_bar - r1*Ci;
+  const Matrix<nsd> S_iso = J2d*S_bar - r1*Ci;
 
   // Compute isochoric material elasticity tensor
   Tensor<nsd> PP = fourth_order_identity<nsd>() - (1.0/nsd) * dyadic_product<nsd>(Ci, C); // Important: using auto here causes tests to fail
@@ -261,7 +261,7 @@ std::pair<Matrix<nsd>, Tensor<nsd>> bar_to_iso(
  * @throws std::runtime_error if directions are parallel or if called in 2D.
  */
 template <int nsd>
-Eigen::Matrix<double, nsd, 1> compute_sheet_normal(const Eigen::Map<const Eigen::Matrix<double, nsd, Eigen::Dynamic>>& fl)
+Eigen::Matrix<double, nsd, 1> compute_sheet_normal(const FiberRef<nsd>& fl)
 {
   using namespace mat_fun;
   
@@ -284,7 +284,7 @@ Eigen::Matrix<double, nsd, 1> compute_sheet_normal(const Eigen::Map<const Eigen:
 template <int nsd>
 void compute_pk2cc(const ComMod &com_mod, const CepMod &cep_mod,
                    const dmnType &lDmn, const Matrix<nsd> &F, const int nfd,
-                   const Eigen::Map<const Eigen::Matrix<double, nsd, Eigen::Dynamic>> &fl,
+                   const FiberRef<nsd> &fl,
                    const double ya_f, const double ya_s, const double ya_n,
                    Matrix<nsd> &S, Matrix<3 * (nsd - 1)> &Dm, double &Ja) {
   using namespace consts;
@@ -813,11 +813,11 @@ void compute_pk2cc(const ComMod &com_mod, const CepMod &cep_mod,
 // The element routines know their dimension at compile time and call the
 // template directly, so instantiate the dimensions the solver supports.
 template void compute_pk2cc<2>(const ComMod&, const CepMod&, const dmnType&,
-    const Matrix<2>&, const int, const Eigen::Map<const Eigen::Matrix<double, 2, Eigen::Dynamic>>&,
+    const Matrix<2>&, const int, const FiberRef<2>&,
     const double, const double, const double, Matrix<2>&, Matrix<3>&, double&);
 
 template void compute_pk2cc<3>(const ComMod&, const CepMod&, const dmnType&,
-    const Matrix<3>&, const int, const Eigen::Map<const Eigen::Matrix<double, 3, Eigen::Dynamic>>&,
+    const Matrix<3>&, const int, const FiberRef<3>&,
     const double, const double, const double, Matrix<3>&, Matrix<6>&, double&);
 
 /**
@@ -1593,7 +1593,7 @@ void compute_visc_stress_potential(const double mu, const int eNoN, const Array<
 
     // 2nd Piola-Kirchhoff stress due to viscosity
     // Svis = mu * 1/2 * ( (F^T * dv/dX) + (F^T * dv/dX)^T )
-    Svis.noalias() = mu * mat_fun::mat_symm<nsd>(Ft_vx);
+    Svis = 0.5 * mu * (Ft_vx + Ft_vx.transpose());
 
     // Tangent matrix contributions due to viscosity
     for (int b = 0; b < eNoN; ++b) {
@@ -1640,14 +1640,16 @@ void compute_visc_stress_newtonian(const double mu, const int eNoN, const Array<
                            Matrix<nsd>& Svis, Array3<double>& Kvis_u, Array3<double>& Kvis_v) {
 
     // Get identity matrix, Jacobian, and F^-1
+    const auto Idm = Matrix<nsd>::Identity();
     const double J = F.determinant();
     const Matrix<nsd> Fi = F.inverse();
 
     // vx_Fi: Velocity gradient in current configuration
     const Matrix<nsd> vx_Fi = vx * Fi;
-    const Matrix<nsd> vx_Fi_symm = mat_fun::mat_symm<nsd>(vx_Fi);
-    // ddev: Deviatoric part of rate of strain tensor
-    const Matrix<nsd> ddev = mat_fun::mat_dev<nsd>(vx_Fi_symm);
+    // d: rate of deformation tensor, the symmetric velocity gradient
+    const Matrix<nsd> d = 0.5 * (vx_Fi + vx_Fi.transpose());
+    // ddev: its deviatoric part
+    const Matrix<nsd> ddev = d - (d.trace() / nsd) * Idm;
 
     // Nx_Fi(i,a) = sum_j Nx(j,a) * Fi(j,i), which is Fi^T * Nx.
     const auto Nxm = eigen_view<nsd>(Nx);
@@ -1676,7 +1678,7 @@ void compute_visc_stress_newtonian(const double mu, const int eNoN, const Array<
                                     r2d * Nx_Fi(i,a) * vx_Fi_Nx_Fi(j,b)));
 
                     // Derivative of the residual w.r.t velocity
-                    Kvis_v(ii,a,b) = mu * J * (Nx_Fi_Nx_Fi * (i == j) +
+                    Kvis_v(ii,a,b) = mu * J * (Nx_Fi_Nx_Fi * Idm(i,j) +
                                     Nx_Fi(i,b) * Nx_Fi(j,a) - r2d * Nx_Fi(i,a) * Nx_Fi(j,b));
                 }
             }

@@ -29,11 +29,14 @@ void cc_to_voigt(const int nsd, const Tensor4<double>& CC, Array<double>& Dm);
 
 void voigt_to_cc(const int nsd, const Array<double>& Dm, Tensor4<double>& CC);
 
+/// @brief Fiber directions at a Gauss point, one direction per column
+/// with row count fixed at compile time to the number of spatial dimensions.
+template <int nsd>
+using FiberRef = Eigen::Ref<const Eigen::Matrix<double, nsd, Eigen::Dynamic>>;
+
 /**
  * @brief Compute 2nd Piola-Kirchhoff stress and material stiffness tensors
  * including both dilational and isochoric components.
- *
- * Reproduces the Fortran 'GETPK2CC' subroutine.
  *
  * @param[in] com_mod Object containing global common variables.
  * @param[in] cep_mod Object containing electrophysiology-specific common
@@ -52,14 +55,11 @@ void voigt_to_cc(const int nsd, const Array<double>& Dm, Tensor4<double>& CC);
  * @return None, but modifies S, Dm, and Ja in place.
  *
  * @tparam nsd Number of spatial dimensions.
- *
- * Defined in mat_models.cpp and explicitly instantiated there for nsd = 2 and
- * nsd = 3, the only dimensions the solver supports.
  */
 template <int nsd>
 void compute_pk2cc(const ComMod &com_mod, const CepMod &cep_mod,
                    const dmnType &lDmn, const Matrix<nsd> &F, const int nfd,
-                   const Eigen::Map<const Eigen::Matrix<double, nsd, Eigen::Dynamic>> &fl, const double ya_f,
+                   const FiberRef<nsd> &fl, const double ya_f,
                    const double ya_s, const double ya_n, Matrix<nsd> &S,
                    Matrix<3 * (nsd - 1)> &Dm, double &Ja);
 

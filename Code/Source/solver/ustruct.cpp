@@ -269,6 +269,14 @@ void construct_usolid(ComMod& com_mod, CepMod& cep_mod, const mshType& lM, const
     ya_l_s = 0.0;
     ya_l_n = 0.0;
 
+    if (lM.fN.size() != 0) {
+      for (int iFn = 0; iFn < nFn; iFn++) {
+        for (int i = 0; i < nsd; i++) {
+          fN(i,iFn) = lM.fN(i+nsd*iFn,e);
+        }
+      }
+    }
+
     for (int a = 0; a < eNoN; a++) {
       int Ac = lM.IEN(a,e);
       ptr(a) = Ac;
@@ -282,14 +290,6 @@ void construct_usolid(ComMod& com_mod, CepMod& cep_mod, const mshType& lM, const
         al(i,a) = Ag(i,Ac);
         dl(i,a) = Dg(i,Ac);
         yl(i,a) = Yg(i,Ac);
-      }
-
-      if (lM.fN.size() != 0) {
-        for (int iFn = 0; iFn < nFn; iFn++) {
-          for (int i = 0; i < nsd; i++) {
-            fN(i,iFn) = lM.fN(i+nsd*iFn,e);
-          }
-        }
       }
 
       if (eq.dmn[cDmn].active_stress != nullptr) {
@@ -864,7 +864,7 @@ void ustruct_2d_m(ComMod &com_mod, CepMod &cep_mod, const bool vmsFlag,
   Matrix<2> Siso;
   Matrix<3> Dm;
   double Ja = 0;
-  mat_models::compute_pk2cc(com_mod, cep_mod, eq.dmn[cDmn], F, nFn, eigen_view<2>(fN), ya_g_f,
+  mat_models::compute_pk2cc<2>(com_mod, cep_mod, eq.dmn[cDmn], F, nFn, eigen_view<2>(fN), ya_g_f,
                             ya_g_s, ya_g_n, Siso, Dm, Ja);
 
   // Viscous 2nd Piola-Kirchhoff stress and tangent contributions. Reuse the
@@ -1114,7 +1114,7 @@ void ustruct_3d_m(ComMod &com_mod, CepMod &cep_mod, const bool vmsFlag,
   Matrix<3> Siso;
   Matrix<6> Dm;
   double Ja = 0;
-  mat_models::compute_pk2cc(com_mod, cep_mod, eq.dmn[cDmn], F, nFn, eigen_view<3>(fN), ya_g_f,
+  mat_models::compute_pk2cc<3>(com_mod, cep_mod, eq.dmn[cDmn], F, nFn, eigen_view<3>(fN), ya_g_f,
                             ya_g_s, ya_g_n, Siso, Dm, Ja);
 
   // Viscous 2nd Piola-Kirchhoff stress and tangent contributions. Reuse the
