@@ -810,8 +810,7 @@ void compute_pk2cc(const ComMod &com_mod, const CepMod &cep_mod,
   cc_to_voigt_eigen<nsd>(CC, Dm);
 }
 
-// The element routines know their dimension at compile time and call the
-// template directly, so instantiate the dimensions the solver supports.
+// Explicitly instantiate compute_pk2cc for 2D and 3D.
 template void compute_pk2cc<2>(const ComMod&, const CepMod&, const dmnType&,
     const Matrix<2>&, const int, const FiberRef<2>&,
     const double, const double, const double, Matrix<2>&, Matrix<3>&, double&);
@@ -834,7 +833,7 @@ void compute_pk2cc(const ComMod& com_mod, const CepMod& cep_mod, const dmnType& 
 
     if (nsd == 2) {
         // Copy deformation gradient to Eigen matrix
-        auto F_2D = mat_fun::convert_to_eigen_matrix<Matrix<2>>(F);
+        const auto F_2D = mat_fun::convert_to_eigen_matrix<Matrix<2>>(F);
         
         const auto fl_2D = eigen_view<2>(fl);
 
@@ -851,7 +850,7 @@ void compute_pk2cc(const ComMod& com_mod, const CepMod& cep_mod, const dmnType& 
 
     } else if (nsd == 3) {
         // Copy deformation gradient to Eigen matrix
-        auto F_3D = mat_fun::convert_to_eigen_matrix<Matrix<3>>(F);
+        const auto F_3D = mat_fun::convert_to_eigen_matrix<Matrix<3>>(F);
 
         const auto fl_3D = eigen_view<3>(fl);
 

@@ -396,13 +396,13 @@ void struct_2d(ComMod &com_mod, CepMod &cep_mod, const int eNoN, const int nFn,
   #endif
 
   // This element's nodal fields, as Eigen views over the caller's storage
-  const auto Nxm  = eigen_view<2>(Nx);                // grad(N_a) per column
-  const auto Nm   = eigen_view(N);                    // shape functions
-  const auto disp = eigen_view(dl).middleRows<2>(i);  // nodal displacements
-  const auto vel  = eigen_view(yl).middleRows<2>(i);  // nodal velocities
-  const auto acc  = eigen_view(al).middleRows<2>(i);  // nodal accelerations
-  const auto bfm  = eigen_view<2>(bfl);               // nodal body force
-  auto       lRv  = eigen_view_mut(lR).topRows<2>();  // rows this kernel adds to
+  const auto Nxm  = eigen_view<2>(Nx);                    // grad(N_a) per column
+  const auto Nm   = eigen_view(N);                        // shape functions
+  const auto disp = eigen_view(dl).middleRows<2>(i);      // nodal displacements
+  const auto vel  = eigen_view(yl).middleRows<2>(i);      // nodal velocities
+  const auto acc  = eigen_view(al).middleRows<2>(i);      // nodal accelerations
+  const auto bfm  = eigen_view<2>(bfl);                   // nodal body force
+  auto       lRv  = eigen_view_mutable(lR).topRows<2>();  // rows this kernel adds to
 
   // Inertia, damping and body force: the term the residual weights with N
   const Eigen::Vector2d ud = (rho*(acc - bfm) + dmp*vel) * Nm - rho * fb;
@@ -567,13 +567,13 @@ void struct_3d(ComMod &com_mod, CepMod &cep_mod, const int eNoN, const int nFn,
   int i = eq.s;
 
   // This element's nodal fields, as Eigen views over the caller's storage
-  const auto Nxm  = eigen_view<3>(Nx);                // grad(N_a) per column
-  const auto Nm   = eigen_view(N);                    // shape functions
-  const auto disp = eigen_view(dl).middleRows<3>(i);  // nodal displacements
-  const auto vel  = eigen_view(yl).middleRows<3>(i);  // nodal velocities
-  const auto acc  = eigen_view(al).middleRows<3>(i);  // nodal accelerations
-  const auto bfm  = eigen_view<3>(bfl);               // nodal body force
-  auto       lRv  = eigen_view_mut(lR).topRows<3>();  // rows this kernel adds to
+  const auto Nxm  = eigen_view<3>(Nx);                    // grad(N_a) per column
+  const auto Nm   = eigen_view(N);                        // shape functions
+  const auto disp = eigen_view(dl).middleRows<3>(i);      // nodal displacements
+  const auto vel  = eigen_view(yl).middleRows<3>(i);      // nodal velocities
+  const auto acc  = eigen_view(al).middleRows<3>(i);      // nodal accelerations
+  const auto bfm  = eigen_view<3>(bfl);                   // nodal body force
+  auto       lRv  = eigen_view_mutable(lR).topRows<3>();  // rows this kernel adds to
 
   // Inertia, damping and body force.
   const Eigen::Vector3d ud = (rho*(acc - bfm) + dmp*vel) * Nm - rho * fb;

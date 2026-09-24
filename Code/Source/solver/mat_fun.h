@@ -22,18 +22,28 @@
 /// \todo [TODO:DaveP] this should just be a namespace?
 //
 namespace mat_fun {
-    // Define templated type aliases for Eigen matrices and tensors for convenience
+    /// @brief A 2nd order tensor, nsd x nsd, fixed size and stack allocated.
+    /// Used for the deformation gradient, stresses and similar quantities that
+    /// have a known size at compile time.
     template<int nsd>
     using Matrix = Eigen::Matrix<double, nsd, nsd>;
 
+    /// @brief A 4th order tensor, nsd x nsd x nsd x nsd, fixed size and stack
+    /// allocated. Used for the material elasticity tensor and other 4th order tensors
+    /// that have a known size at compile time.
     template<int nsd>
     using Tensor = Eigen::TensorFixedSize<double, Eigen::Sizes<nsd, nsd, nsd, nsd>>;
 
-    /// @brief One nsd-vector per element node, so nsd x eNoN, stack allocated.
+    /// @brief One nsd-vector per element node, so nsd x eNoN. Row count is fixed
+    /// at compile time while column count is the element's node count, known only
+    /// at run time, so it is bounded by consts::maxNoN to stay stack allocated.
+    /// Used for shape function gradients and other per-node vector quantities.
     template <int nsd>
     using NodalMatrix = Eigen::Matrix<double, nsd, Eigen::Dynamic, 0, nsd, consts::maxNoN>;
 
-    /// @brief One scalar per element node, stack allocated.
+    /// @brief One scalar per element node, so eNoN entries. Dynamic length bounded
+    /// by consts::maxNoN to stay stack allocated, as for NodalMatrix. Used for shape
+    /// function values and other per-node scalar quantities.
     using NodalVector = Eigen::Matrix<double, Eigen::Dynamic, 1, 0, consts::maxNoN, 1>;
 
     // The eigen_view overloads below wrap an Array or Vector in an Eigen::Map that
@@ -61,7 +71,7 @@ namespace mat_fun {
 
     /// @brief Writable Eigen view of a whole Array, sharing its storage.
     inline Eigen::Map<Eigen::MatrixXd>
-    eigen_view_mut(Array<double>& A) {
+    eigen_view_mutable(Array<double>& A) {
         return {A.data(), A.nrows(), A.ncols()};
     }
 
@@ -236,7 +246,10 @@ namespace mat_fun {
     Tensor4<double> ten_ddot_3424(const Tensor4<double>& A, const Tensor4<double>& B, const int nd);
 
     /**
-     * @brief Contracts two 4th order tensors A and B over two dimensions. 
+     * @brief Contracts two 4th order tensors A and B over two dimensions.
+     *
+     * For example, if dimsA = {0, 1} and dimsB = {2, 3} this is
+     *  C_klmn = A_ijkl B_mnij   (sum over i, j)
      *
      * @tparam nsd Number of spatial dimensions; each tensor is nsd^4.
      * @param[in] A,B Fourth order tensors to contract.
