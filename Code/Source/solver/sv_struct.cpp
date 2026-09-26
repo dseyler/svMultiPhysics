@@ -300,7 +300,7 @@ void construct_dsolid(ComMod& com_mod, CepMod& cep_mod, const mshType& lM, const
 
     for (int g = 0; g < lM.nG; g++) {
       // Shape function gradients and the viscous response are constant
-      // within linear trianlges and tetrahedra.
+      // within linear triangles and tetrahedra.
       const bool recompute_visc = (g == 0 || !lM.lShpF);
 
       if (recompute_visc) {
@@ -358,8 +358,7 @@ void struct_2d(ComMod &com_mod, CepMod &cep_mod, const int eNoN, const int nFn,
                const Array<double> &fN, const Array<double> &pS0l,
                Vector<double> &pSl, const Vector<double> &ya_l_f,
                const Vector<double> &ya_l_s, const Vector<double> &ya_l_n,
-               Array<double> &lR, Array3<double> &lK,
-               const bool recompute_visc) {
+               Array<double> &lR, Array3<double> &lK, const bool recompute_visc) {
   using namespace consts;
   using namespace mat_fun;
 
@@ -442,9 +441,7 @@ void struct_2d(ComMod &com_mod, CepMod &cep_mod, const int eNoN, const int nFn,
   // Reuse from the previous Gauss point when shape function gradients
   // are constant within an element (e.g. linear triangles, tetrahedra).
   static mat_models::ViscousResponse<2> visc;
-  if (recompute_visc) {
-    visc.update(dmn, eNoN, Nx, vx, F);
-  }
+  visc.update(dmn, eNoN, Nx, vx, F, recompute_visc);
 
   // Elastic + Viscous stresses
   S = S + visc.S();
@@ -608,9 +605,7 @@ void struct_3d(ComMod &com_mod, CepMod &cep_mod, const int eNoN, const int nFn,
   // Reuse from the previous Gauss point when shape function gradients
   // are constant within an element (e.g. linear triangles, tetrahedra).
   static mat_models::ViscousResponse<3> visc;
-  if (recompute_visc) {
-    visc.update(dmn, eNoN, Nx, vx, F);
-  }
+  visc.update(dmn, eNoN, Nx, vx, F, recompute_visc);
 
   // Elastic + Viscous stresses
   S = S + visc.S();

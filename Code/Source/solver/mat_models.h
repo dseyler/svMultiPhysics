@@ -98,13 +98,18 @@ class ViscousResponse {
   public:
     /// @brief Evaluate the domain's viscosity model at this Gauss point.
     ///
+    /// Does nothing when recompute is false, preserving values from the
+    /// previous call. Used for linear triangules and tetrahedra for which
+    /// Nx, vx, and F are constant across the element's Gauss points.
+    ///
     /// @param[in] lDmn Domain, supplying the viscosity model and its parameters.
     /// @param[in] eNoN Number of element nodes.
     /// @param[in] Nx Shape function spatial derivatives.
     /// @param[in] vx Velocity gradient.
     /// @param[in] F Deformation gradient.
+    /// @param[in] recompute Whether the stored values must be recomputed.
     void update(const dmnType& lDmn, const int eNoN, const Array<double>& Nx,
-                const Matrix<nsd>& vx, const Matrix<nsd>& F);
+                const Matrix<nsd>& vx, const Matrix<nsd>& F, const bool recompute);
 
     /// @brief Viscous 2nd Piola-Kirchhoff stress.
     const Matrix<nsd>& S() const { return Svis_; }

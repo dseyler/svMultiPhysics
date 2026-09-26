@@ -1691,7 +1691,13 @@ void compute_visc_stress_newtonian(const double mu, const int eNoN, const Array<
 /// zeroes the contributions when the domain has no viscosity model.
 template <int nsd>
 void ViscousResponse<nsd>::update(const dmnType& lDmn, const int eNoN,
-                                 const Array<double>& Nx, const Matrix<nsd>& vx, const Matrix<nsd>& F) {
+                                 const Array<double>& Nx, const Matrix<nsd>& vx, const Matrix<nsd>& F,
+                                 const bool recompute) {
+
+    // Reuse current stored values.
+    if (!recompute) {
+      return;
+    }
 
     // The buffers only need resizing when the element node count changes.
     if (Kvis_u_.ncols() != eNoN) {
