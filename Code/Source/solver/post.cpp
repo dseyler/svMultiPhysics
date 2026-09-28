@@ -83,7 +83,7 @@ void all_post(Simulation* simulation, Array<double>& res, const SolutionStates& 
     } else if (outGrp == OutputNameType::outGrp_J) {
       Array<double> tmpV(1,msh.nNo); 
       Vector<double> tmpVe(msh.nEl);
-      tpost(simulation, msh, 1, tmpV, tmpVe, solutions, iEq, outGrp);
+      tensor_post(simulation, msh, 1, tmpV, tmpVe, solutions, iEq, outGrp);
       res = 0.0;
       for (int a = 0; a < com_mod.msh[iM].nNo; a++) {
         int Ac = msh.gN(a);
@@ -93,7 +93,7 @@ void all_post(Simulation* simulation, Array<double>& res, const SolutionStates& 
      } else if (outGrp == OutputNameType::outGrp_mises) {
        Array<double> tmpV(1,msh.nNo); 
        Vector<double> tmpVe(msh.nEl);
-       tpost(simulation, msh, 1, tmpV, tmpVe, solutions, iEq, outGrp);
+       tensor_post(simulation, msh, 1, tmpV, tmpVe, solutions, iEq, outGrp);
        res = 0.0;
        for (int a = 0; a < com_mod.msh[iM].nNo; a++) {
          int Ac = msh.gN(a);
@@ -1696,16 +1696,16 @@ void shl_post(Simulation* simulation, const mshType& lM, const int m, Array<doub
 }
 
 //-------
-// tpost
+// tensor_post
 //-------
 // Routine for post processing stress tensor
 //
 namespace {
 
-/// @brief Implementation of tpost templated on nsd
+/// @brief Implementation of tensor_post templated on nsd
 ///
 template <int nsd>
-void tpost_impl(Simulation* simulation, const mshType& lM, const int m, Array<double>& res, Vector<double>& resE,
+void tensor_post_impl(Simulation* simulation, const mshType& lM, const int m, Array<double>& res, Vector<double>& resE,
     const SolutionStates& solutions, const int iEq, consts::OutputNameType outGrp)
 {
   using namespace consts;
@@ -1719,8 +1719,8 @@ void tpost_impl(Simulation* simulation, const mshType& lM, const int m, Array<do
   const auto& lD = solutions.current.get_displacement();
   auto& eq = com_mod.eq[iEq];
 
-  #define n_debug_tpost
-  #ifdef debug_tpost
+  #define n_debug_tensor_post
+  #ifdef debug_tensor_post
   DebugMsg dmsg(__func__, com_mod.cm.idcm());
   dmsg.banner();
   dmsg << "outGrp: " << outGrp;
@@ -1739,7 +1739,7 @@ void tpost_impl(Simulation* simulation, const mshType& lM, const int m, Array<do
     nFn = 1;
   }
 
-  #ifdef debug_tpost
+  #ifdef debug_tensor_post
   dmsg << "i: " << i;
   dmsg << "j: " << j;
   dmsg << "k: " << k;
@@ -1766,7 +1766,7 @@ void tpost_impl(Simulation* simulation, const mshType& lM, const int m, Array<do
     fs.nG    = lM.nG;
   }
 
-  #ifdef debug_tpost
+  #ifdef debug_tensor_post
   dmsg << "fs.eType: " << fs.eType;
   dmsg << "fs.eNoN: " << fs.eNoN;
   dmsg << "fs.nG: " << fs.nG;
@@ -1776,7 +1776,7 @@ void tpost_impl(Simulation* simulation, const mshType& lM, const int m, Array<do
   int tDof = com_mod.tDof;
   int nsymd = com_mod.nsymd;
 
-  #ifdef debug_tpost
+  #ifdef debug_tensor_post
   dmsg;
   dmsg << "tnNo: " << tnNo;
   dmsg << "tDof: " << tDof;
@@ -2187,13 +2187,13 @@ void tpost_impl(Simulation* simulation, const mshType& lM, const int m, Array<do
 
 /// @brief Post-processing routine for stress tensors
 ///
-void tpost(Simulation* simulation, const mshType& lM, const int m, Array<double>& res, Vector<double>& resE,
+void tensor_post(Simulation* simulation, const mshType& lM, const int m, Array<double>& res, Vector<double>& resE,
     const SolutionStates& solutions, const int iEq, consts::OutputNameType outGrp)
 {
   if (simulation->com_mod.nsd == 3) {
-    tpost_impl<3>(simulation, lM, m, res, resE, solutions, iEq, outGrp);
+    tensor_post_impl<3>(simulation, lM, m, res, resE, solutions, iEq, outGrp);
   } else if (simulation->com_mod.nsd == 2) {
-    tpost_impl<2>(simulation, lM, m, res, resE, solutions, iEq, outGrp);
+    tensor_post_impl<2>(simulation, lM, m, res, resE, solutions, iEq, outGrp);
   }
 }
 
