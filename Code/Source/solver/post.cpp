@@ -1887,7 +1887,7 @@ void tpost_impl(Simulation* simulation, const mshType& lM, const int m, Array<do
           } else { 
             ed(0) = ed(0) + Nx(0,a)*dl(i,a);
             ed(1) = ed(1) + Nx(1,a)*dl(j,a);
-            ed(2) = ed(2) + Nx(1,a)*dl(i,a) + Nx(1,a)*dl(j,a);
+            ed(2) = ed(2) + Nx(1,a)*dl(i,a) + Nx(0,a)*dl(j,a);
           }
         }
       }
@@ -1990,7 +1990,7 @@ void tpost_impl(Simulation* simulation, const mshType& lM, const int m, Array<do
           } else if (cPhys == EquationType::phys_ustruct) {
             double p = 0.0;
             for (int a = 0; a < fs.eNoN; a++) {
-              p = p + N(a)*yl(k+1,a);
+              p = p + N(a)*yl(i+nsd,a);
             }
             p = (-p) * detF;
 
