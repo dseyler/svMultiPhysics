@@ -819,53 +819,6 @@ template void compute_pk2cc<3>(const ComMod&, const CepMod&, const dmnType&,
     const Matrix<3>&, const int, const FiberRef<3>&,
     const double, const double, const double, Matrix<3>&, Matrix<6>&, double&);
 
-/**
- * @brief Get the 2nd Piola-Kirchhoff stress tensor and material elasticity tensor.
- * 
- * This is a wrapper function for the templated function compute_pk2cc.
- * 
- */
-void compute_pk2cc(const ComMod& com_mod, const CepMod& cep_mod, const dmnType& lDmn, const Array<double>& F, const int nfd,
-    const Array<double>& fl, const double ya_f, const double ya_s, const double ya_n, Array<double>& S, Array<double>& Dm, double& Ja)
-{
-    // Number of spatial dimensions
-    int nsd = com_mod.nsd;
-
-    if (nsd == 2) {
-        // Copy deformation gradient to Eigen matrix
-        const auto F_2D = mat_fun::convert_to_eigen_matrix<Matrix<2>>(F);
-        
-        const auto fl_2D = eigen_view<2>(fl);
-
-        // Initialize stress and elasticity tensors
-        Matrix<2> S_2D  = Matrix<2>::Zero();
-        Matrix<3> Dm_2D = Matrix<3>::Zero();
-
-        // Call templated function
-        compute_pk2cc<2>(com_mod, cep_mod, lDmn, F_2D, nfd, fl_2D, ya_f, ya_s, ya_n, S_2D, Dm_2D, Ja);
-
-        // Copy results back
-        mat_fun::convert_to_array(S_2D, S);
-        mat_fun::copy_Dm(Dm_2D, Dm);
-
-    } else if (nsd == 3) {
-        // Copy deformation gradient to Eigen matrix
-        const auto F_3D = mat_fun::convert_to_eigen_matrix<Matrix<3>>(F);
-
-        const auto fl_3D = eigen_view<3>(fl);
-
-        // Initialize stress and elasticity tensors
-        Matrix<3> S_3D  = Matrix<3>::Zero();
-        Matrix<6> Dm_3D = Matrix<6>::Zero();
-
-        // Call templated function
-        compute_pk2cc<3>(com_mod, cep_mod, lDmn, F_3D, nfd, fl_3D, ya_f, ya_s, ya_n, S_3D, Dm_3D, Ja);
-
-        // Copy results back
-        mat_fun::convert_to_array(S_3D, S);
-        mat_fun::copy_Dm(Dm_3D, Dm);
-    }
-}
 
 /// @brief Compute 2nd Piola-Kirchhoff stress and material stiffness tensors
 /// for compressible shell elements.

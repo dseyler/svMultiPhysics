@@ -397,9 +397,9 @@ void struct_2d(ComMod &com_mod, CepMod &cep_mod, const int eNoN, const int nFn,
   // This element's nodal fields, as Eigen views over the caller's storage
   const auto Nxm  = eigen_view<2>(Nx);                    // grad(N_a) per column
   const auto Nm   = eigen_view(N);                        // shape functions
-  const auto disp = eigen_view(dl).middleRows<2>(i);      // nodal displacements
-  const auto vel  = eigen_view(yl).middleRows<2>(i);      // nodal velocities
-  const auto acc  = eigen_view(al).middleRows<2>(i);      // nodal accelerations
+  const auto disp = eigen_view_rows<2>(dl, i);            // nodal displacements
+  const auto vel  = eigen_view_rows<2>(yl, i);            // nodal velocities
+  const auto acc  = eigen_view_rows<2>(al, i);            // nodal accelerations
   const auto bfm  = eigen_view<2>(bfl);                   // nodal body force
   auto       lRv  = eigen_view_mutable(lR).topRows<2>();  // rows this kernel adds to
 
@@ -566,9 +566,9 @@ void struct_3d(ComMod &com_mod, CepMod &cep_mod, const int eNoN, const int nFn,
   // This element's nodal fields, as Eigen views over the caller's storage
   const auto Nxm  = eigen_view<3>(Nx);                    // grad(N_a) per column
   const auto Nm   = eigen_view(N);                        // shape functions
-  const auto disp = eigen_view(dl).middleRows<3>(i);      // nodal displacements
-  const auto vel  = eigen_view(yl).middleRows<3>(i);      // nodal velocities
-  const auto acc  = eigen_view(al).middleRows<3>(i);      // nodal accelerations
+  const auto disp = eigen_view_rows<3>(dl, i);            // nodal displacements
+  const auto vel  = eigen_view_rows<3>(yl, i);            // nodal velocities
+  const auto acc  = eigen_view_rows<3>(al, i);            // nodal accelerations
   const auto bfm  = eigen_view<3>(bfl);                   // nodal body force
   auto       lRv  = eigen_view_mutable(lR).topRows<3>();  // rows this kernel adds to
 

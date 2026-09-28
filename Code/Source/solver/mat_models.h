@@ -63,13 +63,6 @@ void compute_pk2cc(const ComMod &com_mod, const CepMod &cep_mod,
                    const double ya_s, const double ya_n, Matrix<nsd> &S,
                    Matrix<3 * (nsd - 1)> &Dm, double &Ja);
 
-/// @brief Array-based overload, for callers whose dimension is a run-time value.
-void compute_pk2cc(const ComMod &com_mod, const CepMod &cep_mod,
-                   const dmnType &lDmn, const Array<double> &F, const int nfd,
-                   const Array<double> &fl, const double ya_f,
-                   const double ya_s, const double ya_n, Array<double> &S,
-                   Array<double> &Dm, double &Ja);
-
 void compute_pk2cc_shlc(const ComMod& com_mod, const dmnType& lDmn, const int nfd, const Array<double>& fNa0,
     const Array<double>& gg_0, const Array<double>& gg_x, double& g33, Vector<double>& Sml, Array<double>& Dml);
 

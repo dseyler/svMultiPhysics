@@ -69,6 +69,30 @@ namespace mat_fun {
         return {A.data(), A.nrows(), A.ncols()};
     }
 
+    /// @brief Read-only Eigen view of a band of rows of an Array, sharing its storage.
+    ///
+    /// Used where an Array contains several fields and only a contiguous band is viewed.
+    /// For example,
+    ///
+    ///     A = [ A00, A01, A02 ;         eigen_view_rows<2>(A, 1) = [ A10, A11, A12 ;
+    ///           A10, A11, A12 ;                                      A20, A21, A22 ]
+    ///           A20, A21, A22 ;
+    ///           A30, A31, A32 ]
+    ///
+    /// @param A The Array to view.
+    /// @param first Index of the band's first row within the Array.
+    /// @tparam rows Number of rows, fixed at compile time, typically nsd.
+    template <int rows>
+    Eigen::Map<const Eigen::Matrix<double, rows, Eigen::Dynamic>, 0, Eigen::OuterStride<>>
+    eigen_view_rows(const Array<double>& A, const int first) {
+        if (first < 0 || first + rows > A.nrows()) {
+          svmp::raise<svmp::FE::InvalidArgumentException>(
+              "A view of " + std::to_string(rows) + " rows starting at row " + std::to_string(first) +
+              " was requested for an array with " + std::to_string(A.nrows()) + " rows.");
+        }
+        return {A.data() + first, rows, A.ncols(), Eigen::OuterStride<>(A.nrows())};
+    }
+
     /// @brief Writable Eigen view of a whole Array, sharing its storage.
     inline Eigen::Map<Eigen::MatrixXd>
     eigen_view_mutable(Array<double>& A) {
