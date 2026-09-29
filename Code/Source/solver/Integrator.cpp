@@ -13,6 +13,7 @@
 #include "nn.h"
 #include "output.h"
 #include "post.h"
+#include "prestrain.h"
 #include "ris.h"
 #include "set_bc.h"
 #include "ustruct.h"
@@ -426,6 +427,17 @@ void Integrator::predictor()
      Ao = 0.0;
      Yo = 0.0;
      Do = 0.0;
+  }
+
+  // Accumulate deformation gradient into prestrain and reset solution to rest.
+  if (com_mod.prestrainEq) {
+     prestrain::accumulate(com_mod, solutions_.intermediate.get_displacement());
+     Ao = 0.0;
+     Yo = 0.0;
+     Do = 0.0;
+     if (com_mod.sstEq) {
+       com_mod.Ad = 0.0;   // ustruct's displacement rate state
+     }
   }
 
   // IB treatment: Set dirichlet BC and update traces. For explicit

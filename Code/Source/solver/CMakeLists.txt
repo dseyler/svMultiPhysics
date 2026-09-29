@@ -237,6 +237,7 @@ set(CSRCS
   read_msh.h read_msh.cpp
   remesh.h remesh.cpp
   remeshTet.cpp
+  prestrain.h prestrain.cpp
   set_bc.h set_bc.cpp
   shells.h shells.cpp
   stokes.h stokes.cpp

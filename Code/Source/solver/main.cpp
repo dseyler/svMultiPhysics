@@ -21,6 +21,7 @@
 #include "ls.h"
 #include "output.h"
 #include "read_files.h"
+#include "prestrain.h"
 #include "read_msh.h"
 #include "remesh.h"
 #include "set_bc.h"
@@ -484,6 +485,10 @@ void iterate_solution(Simulation* simulation)
     //
     if (com_mod.pstEq) {
       //CALL OUTDNORM()
+    }
+
+    if (com_mod.prestrainEq) {
+      prestrain::print_displacement_norm(com_mod, cm_mod, Dn);
     }
 
     if (com_mod.ibFlag) {

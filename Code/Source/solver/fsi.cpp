@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: BSD-3-Clause
 
 #include "fsi.h"
+#include "prestrain.h"
 
 #include "all_fun.h"
 #include "consts.h"
@@ -222,8 +223,9 @@ void construct_fsi(ComMod& com_mod, CepMod& cep_mod, const mshType& lM, const So
 
           case Equation_struct: {
             auto N0 = fs_1[0].N.col(g);
+            const mat_fun::Matrix<3> F0 = prestrain::deformation_gradient<3>(lM, e, g);
             struct_ns::struct_3d(com_mod, cep_mod, fs_1[0].eNoN, nFn, w, N0,
-                                 Nwx, al, yl, dl, bfl, fN, pS0l, pSl, ya_l_f,
+                                 Nwx, al, yl, dl, F0, bfl, fN, pS0l, pSl, ya_l_f,
                                  ya_l_s, ya_l_n, lR, lK, recompute_visc);
           } break;
           case Equation_lElas:
@@ -231,14 +233,15 @@ void construct_fsi(ComMod& com_mod, CepMod& cep_mod, const mshType& lM, const So
             //CALL LELAS3D(fs(1).eNoN, w, fs(1).N(:,g), Nwx, al, dl, bfl, pS0l, pSl, lR, lK)
           break;
 
-          case Equation_ustruct:
+          case Equation_ustruct: {
             auto N0 = fs_1[0].N.col(g);
             auto N1 = fs_1[1].N.col(g);
+            const mat_fun::Matrix<3> F0 = prestrain::deformation_gradient<3>(lM, e, g);
             ustruct::ustruct_3d_m(com_mod, cep_mod, vmsStab, fs_1[0].eNoN,
                                   fs_1[1].eNoN, nFn, w, Jac, N0, N1, Nwx, al,
-                                  yl, dl, bfl, fN, ya_l_f, ya_l_s, ya_l_n, lR,
+                                  yl, dl, F0, bfl, fN, ya_l_f, ya_l_s, ya_l_n, lR,
                                   lK, lKd, recompute_visc);
-            break;
+          } break;
           }
 
       } else if (nsd == 2) {
@@ -258,8 +261,9 @@ void construct_fsi(ComMod& com_mod, CepMod& cep_mod, const mshType& lM, const So
 
           case Equation_struct: {
             auto N0 = fs_1[0].N.col(g);
+            const mat_fun::Matrix<2> F0 = prestrain::deformation_gradient<2>(lM, e, g);
             struct_ns::struct_2d(com_mod, cep_mod, fs_1[0].eNoN, nFn, w, N0,
-                                 Nwx, al, yl, dl, bfl, fN, pS0l, pSl, ya_l_f,
+                                 Nwx, al, yl, dl, F0, bfl, fN, pS0l, pSl, ya_l_f,
                                  ya_l_s, ya_l_n, lR, lK, recompute_visc);
           } break;
 
@@ -317,11 +321,12 @@ void construct_fsi(ComMod& com_mod, CepMod& cep_mod, const mshType& lM, const So
             fluid::fluid_3d_c(com_mod, vmsStab, fs_2[0].eNoN, fs_2[1].eNoN, w, ksix, N0, N1, Nwx, Nqx, Nwxx, al, yl, bfl, lR, lK, 0.0, urisFactorTotal, urisValveVelTermTotal);
           } break;
 
-          case Equation_ustruct:
+          case Equation_ustruct: {
             auto N0 = fs_2[0].N.col(g);
             auto N1 = fs_2[1].N.col(g);
-            ustruct::ustruct_3d_c(com_mod, cep_mod, vmsStab, fs_2[0].eNoN, fs_2[1].eNoN, w, Jac, N0, N1, Nwx, Nqx, al, yl, dl, bfl, lR, lK, lKd);
-          break;
+            const mat_fun::Matrix<3> F0 = prestrain::deformation_gradient<3>(lM, e, g);
+            ustruct::ustruct_3d_c(com_mod, cep_mod, vmsStab, fs_2[0].eNoN, fs_2[1].eNoN, w, Jac, N0, N1, Nwx, Nqx, al, yl, dl, F0, bfl, lR, lK, lKd);
+          } break;
         }
 
       } else if (nsd == 2) {

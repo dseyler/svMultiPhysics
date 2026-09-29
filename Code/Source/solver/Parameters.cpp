@@ -2613,6 +2613,7 @@ EquationParameters::EquationParameters() {
   set_parameter("Min_iterations", 1, !required, min_iterations);
 
   set_parameter("Prestress", false, !required, prestress);
+  set_parameter("Prestrain", false, !required, prestrain);
 
   set_parameter("Tolerance", 0.5, !required, tolerance);
   set_parameter("Use_taylor_hood_type_basis", false, !required,
@@ -3111,6 +3112,7 @@ MeshParameters::MeshParameters() {
   set_parameter("Mesh_file_path", "", !required, mesh_file_path);
   set_parameter("Mesh_scale_factor", 1.0, !required, mesh_scale_factor);
   set_parameter("Prestress_file_path", "", !required, prestress_file_path);
+  set_parameter("Prestrain_file_path", "", !required, prestrain_file_path);
 
   set_parameter("Include_xml", "", !required, include_xml);
   set_parameter("Initial_displacements_file_path", "", !required,

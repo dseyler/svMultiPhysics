@@ -11,6 +11,7 @@
 #include "consts.h"
 #include "load_msh.h"
 #include "nn.h"
+#include "prestrain.h"
 #include "read_msh.h"
 #include "utils.h"
 #include "vtk_xml.h"
@@ -1578,6 +1579,16 @@ void read_msh(Simulation* simulation)
           }
         }
       }
+    }
+  }
+
+  // Read the imprinted deformation gradient of a prestrained configuration.
+  //
+  for (int iM = 0; iM < com_mod.nMsh; iM++) {
+    auto mesh_param = simulation->parameters.mesh_parameters[iM];
+    if (mesh_param->prestrain_file_path.defined()) {
+      auto file_name = mesh_param->prestrain_file_path.value();
+      prestrain::read(file_name, com_mod.msh[iM], nsd);
     }
   }
 

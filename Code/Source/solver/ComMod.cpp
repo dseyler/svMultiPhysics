@@ -32,6 +32,7 @@ ComMod::ComMod()
   cmmVarWall         = false;
   shlEq              = false;
   pstEq              = false;
+  prestrainEq             = false;
   sstEq              = false;
   ibFlag             = false;
   risFlag            = false;

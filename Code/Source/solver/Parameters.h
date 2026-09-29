@@ -1776,6 +1776,7 @@ class EquationParameters : public ParameterLists
     Parameter<double> penalty_parameter;
     Parameter<double> poisson_ratio;
     Parameter<bool> prestress;
+    Parameter<bool> prestrain;
 
     Parameter<double> source_term;
     Parameter<double> tolerance;
@@ -1963,6 +1964,7 @@ class MeshParameters : public ParameterLists
     Parameter<std::string> mesh_file_path;
     Parameter<double> mesh_scale_factor;
     Parameter<std::string> prestress_file_path;
+    Parameter<std::string> prestrain_file_path;
 
     Parameter<bool> set_mesh_as_fibers;
     Parameter<bool> set_mesh_as_shell;

@@ -19,6 +19,7 @@
 #include "nn.h"
 #include "output.h"
 #include "post.h"
+#include "prestrain.h"
 #include "set_bc.h"
 #include "txt.h"
 #include "utils.h"
@@ -692,6 +693,9 @@ void initialize(Simulation* simulation, Vector<double>& timeP)
     com_mod.pSn.resize(nsymd,tnNo); 
     com_mod.pSa.resize(tnNo); 
   } 
+
+  // Prestrain by an initial deformation gradient
+  prestrain::init(com_mod);
 
   // Electrophysiology
   //

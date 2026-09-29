@@ -1029,6 +1029,10 @@ class mshType
     /// electrophysiology and solid mechanics
     Array<double> fN;
 
+    /// @brief Deformation gradient of the prestrained configuration,
+    /// one nsd x nsd tensor per Gauss point per element (see prestrain.h).
+    Array<double> F0;
+
     /// @brief Parent shape functions gradient
     /// double Nx(:,:,:)
     Array3<double> Nx;
@@ -1647,6 +1651,10 @@ class ComMod {
 
     /// @brief Whether PRESTRESS is being solved
     bool pstEq = false;
+
+    /// @brief Whether a prestrain, an imprinted deformation gradient, is being
+    /// solved for (see prestrain.h)
+    bool prestrainEq = false;
 
     /// @brief Whether velocity-pressure based structural dynamics solver is used
     bool sstEq = false;

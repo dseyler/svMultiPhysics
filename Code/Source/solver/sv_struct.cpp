@@ -7,6 +7,7 @@
 // Replicates the Fortran functions in 'STRUCT.f'. 
 
 #include "sv_struct.h"
+#include "prestrain.h"
 
 #include "all_fun.h"
 #include "consts.h"
@@ -315,7 +316,8 @@ void construct_dsolid(ComMod& com_mod, CepMod& cep_mod, const mshType& lM, const
       pSl = 0.0;
 
       if (nsd == 3) {
-        struct_3d(com_mod, cep_mod, eNoN, nFn, w, N, Nx, al, yl, dl, bfl, fN,
+        const mat_fun::Matrix<3> F0 = prestrain::deformation_gradient<3>(lM, e, g);
+        struct_3d(com_mod, cep_mod, eNoN, nFn, w, N, Nx, al, yl, dl, F0, bfl, fN,
                   pS0l, pSl, ya_l_f, ya_l_s, ya_l_n, lR, lK, recompute_visc);
 
 #if 0
@@ -329,7 +331,8 @@ void construct_dsolid(ComMod& com_mod, CepMod& cep_mod, const mshType& lM, const
 #endif
 
       } else if (nsd == 2) {
-        struct_2d(com_mod, cep_mod, eNoN, nFn, w, N, Nx, al, yl, dl, bfl, fN,
+        const mat_fun::Matrix<2> F0 = prestrain::deformation_gradient<2>(lM, e, g);
+        struct_2d(com_mod, cep_mod, eNoN, nFn, w, N, Nx, al, yl, dl, F0, bfl, fN,
                   pS0l, pSl, ya_l_f, ya_l_s, ya_l_n, lR, lK, recompute_visc);
       }
 
@@ -354,7 +357,8 @@ void construct_dsolid(ComMod& com_mod, CepMod& cep_mod, const mshType& lM, const
 void struct_2d(ComMod &com_mod, CepMod &cep_mod, const int eNoN, const int nFn,
                const double w, const Vector<double> &N, const Array<double> &Nx,
                const Array<double> &al, const Array<double> &yl,
-               const Array<double> &dl, const Array<double> &bfl,
+               const Array<double> &dl, const Matrix<2> &F0,
+               const Array<double> &bfl,
                const Array<double> &fN, const Array<double> &pS0l,
                Vector<double> &pSl, const Vector<double> &ya_l_f,
                const Vector<double> &ya_l_s, const Vector<double> &ya_l_n,
@@ -426,9 +430,10 @@ void struct_2d(ComMod &com_mod, CepMod &cep_mod, const int eNoN, const int nFn,
   dmsg << "ya_g_n: " << ya_g_n;
 #endif
 
-  // Velocity and deformation gradients: Grad(v) and F = I + Grad(u)
+  // Velocity and deformation gradients: Grad(v) and F = F0 + Grad(u), where
+  // F0 is the imprint of a prestrained configuration or the identity
   const Matrix<2> vx = vel * Nxm.transpose();
-  const Matrix<2> F  = Matrix<2>::Identity() + disp * Nxm.transpose();
+  const Matrix<2> F  = F0 + disp * Nxm.transpose();
 
   // 2nd Piola-Kirchhoff stress (S) and material stiffness tensor in Voight notation (Dm)
   Matrix<2> S;
@@ -518,7 +523,8 @@ void struct_2d(ComMod &com_mod, CepMod &cep_mod, const int eNoN, const int nFn,
 void struct_3d(ComMod &com_mod, CepMod &cep_mod, const int eNoN, const int nFn,
                const double w, const Vector<double> &N, const Array<double> &Nx,
                const Array<double> &al, const Array<double> &yl,
-               const Array<double> &dl, const Array<double> &bfl,
+               const Array<double> &dl, const Matrix<3> &F0,
+               const Array<double> &bfl,
                const Array<double> &fN, const Array<double> &pS0l,
                Vector<double> &pSl, const Vector<double> &ya_l_f,
                const Vector<double> &ya_l_s, const Vector<double> &ya_l_n,
@@ -588,9 +594,10 @@ void struct_3d(ComMod &com_mod, CepMod &cep_mod, const int eNoN, const int nFn,
         pS0g(3), pS0g(1), pS0g(4),
         pS0g(5), pS0g(4), pS0g(2);
 
-  // Velocity and deformation gradients: Grad(v) and F = I + Grad(u)
+  // Velocity and deformation gradients: Grad(v) and F = F0 + Grad(u), where
+  // F0 is the imprint of a prestrained configuration or the identity
   const Matrix<3> vx = vel * Nxm.transpose();
-  const Matrix<3> F  = Matrix<3>::Identity() + disp * Nxm.transpose();
+  const Matrix<3> F  = F0 + disp * Nxm.transpose();
 
   // 2nd Piola-Kirchhoff tensor (S) and material stiffness tensor in
   // Voigt notation (Dm)

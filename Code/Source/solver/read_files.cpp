@@ -1737,6 +1737,10 @@ void read_eq(Simulation* simulation, EquationParameters* eq_params, eqType& lEq)
     simulation->com_mod.pstEq = true;
   }
 
+  if (eq_params->prestrain.defined() && eq_params->prestrain.value()) {
+    simulation->com_mod.prestrainEq = true;
+  }
+
   bool THflag = false; 
   if (eq_params->use_taylor_hood_type_basis.defined()) { 
     THflag = eq_params->use_taylor_hood_type_basis.value(); 
