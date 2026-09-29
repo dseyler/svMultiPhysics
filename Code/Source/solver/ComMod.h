@@ -1029,10 +1029,6 @@ class mshType
     /// electrophysiology and solid mechanics
     Array<double> fN;
 
-    /// @brief Deformation gradient of the prestrained configuration,
-    /// one nsd x nsd tensor per Gauss point per element (see prestrain.h).
-    Array<double> F0;
-
     /// @brief Parent shape functions gradient
     /// double Nx(:,:,:)
     Array3<double> Nx;
@@ -1676,6 +1672,12 @@ class ComMod {
 
     /// @brief Adaptive pseudo time step of a prestrain run
     prestrainDtType prestrainDt;
+
+    /// @brief Nodal displacement U of the prestrained configuration, which
+    /// the solid kernels add to the displacement they take the deformation
+    /// gradient of: F = I + Grad(U + u) (see prestrain.h). Empty unless
+    /// prestrained.
+    Array<double> prestrainU;
 
     /// @brief Whether velocity-pressure based structural dynamics solver is used
     bool sstEq = false;

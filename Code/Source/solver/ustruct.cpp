@@ -20,9 +20,9 @@
  */
 
 #include "ustruct.h"
-#include "prestrain.h"
 
 #include "all_fun.h"
+#include "prestrain.h"
 #include "fs.h"
 #include "mat_fun.h"
 #include "mat_models.h"
@@ -229,13 +229,6 @@ void construct_usolid(ComMod& com_mod, CepMod& cep_mod, const mshType& lM, const
   auto& pSa = com_mod.pSa;
   bool pstEq = com_mod.pstEq;
 
-  // The imprint is stored at the mesh's Gauss points, which both the
-  // momentum and the continuity integration must use.
-  if (lM.F0.size() != 0 && lM.nFs != 1) {
-    throw std::runtime_error("[construct_usolid] A prestrain requires the same "
-        "quadrature for the momentum and continuity equations (P1P1); Taylor-Hood is not supported.");
-  }
-
   int eNoN = lM.eNoN;
   int nFn = lM.nFn;
   if (nFn == 0) {
@@ -305,6 +298,7 @@ void construct_usolid(ComMod& com_mod, CepMod& cep_mod, const mshType& lM, const
         ya_l_n(a) = cep_mod.cem.Ya_n[Ac];
       }
     }
+    prestrain::add_to_element(com_mod, lM, e, eq.s, cPhys, dl);
 
     // Initialize residual and tangents
     lR = 0.0;
@@ -352,17 +346,15 @@ void construct_usolid(ComMod& com_mod, CepMod& cep_mod, const mshType& lM, const
       if (nsd == 3) {
         auto N0 = fs[0].N.col(g);
         auto N1 = fs[1].N.col(g);
-        const mat_fun::Matrix<3> F0 = prestrain::deformation_gradient<3>(lM, e, g);
         ustruct_3d_m(com_mod, cep_mod, vmsStab, fs[0].eNoN, fs[1].eNoN, nFn, w,
-                     Jac, N0, N1, Nwx, al, yl, dl, F0, bfl, fN, ya_l_f, ya_l_s,
+                     Jac, N0, N1, Nwx, al, yl, dl, bfl, fN, ya_l_f, ya_l_s,
                      ya_l_n, lR, lK, lKd, recompute_visc);
 
       } else if (nsd == 2) {
         auto N0 = fs[0].N.col(g);
         auto N1 = fs[1].N.col(g);
-        const mat_fun::Matrix<2> F0 = prestrain::deformation_gradient<2>(lM, e, g);
         ustruct_2d_m(com_mod, cep_mod, vmsStab, fs[0].eNoN, fs[1].eNoN, nFn, w,
-                     Jac, N0, N1, Nwx, al, yl, dl, F0, bfl, fN, ya_l_f, ya_l_s,
+                     Jac, N0, N1, Nwx, al, yl, dl, bfl, fN, ya_l_f, ya_l_s,
                      ya_l_n, lR, lK, lKd, recompute_visc);
       }
 
@@ -395,16 +387,14 @@ void construct_usolid(ComMod& com_mod, CepMod& cep_mod, const mshType& lM, const
       if (nsd == 3) {
         auto N0 = fs[0].N.col(g);
         auto N1 = fs[1].N.col(g);
-        const mat_fun::Matrix<3> F0 = prestrain::deformation_gradient<3>(lM, e, g);
         ustruct_3d_c(com_mod, cep_mod, vmsStab, fs[0].eNoN, fs[1].eNoN, w, Jac, N0, N1, Nwx, 
-            Nqx, al, yl, dl, F0, bfl, lR, lK, lKd);
+            Nqx, al, yl, dl, bfl, lR, lK, lKd);
 
       } else if (nsd == 2) {
         auto N0 = fs[0].N.col(g);
         auto N1 = fs[1].N.col(g);
-        const mat_fun::Matrix<2> F0 = prestrain::deformation_gradient<2>(lM, e, g);
         ustruct_2d_c(com_mod, cep_mod, vmsStab, fs[0].eNoN, fs[1].eNoN, w, Jac, N0, N1, Nwx, 
-            Nqx, al, yl, dl, F0, bfl, lR, lK, lKd);
+            Nqx, al, yl, dl, bfl, lR, lK, lKd);
       }
 
     } // for g = 0 to fs[1].nG
@@ -441,8 +431,7 @@ int get_col_ptr(ComMod& com_mod, const int rowN, const int colN)
 void ustruct_2d_c(ComMod& com_mod, CepMod& cep_mod, const bool vmsFlag, const int eNoNw, const int eNoNq,
     const double w, const double Je, const Vector<double>& Nw,  const Vector<double>& Nq,
     const Array<double>& Nwx, const Array<double>& Nqx, const Array<double>& al, const Array<double>& yl, 
-    const Array<double>& dl, const Matrix<2>& F0, const Array<double>& bfl,
-    Array<double>& lR, Array3<double>& lK, 
+    const Array<double>& dl, const Array<double>& bfl, Array<double>& lR, Array3<double>& lK, 
     Array3<double>& lKd)
 {
   using namespace consts;
@@ -495,10 +484,9 @@ void ustruct_2d_c(ComMod& com_mod, CepMod& cep_mod, const bool vmsFlag, const in
   const Eigen::Vector2d v  = vel * Nwm;
   const Eigen::Vector2d vd = (acc - bfm) * Nwm - fb;
 
-  // Velocity and deformation gradients: Grad(v) and F = F0 + Grad(u), where
-  // F0 is the imprint of a prestrained configuration or the identity
+  // Velocity and deformation gradients: Grad(v) and F = I + Grad(u)
   const Matrix<2> vx = vel * Nwxm.transpose();
-  const Matrix<2> F  = F0 + disp * Nwxm.transpose();
+  const Matrix<2> F  = Matrix<2>::Identity() + disp * Nwxm.transpose();
 
   double Jac = F.determinant();
   const Matrix<2> Fi = F.inverse();
@@ -610,8 +598,7 @@ void ustruct_2d_c(ComMod& com_mod, CepMod& cep_mod, const bool vmsFlag, const in
 void ustruct_3d_c(ComMod& com_mod, CepMod& cep_mod, const bool vmsFlag, const int eNoNw, const int eNoNq,
     const double w, const double Je, const Vector<double>& Nw,  const Vector<double>& Nq,
     const Array<double>& Nwx, const Array<double>& Nqx, const Array<double>& al, const Array<double>& yl, 
-    const Array<double>& dl, const Matrix<3>& F0, const Array<double>& bfl,
-    Array<double>& lR, Array3<double>& lK, 
+    const Array<double>& dl, const Array<double>& bfl, Array<double>& lR, Array3<double>& lK, 
     Array3<double>& lKd)
 {
   using namespace consts;
@@ -665,10 +652,9 @@ void ustruct_3d_c(ComMod& com_mod, CepMod& cep_mod, const bool vmsFlag, const in
   const Eigen::Vector3d v  = vel * Nwm;
   const Eigen::Vector3d vd = (acc - bfm) * Nwm - fb;
 
-  // Velocity and deformation gradients: Grad(v) and F = F0 + Grad(u), where
-  // F0 is the imprint of a prestrained configuration or the identity
+  // Velocity and deformation gradients: Grad(v) and F = I + Grad(u)
   const Matrix<3> vx = vel * Nwxm.transpose();
-  const Matrix<3> F  = F0 + disp * Nwxm.transpose();
+  const Matrix<3> F  = Matrix<3>::Identity() + disp * Nwxm.transpose();
 
   double Jac = F.determinant();
   const Matrix<3> Fi = F.inverse();
@@ -795,8 +781,7 @@ void ustruct_2d_m(ComMod &com_mod, CepMod &cep_mod, const bool vmsFlag,
                   const double w, const double Je, const Vector<double> &Nw,
                   const Vector<double> &Nq, const Array<double> &Nwx,
                   const Array<double> &al, const Array<double> &yl,
-                  const Array<double> &dl, const Matrix<2> &F0,
-                  const Array<double> &bfl,
+                  const Array<double> &dl, const Array<double> &bfl,
                   const Array<double> &fN, const Vector<double> &ya_l_f,
                   const Vector<double> &ya_l_s, const Vector<double> &ya_l_n,
                   Array<double> &lR, Array3<double> &lK, Array3<double> &lKd,
@@ -857,10 +842,9 @@ void ustruct_2d_m(ComMod &com_mod, CepMod &cep_mod, const bool vmsFlag,
   const double ya_g_s = eigen_view(ya_l_s).dot(Nwm);
   const double ya_g_n = eigen_view(ya_l_n).dot(Nwm);
 
-  // Velocity and deformation gradients: Grad(v) and F = F0 + Grad(u), where
-  // F0 is the imprint of a prestrained configuration or the identity
+  // Velocity and deformation gradients: Grad(v) and F = I + Grad(u)
   const Matrix<2> vx = vel * Nwxm.transpose();
-  const Matrix<2> F  = F0 + disp * Nwxm.transpose();
+  const Matrix<2> F  = Matrix<2>::Identity() + disp * Nwxm.transpose();
 
   double Jac = F.determinant();
   const Matrix<2> Fi = F.inverse();
@@ -1043,8 +1027,7 @@ void ustruct_3d_m(ComMod &com_mod, CepMod &cep_mod, const bool vmsFlag,
                   const double w, const double Je, const Vector<double> &Nw,
                   const Vector<double> &Nq, const Array<double> &Nwx,
                   const Array<double> &al, const Array<double> &yl,
-                  const Array<double> &dl, const Matrix<3> &F0,
-                  const Array<double> &bfl,
+                  const Array<double> &dl, const Array<double> &bfl,
                   const Array<double> &fN, const Vector<double> &ya_l_f,
                   const Vector<double> &ya_l_s, const Vector<double> &ya_l_n,
                   Array<double> &lR, Array3<double> &lK, Array3<double> &lKd,
@@ -1107,10 +1090,9 @@ void ustruct_3d_m(ComMod &com_mod, CepMod &cep_mod, const bool vmsFlag,
   const double ya_g_s = eigen_view(ya_l_s).dot(Nwm);
   const double ya_g_n = eigen_view(ya_l_n).dot(Nwm);
 
-  // Velocity and deformation gradients: Grad(v) and F = F0 + Grad(u), where
-  // F0 is the imprint of a prestrained configuration or the identity
+  // Velocity and deformation gradients: Grad(v) and F = I + Grad(u)
   const Matrix<3> vx = vel * Nwxm.transpose();
-  const Matrix<3> F  = F0 + disp * Nwxm.transpose();
+  const Matrix<3> F  = Matrix<3>::Identity() + disp * Nwxm.transpose();
 
   double Jac = F.determinant();
   const Matrix<3> Fi = F.inverse();

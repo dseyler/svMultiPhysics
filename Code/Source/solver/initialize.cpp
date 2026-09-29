@@ -694,7 +694,7 @@ void initialize(Simulation* simulation, Vector<double>& timeP)
     com_mod.pSa.resize(tnNo); 
   } 
 
-  // Prestrain by an initial deformation gradient
+  // Prestrain by an imprinted deformation gradient
   prestrain::init(com_mod);
 
   // Electrophysiology

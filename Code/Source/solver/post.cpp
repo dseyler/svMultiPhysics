@@ -27,12 +27,10 @@ namespace post {
 
   namespace {
 
-    /// @brief F = F0 + Grad(u), with F0 the imprint of a prestressed
-    /// configuration or the identity.
-    Array<double> deformation_gradient(const Array<double>& F0, const Array<double>& Nx,
-        const Array<double>& dl, int nsd, int nNo, int eq_start)
+    Array<double> deformation_gradient(const Array<double>& Nx, const Array<double>& dl,
+        int nsd, int nNo, int eq_start)
     {
-      auto F = F0;
+      auto F = mat_fun::mat_id(nsd);
       for (int a = 0; a < nNo; a++) {
         if (nsd == 3) {
           F(0,0) = F(0,0) + Nx(0,a)*dl(eq_start,a);
@@ -432,6 +430,7 @@ void div_post(Simulation* simulation, const mshType& lM, Array<double>& res, con
         dl(i,a) = lD(i,Ac);
       }
     }
+    prestrain::add_to_element(com_mod, lM, e, i, cPhys, dl);
 
     Array<double> F;
     double divV = 0.0;
@@ -483,7 +482,7 @@ void div_post(Simulation* simulation, const mshType& lM, Array<double>& res, con
             vx(2,1) = vx(2,1) + Nx(1,a)*yl(k,a);
             vx(2,2) = vx(2,2) + Nx(2,a)*yl(k,a);
           }
-          F = deformation_gradient(prestrain::deformation_gradient(lM, e, g, nsd), Nx, dl, nsd, eNoN, i);
+          F = deformation_gradient(Nx, dl, nsd, eNoN, i);
 
           auto Fi = mat_fun::mat_inv(F,3);
 
@@ -499,7 +498,7 @@ void div_post(Simulation* simulation, const mshType& lM, Array<double>& res, con
             vx(1,0) = vx(1,0) + Nx(0,a)*yl(j,a);
             vx(1,1) = vx(1,1) + Nx(1,a)*yl(j,a);
           }
-          F = deformation_gradient(prestrain::deformation_gradient(lM, e, g, nsd), Nx, dl, nsd, eNoN, i);
+          F = deformation_gradient(Nx, dl, nsd, eNoN, i);
 
           auto Fi =  mat_fun::mat_inv(F,2);
           VxFi(0) = vx(0,0)*Fi(0,0) + vx(0,1)*Fi(1,0);
@@ -576,6 +575,7 @@ void fib_algn_post(Simulation* simulation, const mshType& lM, Array<double>& res
         dl(i,a) = lD(i,Ac);
       }
     }
+    prestrain::add_to_element(com_mod, lM, e, i, cPhys, dl);
 
     for (int i = 0; i < nsd; i++) {
       fN(i,0) = lM.fN(i,e);
@@ -593,7 +593,7 @@ void fib_algn_post(Simulation* simulation, const mshType& lM, Array<double>& res
       }
 
       double w = lM.w(g)*Jac;
-      auto F = deformation_gradient(prestrain::deformation_gradient(lM, e, g, nsd), Nx, dl, nsd, eNoN, i);
+      auto F = deformation_gradient(Nx, dl, nsd, eNoN, i);
       for (int iFn = 0; iFn < 2; iFn++) {
         for (int i = 0; i < nsd; i++) {
           auto fN_col = fN.col(iFn);
@@ -672,6 +672,7 @@ void fib_dir_post(Simulation* simulation, const mshType& lM, const int nFn, Arra
         dl(i,a) = lD(i,Ac);
       }
     }
+    prestrain::add_to_element(com_mod, lM, e, i, cPhys, dl);
 
     for (int iFn = 0; iFn < lM.nFn; iFn++) {
       for (int i = 0; i < nsd; i++) {
@@ -691,7 +692,7 @@ void fib_dir_post(Simulation* simulation, const mshType& lM, const int nFn, Arra
 
       double w = lM.w(g) * Jac;
       N = lM.N.col(g);
-      F = deformation_gradient(prestrain::deformation_gradient(lM, e, g, nsd), Nx, dl, nsd, eNoN, i);
+      F = deformation_gradient(Nx, dl, nsd, eNoN, i);
 
       for (int iFn = 0; iFn < lM.nFn; iFn++) {
         for (int i = 0; i < nsd; i++) {
@@ -764,6 +765,7 @@ void fib_stretch(const ComMod& com_mod, const int iEq, const mshType& lM,
       xl.set_col(a, com_mod.x.col(Ac));
       dl.set_col(a, lD.col(Ac));
     }
+    prestrain::add_to_element(com_mod, lM, e, i, cPhys, dl);
 
     for (int g = 0; g < lM.nG; g++) {
       double Jac = 0.0;
@@ -775,7 +777,7 @@ void fib_stretch(const ComMod& com_mod, const int iEq, const mshType& lM,
       }
 
       // Compute Deformation Gradient: F = I + grad(u)
-      F = deformation_gradient(prestrain::deformation_gradient(lM, e, g, nsd), Nx, dl, nsd, eNoN, i);
+      F = deformation_gradient(Nx, dl, nsd, eNoN, i);
 
       // Compute fiber stretch based on 4th invariant: I_{4,f} = F.fN.F.fN
       auto fl = mat_fun::mat_mul(F, lM.fN.rows(0,nsd-1,e));
@@ -1855,6 +1857,7 @@ void tensor_post_impl(Simulation* simulation, const mshType& lM, const int m, Ar
         yl(i,a) = lY(i,Ac);
       }
     }
+    prestrain::add_to_element(com_mod, lM, e, i, cPhys, dl);
 
     Je = 0.0;
     double Jac = 0.0;
@@ -1872,10 +1875,8 @@ void tensor_post_impl(Simulation* simulation, const mshType& lM, const int m, Ar
       const auto Nxm  = eigen_view<nsd>(Nx);          // grad(N_a)
       const auto disp = eigen_view_rows<nsd>(dl, i);  // nodal displacements
 
-      // Deformation gradient: F = F0 + Grad(u), where F0 is the imprint of a
-      // prestrained configuration or the identity
-      const Matrix<nsd> F0 = prestrain::deformation_gradient<nsd>(lM, e, g);
-      const Matrix<nsd> F = F0 + disp * Nxm.transpose();
+      // Deformation gradient: F = I + Grad(u)
+      const Matrix<nsd> F = Im + disp * Nxm.transpose();
       const double detF = F.determinant();
 
       Vector<double> ed(com_mod.nsymd);
