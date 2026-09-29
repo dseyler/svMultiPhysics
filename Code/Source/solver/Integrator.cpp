@@ -13,7 +13,6 @@
 #include "nn.h"
 #include "output.h"
 #include "post.h"
-#include "prestrain.h"
 #include "ris.h"
 #include "set_bc.h"
 #include "ustruct.h"
@@ -29,7 +28,8 @@
 // Integrator Constructor
 //------------------------
 Integrator::Integrator(Simulation* simulation, SolutionStates&& solutions)
-  : simulation_(simulation), solutions_(std::move(solutions)), newton_count_(0)
+  : simulation_(simulation), solutions_(std::move(solutions)),
+    pseudo_transient_(simulation->com_mod.pseudoTransient), newton_count_(0)
 {
   initialize_arrays();
 }
@@ -169,6 +169,9 @@ bool Integrator::step(bool save_results) {
       dmsg << ">>> All OK" << std::endl;
       dmsg << "iEqOld: " << iEqOld + 1;
       #endif
+      if (pseudo_transient_.enabled()) {
+        pseudo_transient_.finish_step(com_mod, cm_mod, solutions_);
+      }
       return true;
     }
 
@@ -429,16 +432,10 @@ void Integrator::predictor()
      Do = 0.0;
   }
 
-  // Accumulate the displacement the previous step ended with, held in Do,
-  // into the prestrain and start again from rest.
-  if (com_mod.prestrainEq) {
-     prestrain::accumulate(com_mod, Do);
-     Ao = 0.0;
-     Yo = 0.0;
-     Do = 0.0;
-     if (com_mod.sstEq) {
-       com_mod.Ad = 0.0;   // ustruct's displacement rate state
-     }
+  // Pseudo-transient continuation: hand the state the previous step reached
+  // to its client and start again from rest.
+  if (pseudo_transient_.enabled()) {
+    pseudo_transient_.start_step(com_mod, solutions_);
   }
 
   // IB treatment: Set dirichlet BC and update traces. For explicit
@@ -980,7 +977,8 @@ void Integrator::corrector()
   }
 
   double r1 = eq.FSILS.RI.iNorm / eq.iNorm;
-  bool l1 = (eq.itr >= eq.maxItr);
+  // One Newton iteration per pseudo-transient step
+  bool l1 = (eq.itr >= eq.maxItr) || pseudo_transient_.enabled();
   bool l2 = (r1 <= eq.tol);
   bool l3 = (r1 <= eq.tol*eq.pNorm);
   bool l4 = (eq.itr >= eq.minItr);

@@ -49,20 +49,21 @@ def main():
     stress_scale = np.abs(s_pre).max()
     stress_diff = np.abs(s_fwd - s_pre).max() / stress_scale
 
-    imprint = [k for k in pre.cell_data.keys() if k.startswith("Prestrain_F_g")]
+    has_U = "Prestrain_displacement" in pre.point_data
+    U_max = np.linalg.norm(pre.point_data["Prestrain_displacement"], axis=1).max() if has_U else float("nan")
 
     print(f"prestrain run : {pre_file}")
     print(f"  mesh bounding-box diagonal       : {size:.4e} (mesh units)")
     print(f"  last-step max nodal displacement : {pre_disp:.3e} of the mesh size")
-    print(f"  imprint cell arrays              : {imprint}")
+    print(f"  max |Prestrain_displacement|     : {U_max:.3e} (mesh units)")
     print(f"forward run   : {fwd_file}")
     print(f"  max nodal displacement           : {fwd_disp:.3e} of the mesh size   (tol {DISP_REL_TOL:.0e})")
     print(f"  max |Stress - Stress_prestrain|  : {stress_diff:.3e} relative   (tol {STRESS_REL_TOL:.0e})")
     print(f"  max |Stress|                     : {stress_scale:.4e} dyne/cm^2")
 
     ok = True
-    if not imprint:
-        print("FAIL: the prestrain result carries no Prestrain_F_g* cell arrays")
+    if not has_U:
+        print("FAIL: the prestrain result carries no Prestrain_displacement point array")
         ok = False
     if fwd_disp > DISP_REL_TOL:
         print("FAIL: the prestrained geometry moved under the load it was prestrained at")

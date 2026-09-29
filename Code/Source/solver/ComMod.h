@@ -1594,22 +1594,22 @@ class urisType
 ///
 /// The data members here are the global variables exposed by the COMMOD module.
 //
-/// @brief Adaptive pseudo time step of a prestrain run. The step grows by the
-/// ratio of successive first Newton residuals (switched evolution relaxation)
-/// and halves when a step fails to converge. See prestrain.h.
-class prestrainDtType {
+/// @brief Input settings of pseudo-transient continuation (see
+/// PseudoTransientContinuation.h). Parsed from an equation's Pseudo_transient
+/// options and broadcast; the Integrator owns the object that runs the scheme.
+class PseudoTransientSettings {
   public:
-    /// @brief Whether the time step is adapted between prestrain steps
-    bool adaptive = false;
+    /// @brief Whether the run is a pseudo-transient continuation
+    bool enabled = false;
 
-    /// @brief Largest time step allowed
-    double dt_max = 0.0;
+    /// @brief Whether the pseudo time step is adapted between steps
+    bool adaptive_dt = false;
 
-    /// @brief First Newton residual of the previous step
-    double residual = 0.0;
+    /// @brief Largest pseudo time step allowed; 100 times the initial one when unset
+    double max_dt = 0.0;
 
-    /// @brief Whether the previous step's Newton iteration converged
-    bool converged = true;
+    /// @brief The equation whose residual is monitored, the one that enabled it
+    int equation = -1;
 };
 
 class ComMod {
@@ -1670,8 +1670,8 @@ class ComMod {
     /// solved for (see prestrain.h)
     bool prestrainEq = false;
 
-    /// @brief Adaptive pseudo time step of a prestrain run
-    prestrainDtType prestrainDt;
+    /// @brief Pseudo-transient continuation settings
+    PseudoTransientSettings pseudoTransient;
 
     /// @brief Nodal displacement U of the prestrained configuration, which
     /// the solid kernels add to the displacement they take the deformation

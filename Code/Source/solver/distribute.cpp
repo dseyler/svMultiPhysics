@@ -340,8 +340,10 @@ void distribute(Simulation* simulation)
     cm.bcast(cm_mod, &com_mod.shlEq);
     cm.bcast(cm_mod, &com_mod.pstEq);
     cm.bcast(cm_mod, &com_mod.prestrainEq);
-    cm.bcast(cm_mod, &com_mod.prestrainDt.adaptive);
-    cm.bcast(cm_mod, &com_mod.prestrainDt.dt_max);
+    cm.bcast(cm_mod, &com_mod.pseudoTransient.enabled);
+    cm.bcast(cm_mod, &com_mod.pseudoTransient.adaptive_dt);
+    cm.bcast(cm_mod, &com_mod.pseudoTransient.max_dt);
+    cm.bcast(cm_mod, &com_mod.pseudoTransient.equation);
     cm.bcast(cm_mod, &com_mod.sstEq);
 
     cm.bcast(cm_mod, &simulation->cep_mod.cepEq);

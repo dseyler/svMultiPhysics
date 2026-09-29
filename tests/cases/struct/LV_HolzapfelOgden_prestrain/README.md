@@ -6,10 +6,10 @@ Engng. 26, 2010, section 3), on the `LV_HolzapfelOgden_passive` geometry at an
 endocardial pressure of 10 mmHg (13332.2 dyne/cm²).
 
 The imaged geometry is taken to be the loaded configuration. Its coordinates
-never change; instead each converged load step imprints the deformation
-gradient it reached into every Gauss point, `F0`, and the next step starts from
-`F = F0 + Grad(u)` with the displacement reset to zero. The state converges to
-one that carries the load without deforming.
+never change; instead each converged load step adds the displacement it
+reached to a nodal prestrain displacement `U`, and the next step starts from
+`F = I + Grad(U + u)` with the displacement reset to zero. The state converges
+to one that carries the load without deforming.
 
 ```
 mpirun -np 1 <build>/bin/svmultiphysics prestrain.xml    # writes prestrain/result_NNN.vtu
@@ -18,12 +18,14 @@ python check_hold.py                                     # equilibrium hold test
 ```
 
 `prestrain.xml` applies the full load from the first step as a dead load
-(`Follower_pressure_load false`, as in the paper) and prints
-`Prestrain: max nodal displacement` every step. With
-`Prestrain_adaptive_time_step` the pseudo time step grows as the state
-approaches equilibrium and the displacement reaches round-off in 6
-steps; at a fixed dt = 1e-2 it takes about 160. The last result carries the
-imprint as cell arrays `Prestrain_F_g<g>`, one per Gauss point.
+(`Follower_pressure_load false`, as in the paper). The run is a
+pseudo-transient continuation: every step starts from rest, takes one Newton
+iteration and prints `Pseudo-transient: max update`. With
+`Pseudo_transient_adaptive_dt` the pseudo time step grows as the state
+approaches equilibrium and the residual reaches round-off in 11 steps; at a
+fixed dt = 1e-2 it takes about 160. The last result carries the
+prestrain as the point array `Prestrain_displacement`, the nodal field U
+whose gradient is the imprinted deformation gradient, F = I + Grad(U + u).
 
 `forward.xml` loads that imprint through `<Prestrain_file_path>`
 and holds the same 10 mmHg as a follower load. `check_hold.py` asserts that the
@@ -32,5 +34,5 @@ stress. Raise the pressure in `forward.xml` to simulate the prestrained LV; run
 it without the file path to see the naive inflation for contrast.
 
 The forward run may be started on any number of ranks regardless of how many
-the prestrain run used: the imprint is written in the mesh's original element
-order and partitioned on input like the fibre data.
+the prestrain run used: the prestrain displacement is written in the mesh's
+original node order and partitioned on input like an initial displacement.

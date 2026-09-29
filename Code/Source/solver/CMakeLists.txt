@@ -222,6 +222,7 @@ set(CSRCS
   heats.h heats.cpp
   initialize.h initialize.cpp
   Integrator.h Integrator.cpp
+  PseudoTransientContinuation.h PseudoTransientContinuation.cpp
   l_elas.h l_elas.cpp
   lhsa.h lhsa.cpp
   ls.h ls.cpp

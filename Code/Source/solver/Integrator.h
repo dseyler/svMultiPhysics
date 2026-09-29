@@ -5,6 +5,7 @@
 #define INTEGRATOR_H
 
 #include "Array.h"
+#include "PseudoTransientContinuation.h"
 #include "SolutionStates.h"
 #include "Vector.h"
 #include "Simulation.h"
@@ -18,6 +19,9 @@
  * - Newton iteration loop with convergence checking
  * - Linear system assembly and solve
  * - Boundary condition application
+ * - Pseudo-transient continuation, when enabled: every step starts from rest,
+ *   takes one Newton iteration, hands its update to a registered client and
+ *   adapts the pseudo time step (see PseudoTransientContinuation.h)
  *
  * Related to GitHub issue #442: Encapsulate the Newton iteration in main.cpp
  */
@@ -95,12 +99,21 @@ public:
   SolutionStates& get_solutions() { return solutions_; }
   const SolutionStates& get_solutions() const { return solutions_; }
 
+  /**
+   * @brief Pseudo-transient continuation of this run; enabled() tells whether
+   * it is active. Features accumulate its steps through set_state_update().
+   */
+  PseudoTransientContinuation& pseudo_transient() { return pseudo_transient_; }
+
 private:
   /** @brief Pointer to the simulation object */
   Simulation* simulation_;
 
   /** @brief Solution states at old, current, and intermediate time levels */
   SolutionStates solutions_;
+
+  /** @brief Pseudo-transient continuation, inactive unless enabled by the input */
+  PseudoTransientContinuation pseudo_transient_;
 
   /** @brief Residual vector for face-based quantities */
   Vector<double> res_;

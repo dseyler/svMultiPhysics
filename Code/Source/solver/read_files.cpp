@@ -1737,14 +1737,20 @@ void read_eq(Simulation* simulation, EquationParameters* eq_params, eqType& lEq)
     simulation->com_mod.pstEq = true;
   }
 
+  // Pseudo-transient continuation; a prestrain run is one.
+  auto& pseudo_transient = simulation->com_mod.pseudoTransient;
   if (eq_params->prestrain.defined() && eq_params->prestrain.value()) {
     simulation->com_mod.prestrainEq = true;
+    pseudo_transient.enabled = true;
   }
-  if (eq_params->prestrain_adaptive_time_step.defined()) {
-    simulation->com_mod.prestrainDt.adaptive = eq_params->prestrain_adaptive_time_step.value();
+  if (eq_params->pseudo_transient.defined() && eq_params->pseudo_transient.value()) {
+    pseudo_transient.enabled = true;
   }
-  if (eq_params->prestrain_max_time_step.defined()) {
-    simulation->com_mod.prestrainDt.dt_max = eq_params->prestrain_max_time_step.value();
+  if (eq_params->pseudo_transient_adaptive_dt.defined()) {
+    pseudo_transient.adaptive_dt = eq_params->pseudo_transient_adaptive_dt.value();
+  }
+  if (eq_params->pseudo_transient_max_dt.defined()) {
+    pseudo_transient.max_dt = eq_params->pseudo_transient_max_dt.value();
   }
 
   bool THflag = false; 
@@ -1986,6 +1992,11 @@ void read_files(Simulation* simulation, const std::string& file_name)
     auto& eq = com_mod.eq[iEq];
     auto& eq_params = simulation->parameters.equation_parameters[iEq]; 
     read_eq(simulation, eq_params, eq);
+
+    // The equation that enabled pseudo-transient continuation is the one monitored.
+    if (com_mod.pseudoTransient.enabled && com_mod.pseudoTransient.equation < 0) {
+      com_mod.pseudoTransient.equation = iEq;
+    }
 
     // [TODO:DaveP] IB is not implemented.
     if (com_mod.ibFlag) {

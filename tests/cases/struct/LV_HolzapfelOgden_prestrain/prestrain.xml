@@ -4,23 +4,22 @@
 <!--
   Phase 1 of 2: prestrain the imaged LV geometry at 10 mmHg by imprinting a
   deformation gradient (Gee, Forster & Wall 2010, modified updated Lagrangian
-  formulation). The geometry never moves; every step restarts from rest under
-  the full load and imprints the deformation gradient it reaches. The printed
-  "max nodal displacement of this step" tends to zero as the state converges.
+  formulation). The geometry never moves. The run is a pseudo-transient
+  continuation: every step starts from rest under the full load, takes one
+  Newton iteration, and accumulates the displacement it reaches into the
+  prestrain. The printed "max update" tends to zero as the state converges.
 
   The load is a dead load on the imaged surface (Follower_pressure_load false),
-  as in the paper. The last result_NNN.vtu carries the imprint as cell arrays
-  Prestrain_F_g<g>, which forward.xml reads.
+  as in the paper. The last result_NNN.vtu carries the prestrain as the point
+  array Prestrain_displacement, the nodal field U with F = I + Grad(U + u),
+  which forward.xml reads.
 
-  The full load is applied from the first step. Each step is a generalized
-  alpha step from rest, so at a fixed dt the imprint converges at the dynamic
-  relaxation rate, 0.9 to 0.96 per step at dt = 1e-2 (160 steps to bring the
-  step displacement from 2e-1 cm below 1e-5 cm), and Newton diverges from rest
-  if dt is simply set larger. With Prestrain_adaptive_time_step the pseudo
-  time step instead grows by the ratio of successive first Newton residuals as
-  the state approaches equilibrium (switched evolution relaxation): dt grows
-  by four orders of magnitude in five steps and the step displacement is at
-  round-off by step 6.
+  With Pseudo_transient_adaptive_dt the pseudo time step grows by the ratio of
+  successive first residuals as the state approaches equilibrium, and the
+  residual is at round-off after 11 steps from dt = 1e-2 (the second and third
+  steps overshoot and are corrected by the same rule). At a fixed dt the run is
+  a dynamic relaxation and converges at the rate of the softest mode, about
+  0.96 per step at dt = 1e-2, some 160 steps.
 -->
 
 <GeneralSimulationParameters>
@@ -72,8 +71,8 @@
    <Tolerance> 1e-10 </Tolerance>
 
    <Prestrain> true </Prestrain>
-   <Prestrain_adaptive_time_step> true </Prestrain_adaptive_time_step>
-   <Prestrain_max_time_step> 100.0 </Prestrain_max_time_step>
+   <Pseudo_transient_adaptive_dt> true </Pseudo_transient_adaptive_dt>
+   <Pseudo_transient_max_dt> 100.0 </Pseudo_transient_max_dt>
 
    <Density> 1.0 </Density>                           <!-- g/cm^3 -->
    <Elasticity_modulus> 1.0e6 </Elasticity_modulus>   <!-- dyne/cm^2 -->

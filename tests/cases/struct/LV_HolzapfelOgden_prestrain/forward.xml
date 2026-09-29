@@ -3,8 +3,8 @@
 
 <!--
   Phase 2 of 2: forward simulation of the prestrained LV. The mesh reads the
-  imprinted deformation gradient written by prestrain.xml and carries it as the
-  reference state, F = F0 + Grad(u). Held at the same 10 mmHg, now as a follower
+  prestrain displacement U written by prestrain.xml and carries it in the
+  deformation gradient, F = I + Grad(U + u). Held at the same 10 mmHg, now as a follower
   load, the displacement must stay at zero: that is the equilibrium hold test
   run by check_hold.py. Raise the load to see the prestrained response.
 -->
@@ -47,7 +47,7 @@
   <Fiber_direction_file_path> mesh/fibersLongCells.vtu </Fiber_direction_file_path>
   <Fiber_direction_file_path> mesh/fibersSheetCells.vtu </Fiber_direction_file_path>
 
-  <!-- The imprint written by the last step of prestrain.xml -->
+  <!-- The prestrain displacement written by the last step of prestrain.xml -->
   <Prestrain_file_path> prestrain/result_012.vtu </Prestrain_file_path>
 
   <Mesh_scale_factor> 100.0 </Mesh_scale_factor> <!-- Convert from m to cm -->

@@ -2614,8 +2614,9 @@ EquationParameters::EquationParameters() {
 
   set_parameter("Prestress", false, !required, prestress);
   set_parameter("Prestrain", false, !required, prestrain);
-  set_parameter("Prestrain_adaptive_time_step", false, !required, prestrain_adaptive_time_step);
-  set_parameter("Prestrain_max_time_step", 0.0, !required, prestrain_max_time_step);
+  set_parameter("Pseudo_transient", false, !required, pseudo_transient);
+  set_parameter("Pseudo_transient_adaptive_dt", false, !required, pseudo_transient_adaptive_dt);
+  set_parameter("Pseudo_transient_max_dt", 0.0, !required, pseudo_transient_max_dt);
 
   set_parameter("Tolerance", 0.5, !required, tolerance);
   set_parameter("Use_taylor_hood_type_basis", false, !required,
