@@ -430,8 +430,9 @@ void Integrator::predictor()
   }
 
   // Accumulate deformation gradient into prestrain and reset solution to rest.
+  // Do holds the displacement the previous step ended with.
   if (com_mod.prestrainEq) {
-     prestrain::accumulate(com_mod, solutions_.intermediate.get_displacement());
+     prestrain::accumulate(com_mod, Do);
      Ao = 0.0;
      Yo = 0.0;
      Do = 0.0;

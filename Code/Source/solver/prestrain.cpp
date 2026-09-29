@@ -169,9 +169,15 @@ void adapt_time_step(ComMod& com_mod)
   // The finished step: its first Newton residual (pNorm is relative to iNorm,
   // the first residual of the run) and whether it converged rather than
   // running out of iterations.
+  //
+  // With Max_iterations 1 each step is a single linear solve from rest,
+  // which is pseudo-transient continuation (Kelley & Keyes 1998): the
+  // step is always accepted, and a residual that grows shrinks the next
+  // time step through the same ratio that grows it when the residual falls.
   const double R_last = eq->pNorm * eq->iNorm;
   const double r_final = eq->FSILS.RI.iNorm / eq->iNorm;
-  ser.converged = (eq->itr < eq->maxItr) || (r_final <= eq->tol) || (r_final <= eq->tol * eq->pNorm);
+  const bool single_solve = (eq->maxItr == 1);
+  ser.converged = single_solve || (eq->itr < eq->maxItr) || (r_final <= eq->tol) || (r_final <= eq->tol * eq->pNorm);
 
   if (!ser.converged) {
     dt = 0.5 * dt;
@@ -186,7 +192,7 @@ void adapt_time_step(ComMod& com_mod)
   }
 }
 
-void accumulate(ComMod& com_mod, const Array<double>& Dg)
+void accumulate(ComMod& com_mod, const Array<double>& Dn)
 {
   using namespace consts;
   const int nsd = com_mod.nsd;
@@ -196,11 +202,13 @@ void accumulate(ComMod& com_mod, const Array<double>& Dg)
     return;
   }
 
-  // The displacement dofs of the solid equation.
+  // The displacement dofs of the solid equation and its alpha_f.
   int s = -1;
+  double af = 1.0;
   for (auto& eq : com_mod.eq) {
     if (eq.phys == EquationType::phys_struct || eq.phys == EquationType::phys_ustruct) {
       s = eq.s;
+      af = eq.af;
       break;
     }
   }
@@ -221,7 +229,7 @@ void accumulate(ComMod& com_mod, const Array<double>& Dg)
         const int Ac = msh.IEN(a,e);
         for (int i = 0; i < nsd; i++) {
           xl(i,a) = com_mod.x(i,Ac);
-          dl(i,a) = Dg(s+i,Ac);
+          dl(i,a) = af * Dn(s+i,Ac);
         }
       }
 

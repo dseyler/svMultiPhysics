@@ -65,10 +65,11 @@ void init(ComMod& com_mod);
 /// @brief Start a prestrain step: accumulate the deformation gradient the
 /// previous step reached, F0 <- F0 + Grad(u), at every Gauss point.
 ///
-/// u is the displacement the kernels saw, the generalized-alpha level
-/// displacement Dg, which is the state the residual was driven to zero at.
-/// Accumulating the end-of-step displacement instead would overshoot by 1/alpha_f.
-void accumulate(ComMod& com_mod, const Array<double>& Dg);
+/// Dn is the displacement the previous step ended with. The kernels saw the
+/// generalized-alpha level displacement alpha_f*Dn (the step started from
+/// rest), which is the state the Newton update moved to, so that is u.
+/// Accumulating Dn itself would overshoot by 1/alpha_f.
+void accumulate(ComMod& com_mod, const Array<double>& Dn);
 
 /// @brief Set the pseudo time step of the next prestrain step from the finished
 /// one (switched evolution relaxation): dt <- dt * R_prev / R_last, capped by
