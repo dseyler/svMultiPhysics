@@ -1740,6 +1740,12 @@ void read_eq(Simulation* simulation, EquationParameters* eq_params, eqType& lEq)
   if (eq_params->prestrain.defined() && eq_params->prestrain.value()) {
     simulation->com_mod.prestrainEq = true;
   }
+  if (eq_params->prestrain_adaptive_time_step.defined()) {
+    simulation->com_mod.prestrainDt.adaptive = eq_params->prestrain_adaptive_time_step.value();
+  }
+  if (eq_params->prestrain_max_time_step.defined()) {
+    simulation->com_mod.prestrainDt.dt_max = eq_params->prestrain_max_time_step.value();
+  }
 
   bool THflag = false; 
   if (eq_params->use_taylor_hood_type_basis.defined()) { 

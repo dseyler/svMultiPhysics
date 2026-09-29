@@ -1598,6 +1598,24 @@ class urisType
 ///
 /// The data members here are the global variables exposed by the COMMOD module.
 //
+/// @brief Adaptive pseudo time step of a prestrain run. The step grows by the
+/// ratio of successive first Newton residuals (switched evolution relaxation)
+/// and halves when a step fails to converge. See prestrain.h.
+class prestrainDtType {
+  public:
+    /// @brief Whether the time step is adapted between prestrain steps
+    bool adaptive = false;
+
+    /// @brief Largest time step allowed
+    double dt_max = 0.0;
+
+    /// @brief First Newton residual of the previous step
+    double residual = 0.0;
+
+    /// @brief Whether the previous step's Newton iteration converged
+    bool converged = true;
+};
+
 class ComMod {
 
   public:
@@ -1655,6 +1673,9 @@ class ComMod {
     /// @brief Whether a prestrain, an imprinted deformation gradient, is being
     /// solved for (see prestrain.h)
     bool prestrainEq = false;
+
+    /// @brief Adaptive pseudo time step of a prestrain run
+    prestrainDtType prestrainDt;
 
     /// @brief Whether velocity-pressure based structural dynamics solver is used
     bool sstEq = false;

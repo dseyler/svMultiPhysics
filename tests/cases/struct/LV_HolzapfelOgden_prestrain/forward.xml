@@ -48,7 +48,7 @@
   <Fiber_direction_file_path> mesh/fibersSheetCells.vtu </Fiber_direction_file_path>
 
   <!-- The imprint written by the last step of prestrain.xml -->
-  <Prestrain_file_path> prestrain/result_160.vtu </Prestrain_file_path>
+  <Prestrain_file_path> prestrain/result_012.vtu </Prestrain_file_path>
 
   <Mesh_scale_factor> 100.0 </Mesh_scale_factor> <!-- Convert from m to cm -->
 </Add_mesh>

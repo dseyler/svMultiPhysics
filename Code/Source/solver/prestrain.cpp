@@ -7,6 +7,7 @@
 #include "consts.h"
 #include "nn.h"
 
+#include <algorithm>
 #include <cmath>
 #include <iostream>
 #include <memory>
@@ -137,10 +138,63 @@ static void add_gradient(Array<double>& F0, const int e, const int g,
   F += mat_fun::eigen_view_rows<nsd>(dl, 0) * mat_fun::eigen_view<nsd>(Nx).transpose();
 }
 
+/// @brief The solid equation of a prestrain run, or nullptr.
+static const eqType* solid_equation(const ComMod& com_mod)
+{
+  using namespace consts;
+  for (auto& eq : com_mod.eq) {
+    if (eq.phys == EquationType::phys_struct || eq.phys == EquationType::phys_ustruct) {
+      return &eq;
+    }
+  }
+  return nullptr;
+}
+
+void adapt_time_step(ComMod& com_mod)
+{
+  auto& ser = com_mod.prestrainDt;
+  if (!com_mod.prestrainEq || !ser.adaptive) {
+    return;
+  }
+  const eqType* eq = solid_equation(com_mod);
+  if (eq == nullptr || eq->itr == 0) {
+    return;                       // no step has run yet
+  }
+
+  double& dt = com_mod.dt;
+  if (ser.dt_max <= 0.0) {
+    ser.dt_max = 100.0 * dt;
+  }
+
+  // The finished step: its first Newton residual (pNorm is relative to iNorm,
+  // the first residual of the run) and whether it converged rather than
+  // running out of iterations.
+  const double R_last = eq->pNorm * eq->iNorm;
+  const double r_final = eq->FSILS.RI.iNorm / eq->iNorm;
+  ser.converged = (eq->itr < eq->maxItr) || (r_final <= eq->tol) || (r_final <= eq->tol * eq->pNorm);
+
+  if (!ser.converged) {
+    dt = 0.5 * dt;
+  } else if (!(R_last > 0.0) || !std::isfinite(R_last)) {
+    // The residual has reached round-off: the state is converged and the
+    // ratio is meaningless, so leave dt where it is.
+  } else if (ser.residual > 0.0) {
+    dt = std::min(ser.dt_max, dt * ser.residual / R_last);
+    ser.residual = R_last;
+  } else {
+    ser.residual = R_last;        // first completed step: nothing to compare with yet
+  }
+}
+
 void accumulate(ComMod& com_mod, const Array<double>& Dg)
 {
   using namespace consts;
   const int nsd = com_mod.nsd;
+
+  // A step that did not converge is repeated at a smaller time step.
+  if (!com_mod.prestrainDt.converged) {
+    return;
+  }
 
   // The displacement dofs of the solid equation.
   int s = -1;
@@ -254,7 +308,11 @@ void print_displacement_norm(const ComMod& com_mod, const CmMod& cm_mod, const A
   dmax = std::sqrt(cm.reduce(cm_mod, dmax, MPI_MAX));
 
   if (cm.mas(cm_mod)) {
-    std::cout << " Prestrain: max nodal displacement = " << dmax << std::endl;
+    std::cout << " Prestrain: max nodal displacement = " << dmax;
+    if (const eqType* eq = solid_equation(com_mod)) {
+      std::cout << "  (dt = " << com_mod.dt << ", first Newton residual = " << eq->pNorm * eq->iNorm << ")";
+    }
+    std::cout << std::endl;
   }
 }
 

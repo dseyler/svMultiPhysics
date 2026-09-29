@@ -1777,6 +1777,8 @@ class EquationParameters : public ParameterLists
     Parameter<double> poisson_ratio;
     Parameter<bool> prestress;
     Parameter<bool> prestrain;
+    Parameter<bool> prestrain_adaptive_time_step;
+    Parameter<double> prestrain_max_time_step;
 
     Parameter<double> source_term;
     Parameter<double> tolerance;

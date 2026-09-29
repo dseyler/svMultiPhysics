@@ -289,6 +289,11 @@ void iterate_solution(Simulation* simulation)
       #endif
     }
 
+    // A prestrain run may adapt its pseudo time step between steps
+    if (com_mod.prestrainEq) {
+      prestrain::adapt_time_step(com_mod);
+    }
+
     // Incrementing time step, hence cTS will be associated with new
     // variables, i.e. An, Yn, and Dn
     //

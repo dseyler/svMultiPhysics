@@ -70,6 +70,15 @@ void init(ComMod& com_mod);
 /// Accumulating the end-of-step displacement instead would overshoot by 1/alpha_f.
 void accumulate(ComMod& com_mod, const Array<double>& Dg);
 
+/// @brief Set the pseudo time step of the next prestrain step from the finished
+/// one (switched evolution relaxation): dt <- dt * R_prev / R_last, capped by
+/// dt_max, where R is the first Newton residual of a step, the out-of-balance
+/// force of the accumulated state. A step that did not converge halves dt
+/// instead, and its displacement is not accumulated. Time is fictitious in a
+/// prestrain run, so this requires steady loads. Called before the time step
+/// counter advances; does nothing unless adaptive stepping was requested.
+void adapt_time_step(ComMod& com_mod);
+
 /// @brief Gather a mesh's imprinted deformation gradients onto the master, in
 /// the mesh's original element order, for writing. All ranks must call it.
 void gather(const ComMod& com_mod, const CmMod& cm_mod, const mshType& lM, Array<double>& gF0);

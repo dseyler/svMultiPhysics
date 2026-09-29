@@ -13,14 +13,16 @@ one that carries the load without deforming.
 
 ```
 mpirun -np 1 <build>/bin/svmultiphysics prestrain.xml    # writes prestrain/result_NNN.vtu
-mpirun -np 1 <build>/bin/svmultiphysics forward.xml      # reads prestrain/result_160.vtu
+mpirun -np 1 <build>/bin/svmultiphysics forward.xml      # reads prestrain/result_012.vtu
 python check_hold.py                                     # equilibrium hold test
 ```
 
 `prestrain.xml` applies the full load from the first step as a dead load
 (`Follower_pressure_load false`, as in the paper) and prints
-`Prestrain: max nodal displacement of this step` every step; it falls from
-about 2e-1 cm to below 1e-5 cm over 160 steps. The last result carries the
+`Prestrain: max nodal displacement` every step. With
+`Prestrain_adaptive_time_step` the pseudo time step grows as the state
+approaches equilibrium and the displacement reaches round-off in 6
+steps; at a fixed dt = 1e-2 it takes about 160. The last result carries the
 imprint as cell arrays `Prestrain_F_g<g>`, one per Gauss point.
 
 `forward.xml` loads that imprint through `<Prestrain_file_path>`
