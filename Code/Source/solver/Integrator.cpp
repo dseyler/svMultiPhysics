@@ -134,7 +134,7 @@ bool Integrator::step(bool save_results) {
       dmsg << "iEqOld: " << iEqOld + 1;
       #endif
       if (pseudo_transient_.enabled()) {
-        pseudo_transient_.finish_step(com_mod, cm_mod, solutions_);
+        pseudo_transient_.finish_step(com_mod, simulation_->cm_mod, solutions_);
       }
       return true;
     }
