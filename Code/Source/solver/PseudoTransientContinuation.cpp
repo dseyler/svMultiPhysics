@@ -6,40 +6,12 @@
 #include <algorithm>
 #include <cmath>
 #include <iostream>
-#include <stdexcept>
 
 #include "mpi.h"
 
 PseudoTransientContinuation::PseudoTransientContinuation(const PseudoTransientSettings& settings)
   : settings_(settings)
 {
-}
-
-void PseudoTransientContinuation::set_state_update(StateUpdate update)
-{
-  state_update_ = std::move(update);
-}
-
-void PseudoTransientContinuation::start_step(ComMod& com_mod, SolutionStates& solutions)
-{
-  if (!state_update_) {
-    throw std::runtime_error("Pseudo-transient continuation is enabled but no feature accumulates its steps.");
-  }
-
-  auto& Ao = solutions.old.get_acceleration();
-  auto& Yo = solutions.old.get_velocity();
-  auto& Do = solutions.old.get_displacement();
-
-  const double af = com_mod.eq[settings_.equation].af;
-  const Array<double> update = Do * af;
-  state_update_(update);
-
-  Ao = 0.0;
-  Yo = 0.0;
-  Do = 0.0;
-  if (com_mod.sstEq) {
-    com_mod.Ad = 0.0;   // ustruct's displacement rate state
-  }
 }
 
 void PseudoTransientContinuation::finish_step(ComMod& com_mod, const CmMod& cm_mod, const SolutionStates& solutions)

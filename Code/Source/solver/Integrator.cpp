@@ -14,6 +14,7 @@
 #include "nn.h"
 #include "output.h"
 #include "post.h"
+#include "prestrain.h"
 #include "ris.h"
 #include "set_bc.h"
 #include "ustruct.h"
@@ -615,10 +616,10 @@ void Integrator::predictor()
      Do = 0.0;
   }
 
-  // Pseudo-transient continuation: hand the state the previous step reached
-  // to its client and start again from rest.
-  if (pseudo_transient_.enabled()) {
-    pseudo_transient_.start_step(com_mod, solutions_);
+  // Prestrain: compose the displacement the previous step reached into the
+  // prestrain and start again from rest.
+  if (com_mod.prestrainEq) {
+    prestrain::start_step(com_mod, solutions_);
   }
 
   // IB treatment: Set dirichlet BC and update traces. For explicit

@@ -951,12 +951,6 @@ void initialize(Simulation* simulation, Vector<double>& timeP)
   // Create Integrator now that initial_solutions (Ao, Do, Yo) are fully initialized
   // The Integrator takes ownership via move semantics
   simulation->initialize_integrator(std::move(initial_solutions));
-
-  // The prestrain accumulates the steps of the pseudo-transient continuation.
-  if (com_mod.prestrainEq) {
-    simulation->get_integrator().pseudo_transient().set_state_update(
-        [&com_mod](const Array<double>& update) { prestrain::accumulate(com_mod, update); });
-  }
 }
 
 //-----------

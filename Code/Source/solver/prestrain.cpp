@@ -130,9 +130,6 @@ void init(ComMod& com_mod)
     }
     svmp::throw_if<svmp::FE::InvalidArgumentException>(!solid,
         "Prestrain requires a struct or ustruct equation.");
-    // Prestrain enables pseudo-transient continuation when the input is read.
-    svmp::check<svmp::InternalErrorException>(com_mod.pseudoTransient.enabled,
-        "Prestrain is solved by pseudo-transient continuation, which is not enabled.");
   }
 
   for (auto& msh : com_mod.msh) {
@@ -174,22 +171,11 @@ static void compose(Array<double>& F0, const int e, const int g, const Array<dou
   F = F_step * F;
 }
 
-void accumulate(ComMod& com_mod, const Array<double>& update)
+/// @brief F0 <- (I + Grad u) F0 at every Gauss point, with u = af * D, the
+/// rows s to s + nsd - 1 of D.
+static void accumulate(ComMod& com_mod, const int s, const double af, const Array<double>& D)
 {
-  using namespace consts;
   const int nsd = com_mod.nsd;
-
-  // The displacement dofs of the solid equation.
-  int s = -1;
-  for (auto& eq : com_mod.eq) {
-    if (eq.phys == EquationType::phys_struct || eq.phys == EquationType::phys_ustruct) {
-      s = eq.s;
-      break;
-    }
-  }
-  if (s < 0) {
-    return;
-  }
 
   for (auto& msh : com_mod.msh) {
     if (msh.F0.size() == 0) {
@@ -204,7 +190,7 @@ void accumulate(ComMod& com_mod, const Array<double>& update)
         const int Ac = msh.IEN(a,e);
         for (int i = 0; i < nsd; i++) {
           xl(i,a) = com_mod.x(i,Ac);
-          dl(i,a) = update(s+i,Ac);
+          dl(i,a) = af * D(s+i,Ac);
         }
       }
 
@@ -221,6 +207,28 @@ void accumulate(ComMod& com_mod, const Array<double>& update)
         }
       }
     }
+  }
+}
+
+void start_step(ComMod& com_mod, SolutionStates& solutions)
+{
+  using namespace consts;
+  auto& Ao = solutions.old.get_acceleration();
+  auto& Yo = solutions.old.get_velocity();
+  auto& Do = solutions.old.get_displacement();
+
+  for (auto& eq : com_mod.eq) {
+    if (eq.phys == EquationType::phys_struct || eq.phys == EquationType::phys_ustruct) {
+      accumulate(com_mod, eq.s, eq.af, Do);
+      break;
+    }
+  }
+
+  Ao = 0.0;
+  Yo = 0.0;
+  Do = 0.0;
+  if (com_mod.sstEq) {
+    com_mod.Ad = 0.0;   // ustruct's displacement rate state
   }
 }
 

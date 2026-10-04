@@ -1752,15 +1752,21 @@ void read_eq(Simulation* simulation, EquationParameters* eq_params, eqType& lEq)
     simulation->com_mod.pstEq = true;
   }
 
-  // Pseudo-transient continuation; a prestrain run is one.
-  auto& pseudo_transient = simulation->com_mod.pseudoTransient;
-  if (eq_params->prestrain.defined() && eq_params->prestrain.value()) {
+  const bool prestrain = eq_params->prestrain.defined() && eq_params->prestrain.value();
+  if (prestrain) {
     simulation->com_mod.prestrainEq = true;
-    pseudo_transient.enabled = true;
   }
+
+  // Pseudo-transient continuation, so far only for prestrain, whose steps start from rest.
+  auto& pseudo_transient = simulation->com_mod.pseudoTransient;
   if (eq_params->pseudo_transient.defined() && eq_params->pseudo_transient.value()) {
+    svmp::throw_if<svmp::ParseException>(!prestrain,
+        "Pseudo_transient is only implemented for an equation with Prestrain.");
     pseudo_transient.enabled = true;
   }
+  svmp::throw_if<svmp::ParseException>(!pseudo_transient.enabled &&
+      (eq_params->pseudo_transient_adaptive_dt.defined() || eq_params->pseudo_transient_max_dt.defined()),
+      "Pseudo_transient_adaptive_dt and Pseudo_transient_max_dt require Pseudo_transient.");
   if (eq_params->pseudo_transient_adaptive_dt.defined()) {
     pseudo_transient.adaptive_dt = eq_params->pseudo_transient_adaptive_dt.value();
   }

@@ -99,12 +99,6 @@ public:
   SolutionStates& get_solutions() { return solutions_; }
   const SolutionStates& get_solutions() const { return solutions_; }
 
-  /**
-   * @brief Pseudo-transient continuation of this run; enabled() tells whether
-   * it is active. Features accumulate its steps through set_state_update().
-   */
-  PseudoTransientContinuation& pseudo_transient() { return pseudo_transient_; }
-
 private:
   /** @brief Pointer to the simulation object */
   Simulation* simulation_;
