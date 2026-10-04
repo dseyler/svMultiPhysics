@@ -1,19 +1,22 @@
-# Prestraining the LV by an imprinted deformation gradient
+# Prestraining the LV
 
-Two-phase example of `<Prestrain>`, the modified updated
-Lagrangian prestraining of Gee, Förster & Wall (Int. J. Numer. Meth. Biomed.
-Engng. 26, 2010, section 3), on the `LV_HolzapfelOgden_passive` geometry at an
-endocardial pressure of 10 mmHg (13332.2 dyne/cm²).
+Two-phase example of `<Prestrain>` on the `LV_HolzapfelOgden_passive`
+geometry at an endocardial pressure of 10 mmHg (13332.2 dyne/cm²).
 
-The imaged geometry is taken to be the loaded configuration. Its coordinates
-never change; instead each converged load step adds the displacement it
-reached to a nodal prestrain displacement `U`, and the next step starts from
-`F = I + Grad(U + u)` with the displacement reset to zero. The state converges
-to one that carries the load without deforming.
+The imaged geometry is taken to be the loaded configuration. The prestrain is
+a deformation gradient `F0` at every Gauss point, from an unknown stress-free
+configuration to the mesh, and a displacement `u` from the mesh gives
+`F = (I + Grad u) F0`. The coordinates never change; instead every step adds
+the displacement it reached to the prestrain, `F0 <- (I + Grad u) F0`, and the
+next step starts again from rest. This is the incremental scheme of Gee,
+Förster & Wall (Int. J. Numer. Meth. Biomed. Engng. 26, 2010, section 3) with
+the increments composed on the imaged mesh, so the state converges to one that
+carries the load on the imaged geometry without deforming, and rigid motions
+of the deformed body leave the stress unchanged.
 
 ```
 mpirun -np 1 <build>/bin/svmultiphysics prestrain.xml    # writes prestrain/result_NNN.vtu
-mpirun -np 1 <build>/bin/svmultiphysics forward.xml      # reads prestrain/result_012.vtu
+mpirun -np 1 <build>/bin/svmultiphysics forward.xml      # reads prestrain/result_020.vtu
 python check_hold.py                                     # equilibrium hold test
 ```
 
@@ -22,17 +25,17 @@ python check_hold.py                                     # equilibrium hold test
 pseudo-transient continuation: every step starts from rest, takes one Newton
 iteration and prints `Pseudo-transient: max update`. With
 `Pseudo_transient_adaptive_dt` the pseudo time step grows as the state
-approaches equilibrium and the residual reaches round-off in 11 steps; at a
-fixed dt = 1e-2 it takes about 160. The last result carries the
-prestrain as the point array `Prestrain_displacement`, the nodal field U
-whose gradient is the imprinted deformation gradient, F = I + Grad(U + u).
+approaches equilibrium. Once it reaches its cap the residual falls by about half
+per step, so the 20 steps here bring it to 1e-9 of its first value. The last
+result carries the prestrain as
+the cell arrays `Prestrain_F_g<g>`, one per Gauss point.
 
-`forward.xml` loads that imprint through `<Prestrain_file_path>`
+`forward.xml` loads that prestrain through `<Prestrain_file_path>`
 and holds the same 10 mmHg as a follower load. `check_hold.py` asserts that the
 geometry does not move and that the reported stress reproduces the prestrain
 stress. Raise the pressure in `forward.xml` to simulate the prestrained LV; run
 it without the file path to see the naive inflation for contrast.
 
 The forward run may be started on any number of ranks regardless of how many
-the prestrain run used: the prestrain displacement is written in the mesh's
-original node order and partitioned on input like an initial displacement.
+the prestrain run used: the prestrain is written in the mesh's original
+element order and partitioned on input like the fibre directions.

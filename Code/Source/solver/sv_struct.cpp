@@ -235,6 +235,8 @@ void construct_dsolid(ComMod& com_mod, CepMod& cep_mod, const mshType& lM, const
                 bfl(nsd,eNoN), fN(nsd,nFn), pS0l(nsymd,eNoN), Nx(nsd,eNoN), lR(dof,eNoN);
   Array3<double> lK(dof*dof,eNoN,eNoN);
 
+  const bool prestrained = (lM.F0.size() != 0);
+
   // Loop over all elements of mesh
 
   for (int e = 0; e < lM.nEl; e++) {
@@ -290,7 +292,6 @@ void construct_dsolid(ComMod& com_mod, CepMod& cep_mod, const mshType& lM, const
         ya_l_n(a) = cep_mod.cem.Ya_n[Ac];
       }
     }
-    prestrain::add_to_element(com_mod, lM, e, eq.s, cPhys, dl);
 
     // Gauss integration
     //
@@ -311,13 +312,19 @@ void construct_dsolid(ComMod& com_mod, CepMod& cep_mod, const mshType& lM, const
         if (utils::is_zero(Jac)) {
           throw std::runtime_error("[construct_dsolid] Jacobian for element " + std::to_string(e) + " is < 0.");
         }
+        // A prestrained element is integrated on its stress-free configuration (see prestrain.h).
+        if (prestrained) {
+          Jac /= prestrain::pull_back(lM, e, g, Nx);
+          prestrain::pull_back_fibers(lM, e, g, fN);
+        }
       }
       double w = lM.w(g) * Jac;
       N = lM.N.col(g);
       pSl = 0.0;
 
       if (nsd == 3) {
-        struct_3d(com_mod, cep_mod, eNoN, nFn, w, N, Nx, al, yl, dl, bfl, fN,
+        const auto F0 = prestrain::deformation_gradient<3>(lM, e, g);
+        struct_3d(com_mod, cep_mod, eNoN, nFn, w, N, Nx, al, yl, dl, F0, bfl, fN,
                   pS0l, pSl, ya_l_f, ya_l_s, ya_l_n, lR, lK, recompute_visc);
 
 #if 0
@@ -331,7 +338,8 @@ void construct_dsolid(ComMod& com_mod, CepMod& cep_mod, const mshType& lM, const
 #endif
 
       } else if (nsd == 2) {
-        struct_2d(com_mod, cep_mod, eNoN, nFn, w, N, Nx, al, yl, dl, bfl, fN,
+        const auto F0 = prestrain::deformation_gradient<2>(lM, e, g);
+        struct_2d(com_mod, cep_mod, eNoN, nFn, w, N, Nx, al, yl, dl, F0, bfl, fN,
                   pS0l, pSl, ya_l_f, ya_l_s, ya_l_n, lR, lK, recompute_visc);
       }
 
@@ -356,7 +364,8 @@ void construct_dsolid(ComMod& com_mod, CepMod& cep_mod, const mshType& lM, const
 void struct_2d(ComMod &com_mod, CepMod &cep_mod, const int eNoN, const int nFn,
                const double w, const Vector<double> &N, const Array<double> &Nx,
                const Array<double> &al, const Array<double> &yl,
-               const Array<double> &dl, const Array<double> &bfl,
+               const Array<double> &dl, const mat_fun::Matrix<2> &F0,
+               const Array<double> &bfl,
                const Array<double> &fN, const Array<double> &pS0l,
                Vector<double> &pSl, const Vector<double> &ya_l_f,
                const Vector<double> &ya_l_s, const Vector<double> &ya_l_n,
@@ -379,8 +388,10 @@ void struct_2d(ComMod &com_mod, CepMod &cep_mod, const int eNoN, const int nFn,
 
   // Set parameters
   //
-  double rho = dmn.prop.at(PhysicalPropertyType::solid_density);
-  double dmp = dmn.prop.at(PhysicalPropertyType::damping);
+  // Per unit stress-free volume: det F0 times the values given for the mesh
+  const double J0 = F0.determinant();
+  double rho = J0 * dmn.prop.at(PhysicalPropertyType::solid_density);
+  double dmp = J0 * dmn.prop.at(PhysicalPropertyType::damping);
   const Eigen::Vector2d fb{dmn.prop.at(PhysicalPropertyType::f_x),
                            dmn.prop.at(PhysicalPropertyType::f_y)};
   double afu = eq.af * eq.beta*dt*dt;
@@ -428,9 +439,10 @@ void struct_2d(ComMod &com_mod, CepMod &cep_mod, const int eNoN, const int nFn,
   dmsg << "ya_g_n: " << ya_g_n;
 #endif
 
-  // Velocity and deformation gradients: Grad(v) and F = I + Grad(u)
+  // Velocity and deformation gradients on the stress-free configuration:
+  // Grad(v) and F = F0 + Grad(u) = (I + Grad u on the mesh) F0
   const Matrix<2> vx = vel * Nxm.transpose();
-  const Matrix<2> F  = Matrix<2>::Identity() + disp * Nxm.transpose();
+  const Matrix<2> F  = F0 + disp * Nxm.transpose();
 
   // 2nd Piola-Kirchhoff stress (S) and material stiffness tensor in Voight notation (Dm)
   Matrix<2> S;
@@ -520,7 +532,8 @@ void struct_2d(ComMod &com_mod, CepMod &cep_mod, const int eNoN, const int nFn,
 void struct_3d(ComMod &com_mod, CepMod &cep_mod, const int eNoN, const int nFn,
                const double w, const Vector<double> &N, const Array<double> &Nx,
                const Array<double> &al, const Array<double> &yl,
-               const Array<double> &dl, const Array<double> &bfl,
+               const Array<double> &dl, const mat_fun::Matrix<3> &F0,
+               const Array<double> &bfl,
                const Array<double> &fN, const Array<double> &pS0l,
                Vector<double> &pSl, const Vector<double> &ya_l_f,
                const Vector<double> &ya_l_s, const Vector<double> &ya_l_n,
@@ -545,8 +558,10 @@ void struct_3d(ComMod &com_mod, CepMod &cep_mod, const int eNoN, const int nFn,
 
   // Set parameters
   //
-  double rho = dmn.prop.at(PhysicalPropertyType::solid_density);
-  double dmp = dmn.prop.at(PhysicalPropertyType::damping);
+  // Per unit stress-free volume: det F0 times the values given for the mesh
+  const double J0 = F0.determinant();
+  double rho = J0 * dmn.prop.at(PhysicalPropertyType::solid_density);
+  double dmp = J0 * dmn.prop.at(PhysicalPropertyType::damping);
   const Eigen::Vector3d fb{dmn.prop.at(PhysicalPropertyType::f_x),
                            dmn.prop.at(PhysicalPropertyType::f_y),
                            dmn.prop.at(PhysicalPropertyType::f_z)};
@@ -590,9 +605,10 @@ void struct_3d(ComMod &com_mod, CepMod &cep_mod, const int eNoN, const int nFn,
         pS0g(3), pS0g(1), pS0g(4),
         pS0g(5), pS0g(4), pS0g(2);
 
-  // Velocity and deformation gradients: Grad(v) and F = I + Grad(u)
+  // Velocity and deformation gradients on the stress-free configuration:
+  // Grad(v) and F = F0 + Grad(u) = (I + Grad u on the mesh) F0
   const Matrix<3> vx = vel * Nxm.transpose();
-  const Matrix<3> F  = Matrix<3>::Identity() + disp * Nxm.transpose();
+  const Matrix<3> F  = F0 + disp * Nxm.transpose();
 
   // 2nd Piola-Kirchhoff tensor (S) and material stiffness tensor in
   // Voigt notation (Dm)

@@ -6,6 +6,7 @@
 
 #include "ComMod.h"
 #include "SolutionStates.h"
+#include "mat_fun.h"
 
 namespace struct_ns {
 
@@ -19,19 +20,35 @@ void b_struct_3d(const ComMod& com_mod, const int eNoN, const double w, const Ve
 
 void construct_dsolid(ComMod& com_mod, CepMod& cep_mod, const mshType& lM, const SolutionStates& solutions);
 
+/// @brief Momentum residual and tangent of the solid at one Gauss point.
+///
+/// w and Nx are the integration weight and shape function gradients on the
+/// stress-free configuration, which F0 maps to the mesh. The density and
+/// damping, given per unit volume of the mesh, are scaled by det F0. Without a
+/// prestrain F0 is the identity and the stress-free configuration is the mesh
+/// (see prestrain.h).
 void struct_2d(ComMod &com_mod, CepMod &cep_mod, const int eNoN, const int nFn,
                const double w, const Vector<double> &N, const Array<double> &Nx,
                const Array<double> &al, const Array<double> &yl,
-               const Array<double> &dl, const Array<double> &bfl,
+               const Array<double> &dl, const mat_fun::Matrix<2> &F0,
+               const Array<double> &bfl,
                const Array<double> &fN, const Array<double> &pS0l,
                Vector<double> &pSl, const Vector<double> &ya_l_f,
                const Vector<double> &ya_l_s, const Vector<double> &ya_l_n,
                Array<double> &lR, Array3<double> &lK, const bool recompute_visc);
 
+/// @brief Momentum residual and tangent of the solid at one Gauss point.
+///
+/// w and Nx are the integration weight and shape function gradients on the
+/// stress-free configuration, which F0 maps to the mesh. The density and
+/// damping, given per unit volume of the mesh, are scaled by det F0. Without a
+/// prestrain F0 is the identity and the stress-free configuration is the mesh
+/// (see prestrain.h).
 void struct_3d(ComMod &com_mod, CepMod &cep_mod, const int eNoN, const int nFn,
                const double w, const Vector<double> &N, const Array<double> &Nx,
                const Array<double> &al, const Array<double> &yl,
-               const Array<double> &dl, const Array<double> &bfl,
+               const Array<double> &dl, const mat_fun::Matrix<3> &F0,
+               const Array<double> &bfl,
                const Array<double> &fN, const Array<double> &pS0l,
                Vector<double> &pSl, const Vector<double> &ya_l_f,
                const Vector<double> &ya_l_s, const Vector<double> &ya_l_n,

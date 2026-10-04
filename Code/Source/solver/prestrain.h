@@ -7,81 +7,145 @@
 #include "Array.h"
 #include "CmMod.h"
 #include "ComMod.h"
-#include "consts.h"
+#include "mat_fun.h"
 
+#include <cmath>
 #include <string>
 
-/// @brief Prestrain by an imprinted deformation gradient.
+/// @brief Prestrain of a body imaged in a loaded configuration.
 ///
-/// Implements the modified updated Lagrangian formulation (MULF) of Gee,
-/// Forster and Wall, Int. J. Numer. Meth. Biomed. Engng. 26 (2010) 52-72,
-/// section 3. The mesh is taken to be an imaged, already loaded configuration.
-/// Its geometry never changes; instead each load step accumulates the
-/// displacement it reached into a nodal field U that the geometry would have
-/// to move by to reach the paper's virtually deformed configuration, and the
-/// next step starts from it. The deformation gradient is
+/// The mesh is the imaged, loaded geometry. The prestrain is a deformation
+/// gradient F0 at every Gauss point that maps an unknown stress-free
+/// configuration to the mesh. It need not be the gradient of any displacement
+/// field: the stress-free configuration may be incompatible, as with residual
+/// stresses. A displacement u from the mesh then gives the deformation
+/// gradient from the stress-free configuration
 ///
-///     F = I + Grad(U + u)
+///     F = (I + Grad u) F0,
 ///
-/// with Grad taken on the mesh as usual. This is the paper's F_{t+1} F~ with
-/// the increment's gradient re-expressed on the mesh (Eqs. 39, 40 and 44).
-/// Every increment is the gradient of a nodal displacement, so the imprinted
-/// deformation gradient is always compatible, and U is all that needs to be
-/// stored: the element kernels see U added to the element displacement they
-/// take the gradient of, and nothing else.
+/// with Grad taken on the mesh. The solid kernels integrate on the stress-free
+/// configuration: where the assembly loops compute the shape function
+/// gradients, they pull them back in place, F0^T Grad N, together with the
+/// volume, dV / det F0, and the fibers, which are given on the mesh and pulled
+/// back as material lines with F0^{-1}. The kernels then form F = F0 + Grad_0 u
+/// and keep their total Lagrangian form. The formulation is objective:
+/// rotating the deformed body rigidly rotates F and the internal forces with it.
 ///
-/// The steps are driven by the Integrator's pseudo-transient continuation
-/// (PseudoTransientContinuation.h): each starts from rest under the full
-/// load, and its update is accumulated into U here. A forward simulation then
-/// loads U from file and accumulates displacement from the imaged geometry as
-/// usual.
+/// Like the shape function gradients, F0 is constant within an element whose
+/// shape functions are linear, so those elements are pulled back once. A
+/// prestrain run produces such fields, and read() checks fields from file.
 ///
-/// U is held in com_mod.prestrainU and written to and read from the VTU point
-/// array Prestrain_displacement, in the mesh file's units like Displacement.
+/// F0 is found by pseudo-transient continuation (see
+/// PseudoTransientContinuation.h). Every pseudo-step starts from rest on the
+/// imaged geometry under the full load; the displacement u it reaches is
+/// accumulated as F0 <- (I + Grad u) F0 and discarded. At the fixed point the
+/// mesh carries the load in Cauchy stress equilibrium without moving. This is
+/// the incremental scheme of Gee, Forster and Wall, Int. J. Numer. Meth.
+/// Biomed. Engng. 26 (2010) 52-72, section 3, with the increments composed on
+/// the imaged mesh, so that equilibrium holds on the imaged geometry rather
+/// than on a virtually deformed one.
+///
+/// F0 is stored per mesh as Array<double>(nsd*nsd*nG, nEl): one column per
+/// element holding the nG Gauss point tensors back to back, each in the
+/// column-major order of Matrix<nsd>. Written to and read from VTU cell arrays
+/// named Prestrain_F_g<g>, one per Gauss point.
 ///
 namespace prestrain {
 
-/// @brief Add the prestrain displacement of element e's nodes to rows
-/// s..s+nsd-1 of the element displacement dl, the rows a solid kernel takes
-/// the deformation gradient from. Does nothing for other physics or when the
-/// run carries no prestrain.
-inline void add_to_element(const ComMod& com_mod, const mshType& lM, const int e, const int s,
-                           const consts::EquationType phys, Array<double>& dl)
+/// @brief Deformation gradient from the stress-free configuration to the mesh
+/// at Gauss point g of element e, or the identity when the mesh carries none.
+template <int nsd>
+mat_fun::Matrix<nsd> deformation_gradient(const mshType& lM, const int e, const int g)
 {
-  const auto& U = com_mod.prestrainU;
-  if (U.size() == 0) {
+  if (lM.F0.size() == 0) {
+    return mat_fun::Matrix<nsd>::Identity();
+  }
+  return Eigen::Map<const mat_fun::Matrix<nsd>>(lM.F0.data() + e*lM.F0.nrows() + g*nsd*nsd);
+}
+
+/// @brief Element average of the deformation gradient from the stress-free
+/// configuration, or the identity when the mesh carries none. For output whose
+/// quadrature differs from the mesh's.
+template <int nsd>
+mat_fun::Matrix<nsd> mean_deformation_gradient(const mshType& lM, const int e)
+{
+  mat_fun::Matrix<nsd> F0 = mat_fun::Matrix<nsd>::Zero();
+  for (int g = 0; g < lM.nG; g++) {
+    F0 += deformation_gradient<nsd>(lM, e, g);
+  }
+  return F0 / lM.nG;
+}
+
+/// @brief The same, for callers whose number of spatial dimensions is not
+/// known at compile time.
+Array<double> deformation_gradient(const mshType& lM, int e, int g, int nsd);
+
+/// @brief Pull the shape function gradients Nx of Gauss point g of element e
+/// back to the stress-free configuration, in place: Nx <- F0^T Nx. Returns
+/// det F0, the ratio of mesh to stress-free volume, by which the integration
+/// Jacobian is divided.
+double pull_back(const mshType& lM, int e, int g, Array<double>& Nx);
+
+/// @brief Element e's fibers, read from the mesh and pulled back to the
+/// stress-free configuration that F0 maps to the mesh, written to fN. Each
+/// direction is a material line, pulled back with F0^{-1} and rescaled to its
+/// given length; a second direction given perpendicular to the first stays
+/// perpendicular to it, within the pulled-back plane of the two. Reading from
+/// the mesh each time, repeated calls do not compound. Does nothing when the
+/// mesh has no fibers.
+template <int nsd>
+void pull_back_fibers(const mat_fun::Matrix<nsd>& F0, const mshType& lM, const int e, Array<double>& fN)
+{
+  if (lM.fN.size() == 0) {
     return;
   }
-  if (phys != consts::EquationType::phys_struct && phys != consts::EquationType::phys_ustruct) {
-    return;
+  using Direction = Eigen::Matrix<double, nsd, 1>;
+  const mat_fun::Matrix<nsd> F0_inv = F0.inverse();
+  const Eigen::Map<const Eigen::Matrix<double, nsd, Eigen::Dynamic>> f(lM.fN.data() + e*lM.fN.nrows(), nsd, lM.fN.nrows() / nsd);
+  auto f0 = mat_fun::eigen_view_mutable(fN);
+
+  for (int k = 0; k < f.cols(); k++) {
+    const Direction d = F0_inv * f.col(k);
+    const double length = d.norm();
+    f0.col(k) = (length > 0.0) ? Direction(d * (f.col(k).norm() / length)) : Direction::Zero();
   }
-  for (int a = 0; a < lM.eNoN; a++) {
-    const int Ac = lM.IEN(a,e);
-    for (int i = 0; i < com_mod.nsd; i++) {
-      dl(s+i,a) += U(i,Ac);
+
+  if (f.cols() >= 2) {
+    const double lf = f.col(0).norm();
+    const double ls = f.col(1).norm();
+    constexpr double perpendicular_tol = 1.0e-6;
+    if (lf > 0.0 && ls > 0.0 && std::abs(f.col(0).dot(f.col(1))) <= perpendicular_tol * lf * ls) {
+      const Direction a = f0.col(0) / lf;
+      const Direction s = f0.col(1) - a.dot(f0.col(1)) * a;
+      f0.col(1) = s * (ls / s.norm());
     }
   }
 }
 
-/// @brief Read the prestrain displacement of a mesh from the
-/// Prestrain_displacement point array of a VTU file into com_mod.prestrainU.
-/// Called on the master before the mesh is partitioned.
-void read(const std::string& file_name, ComMod& com_mod, mshType& mesh);
+/// @brief The same at Gauss point g of element e, for callers whose number of
+/// spatial dimensions is not known at compile time.
+void pull_back_fibers(const mshType& lM, int e, int g, Array<double>& fN);
 
-/// @brief Validate the settings and seed U = 0 for a prestrain run that
-/// starts from nothing. Called once the meshes are partitioned.
+/// @brief Read the prestrain of a mesh from the Prestrain_F_g<g> cell arrays
+/// of a VTU file, in the mesh's original element order. Called on the master
+/// before the mesh is partitioned.
+void read(const std::string& file_name, mshType& mesh, int nsd);
+
+/// @brief Validate the settings and the prestrains read from file, and seed
+/// the identity where a prestrain run has none. Called once the meshes are
+/// partitioned.
 void init(ComMod& com_mod);
 
-/// @brief Accumulate a pseudo-transient step's update into U. Registered with
-/// the Integrator's pseudo-transient continuation, which passes the update
-/// as the full tDof x tnNo array; only the solid equation's displacement rows
-/// are read.
+/// @brief Accumulate a pseudo-transient step into the prestrain,
+/// F0 <- (I + Grad u) F0 at every Gauss point. Registered with the
+/// Integrator's pseudo-transient continuation, which passes the step's
+/// displacement u as the full tDof x tnNo array; only the solid equation's
+/// displacement rows are read.
 void accumulate(ComMod& com_mod, const Array<double>& update);
 
-/// @brief Gather a mesh's prestrain displacement onto the master in the
-/// mesh's original node order and the mesh file's units, for writing.
-/// All ranks must call it.
-void global_displacement(const ComMod& com_mod, const CmMod& cm_mod, const mshType& lM, Array<double>& gU);
+/// @brief Gather a mesh's prestrain onto the master, in the mesh's original
+/// element order, for writing. All ranks must call it.
+void gather(const ComMod& com_mod, const CmMod& cm_mod, const mshType& lM, Array<double>& gF0);
 
 };
 
