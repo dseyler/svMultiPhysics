@@ -526,6 +526,10 @@ void struct_2d(ComMod &com_mod, CepMod &cep_mod, const int eNoN, const int nFn,
       lK(dof+1,a,b) += w*( T1 + afu*(BmDBm + visc.du(3,a,b)) + afv*visc.dv(3,a,b) );
     }
   }
+
+  if (com_mod.prestrainEq) {
+    prestrain::correct_step_tangent<2>(F, P, Nxm, w * afu, dof, lK);
+  }
 }
 
 /// @brief Reproduces Fortran 'STRUCT3D' subroutine.
@@ -722,6 +726,10 @@ void struct_3d(ComMod &com_mod, CepMod &cep_mod, const int eNoN, const int nFn,
       BmDBm = Bm[a].col(2).dot(DBm.col(2));
       lK(2*dof+2,a,b) += w*( T1 + afu*(BmDBm + visc.du(8,a,b)) + afv*visc.dv(8,a,b) );
     }
+  }
+
+  if (com_mod.prestrainEq) {
+    prestrain::correct_step_tangent<3>(F, P, Nxm, w * afu, dof, lK);
   }
 }
 };
