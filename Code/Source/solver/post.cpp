@@ -430,7 +430,6 @@ void div_post(Simulation* simulation, const mshType& lM, Array<double>& res, con
         dl(i,a) = lD(i,Ac);
       }
     }
-    prestrain::add_to_element(com_mod, lM, e, i, cPhys, dl);
 
     Array<double> F;
     double divV = 0.0;
@@ -575,7 +574,6 @@ void fib_algn_post(Simulation* simulation, const mshType& lM, Array<double>& res
         dl(i,a) = lD(i,Ac);
       }
     }
-    prestrain::add_to_element(com_mod, lM, e, i, cPhys, dl);
 
     for (int i = 0; i < nsd; i++) {
       fN(i,0) = lM.fN(i,e);
@@ -672,7 +670,6 @@ void fib_dir_post(Simulation* simulation, const mshType& lM, const int nFn, Arra
         dl(i,a) = lD(i,Ac);
       }
     }
-    prestrain::add_to_element(com_mod, lM, e, i, cPhys, dl);
 
     for (int iFn = 0; iFn < lM.nFn; iFn++) {
       for (int i = 0; i < nsd; i++) {
@@ -765,7 +762,6 @@ void fib_stretch(const ComMod& com_mod, const int iEq, const mshType& lM,
       xl.set_col(a, com_mod.x.col(Ac));
       dl.set_col(a, lD.col(Ac));
     }
-    prestrain::add_to_element(com_mod, lM, e, i, cPhys, dl);
 
     for (int g = 0; g < lM.nG; g++) {
       double Jac = 0.0;
@@ -782,6 +778,14 @@ void fib_stretch(const ComMod& com_mod, const int iEq, const mshType& lM,
       // Compute fiber stretch based on 4th invariant: I_{4,f} = F.fN.F.fN
       auto fl = mat_fun::mat_mul(F, lM.fN.rows(0,nsd-1,e));
       double lambda = utils::norm(fl);
+
+      // A prestrained fiber is already stretched on the mesh: measure from its
+      // stress-free length, as the material model does (see prestrain.h).
+      if (lM.F0.size() != 0) {
+        const auto f = lM.fN.rows(0,nsd-1,e);
+        const auto F0_inv = mat_fun::mat_inv(prestrain::deformation_gradient(lM, e, g, nsd), nsd);
+        lambda *= utils::norm(f) / utils::norm(mat_fun::mat_mul(F0_inv, f));
+      }
 
       // L2 projection from integration points to nodes
       double w = lM.w(g)*Jac;
@@ -1798,6 +1802,8 @@ void tensor_post_impl(Simulation* simulation, const mshType& lM, const int m, Ar
   Array<double> yl(tDof,fs.eNoN); 
   Array<double> fN(nsd,nFn); 
   Vector<double> resl(m); 
+
+  const bool prestrained = (lM.F0.size() != 0);
   Array<double> Nx(nsd,fs.eNoN); 
   Vector<double> N(fs.eNoN);
 
@@ -1857,7 +1863,6 @@ void tensor_post_impl(Simulation* simulation, const mshType& lM, const int m, Ar
         yl(i,a) = lY(i,Ac);
       }
     }
-    prestrain::add_to_element(com_mod, lM, e, i, cPhys, dl);
 
     Je = 0.0;
     double Jac = 0.0;
@@ -1875,9 +1880,16 @@ void tensor_post_impl(Simulation* simulation, const mshType& lM, const int m, Ar
       const auto Nxm  = eigen_view<nsd>(Nx);          // grad(N_a)
       const auto disp = eigen_view_rows<nsd>(dl, i);  // nodal displacements
 
-      // Deformation gradient: F = I + Grad(u)
-      const Matrix<nsd> F = Im + disp * Nxm.transpose();
+      // Deformation gradient from the stress-free configuration: F = (I + Grad u) F0.
+      // Output of a quadratic element uses a linear one's quadrature, so takes
+      // the element average of the prestrain.
+      const Matrix<nsd> F0 = (fs.nG == lM.nG) ? prestrain::deformation_gradient<nsd>(lM, e, g)
+                                              : prestrain::mean_deformation_gradient<nsd>(lM, e);
+      const Matrix<nsd> F = (Im + disp * Nxm.transpose()) * F0;
       const double detF = F.determinant();
+      if (prestrained) {
+        prestrain::pull_back_fibers<nsd>(F0, lM, e, fN);
+      }
 
       Vector<double> ed(com_mod.nsymd);
 

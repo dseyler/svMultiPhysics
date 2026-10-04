@@ -1582,13 +1582,13 @@ void read_msh(Simulation* simulation)
     }
   }
 
-  // Read the nodal displacement of a prestrained configuration.
+  // Read the deformation gradient of a prestrained configuration.
   //
   for (int iM = 0; iM < com_mod.nMsh; iM++) {
     auto mesh_param = simulation->parameters.mesh_parameters[iM];
     if (mesh_param->prestrain_file_path.defined()) {
       auto file_name = mesh_param->prestrain_file_path.value();
-      prestrain::read(file_name, com_mod, com_mod.msh[iM]);
+      prestrain::read(file_name, com_mod.msh[iM], nsd);
     }
   }
 

@@ -3,55 +3,111 @@
 
 #include "prestrain.h"
 
+#include "Core/Exception.h"
+#include "FE/Common/FEException.h"
 #include "VtkData.h"
-#include "all_fun.h"
 #include "consts.h"
-#include "vtk_xml.h"
+#include "nn.h"
 
-#include <algorithm>
-#include <cmath>
-#include <iostream>
+#include <fstream>
 #include <memory>
-#include <stdexcept>
 
 #include "mpi.h"
 
 namespace prestrain {
 
-/// @brief Name of the VTU point array holding the prestrain displacement.
-static const std::string displacement_array = "Prestrain_displacement";
-
-void read(const std::string& file_name, ComMod& com_mod, mshType& mesh)
+/// @brief Name of the VTU cell array holding Gauss point g.
+static std::string array_name(const int g)
 {
-  const int nsd = com_mod.nsd;
+  return "Prestrain_F_g" + std::to_string(g);
+}
 
-  {
-    std::unique_ptr<VtkData> vtk_data(VtkData::create_reader(file_name));
-    if (vtk_data == nullptr) {
-      throw std::runtime_error("Failed to read the prestrain file '" + file_name + "'.");
-    }
-    if (!vtk_data->has_point_data(displacement_array)) {
-      throw std::runtime_error("No point array named '" + displacement_array + "' in the prestrain file '" +
-          file_name + "' for the mesh named '" + mesh.name + "'.");
-    }
+Array<double> deformation_gradient(const mshType& lM, const int e, const int g, const int nsd)
+{
+  auto F0 = mat_fun::mat_id(nsd);
+  if (lM.F0.size() == 0) {
+    return F0;
   }
 
-  // Into mesh.x, in the mesh's original node order and the file's units.
-  mesh.x.resize(nsd, mesh.gnNo);
-  vtk_xml::read_vtu_pdata(file_name, displacement_array, nsd, nsd, 0, mesh);
-
-  auto& U = com_mod.prestrainU;
-  if (U.size() == 0) {
-    U.resize(nsd, com_mod.gtnNo);
-    U = 0.0;
-  }
-  for (int a = 0; a < mesh.gnNo; a++) {
-    const int Ac = mesh.gN[a];
+  // Column-major nsd x nsd block at this Gauss point, as Matrix<nsd> lays it out.
+  const double* block = lM.F0.data() + e*lM.F0.nrows() + g*nsd*nsd;
+  for (int j = 0; j < nsd; j++) {
     for (int i = 0; i < nsd; i++) {
-      U(i,Ac) = mesh.x(i,a) * mesh.scF;
+      F0(i,j) = block[i + j*nsd];
     }
   }
-  mesh.x.clear();
+  return F0;
+}
+
+template <int nsd>
+static double pull_back_gradients(const mshType& lM, const int e, const int g, Array<double>& Nx)
+{
+  const mat_fun::Matrix<nsd> F0 = deformation_gradient<nsd>(lM, e, g);
+  auto Nxm = mat_fun::eigen_view_mutable(Nx);
+  Nxm = F0.transpose() * Nxm;
+  return F0.determinant();
+}
+
+double pull_back(const mshType& lM, const int e, const int g, Array<double>& Nx)
+{
+  if (Nx.nrows() == 3) {
+    return pull_back_gradients<3>(lM, e, g, Nx);
+  } else {
+    return pull_back_gradients<2>(lM, e, g, Nx);
+  }
+}
+
+void pull_back_fibers(const mshType& lM, const int e, const int g, Array<double>& fN)
+{
+  if (fN.nrows() == 3) {
+    pull_back_fibers<3>(deformation_gradient<3>(lM, e, g), lM, e, fN);
+  } else {
+    pull_back_fibers<2>(deformation_gradient<2>(lM, e, g), lM, e, fN);
+  }
+}
+
+void read(const std::string& file_name, mshType& mesh, const int nsd)
+{
+  svmp::throw_if<svmp::FileNotFoundException>(!std::ifstream(file_name).good(), file_name);
+  std::unique_ptr<VtkData> vtk_data(VtkData::create_reader(file_name));
+
+  svmp::throw_if<svmp::FileFormatException>(vtk_data->num_elems() != mesh.gnEl, file_name,
+      "The prestrain file has " + std::to_string(vtk_data->num_elems()) + " elements but the mesh named '" +
+      mesh.name + "' has " + std::to_string(mesh.gnEl) + ".");
+
+  const int ncomp = nsd*nsd;
+  mesh.F0 = Array<double>(ncomp*mesh.nG, mesh.gnEl);
+
+  Array<double> Fg(ncomp, mesh.gnEl);
+  for (int g = 0; g < mesh.nG; g++) {
+    const auto name = array_name(g);
+    svmp::throw_if<svmp::FileFormatException>(!vtk_data->has_cell_data(name), file_name,
+        "No cell array named '" + name + "': the mesh named '" + mesh.name + "' integrates with " +
+        std::to_string(mesh.nG) + " Gauss points per element.");
+    vtk_data->copy_cell_data(name, Fg);
+
+    for (int e = 0; e < mesh.gnEl; e++) {
+      for (int c = 0; c < ncomp; c++) {
+        mesh.F0(g*ncomp + c, e) = Fg(c,e);
+      }
+    }
+  }
+
+  // Elements with linear shape functions are pulled back once, which needs the
+  // prestrain to be the same at all their Gauss points.
+  if (mesh.lShpF) {
+    for (int e = 0; e < mesh.gnEl; e++) {
+      for (int g = 1; g < mesh.nG; g++) {
+        for (int c = 0; c < ncomp; c++) {
+          if (mesh.F0(g*ncomp + c, e) != mesh.F0(c, e)) {
+            svmp::raise<svmp::FileFormatException>(file_name,
+                "The prestrain varies between the Gauss points of element " + std::to_string(e) +
+                " of the mesh named '" + mesh.name + "', whose shape functions are linear.");
+          }
+        }
+      }
+    }
+  }
 }
 
 void init(ComMod& com_mod)
@@ -60,13 +116,11 @@ void init(ComMod& com_mod)
   const int nsd = com_mod.nsd;
 
   if (com_mod.prestrainEq) {
-    if (com_mod.pstEq) {
-      throw std::runtime_error("Prestress and Prestrain can not both be set.");
-    }
-    if (com_mod.stFileFlag) {
-      throw std::runtime_error("A Prestrain run can not be restarted from a .bin file. "
-          "Point Prestrain_file_path at its last VTU file instead.");
-    }
+    svmp::throw_if<svmp::FE::InvalidArgumentException>(com_mod.pstEq,
+        "Prestress and Prestrain can not both be set.");
+    svmp::throw_if<svmp::NotImplementedException>(com_mod.stFileFlag,
+        "A Prestrain run can not be restarted from a .bin file. "
+        "Point Prestrain_file_path at its last VTU file instead.");
 
     bool solid = false;
     for (auto& eq : com_mod.eq) {
@@ -74,20 +128,50 @@ void init(ComMod& com_mod)
         solid = true;
       }
     }
-    if (!solid) {
-      throw std::runtime_error("Prestrain requires a struct or ustruct equation.");
-    }
-    if (!com_mod.pseudoTransient.enabled) {
-      throw std::runtime_error("Prestrain is solved by pseudo-transient continuation, which is not enabled.");
-    }
+    svmp::throw_if<svmp::FE::InvalidArgumentException>(!solid,
+        "Prestrain requires a struct or ustruct equation.");
+    // Prestrain enables pseudo-transient continuation when the input is read.
+    svmp::check<svmp::InternalErrorException>(com_mod.pseudoTransient.enabled,
+        "Prestrain is solved by pseudo-transient continuation, which is not enabled.");
   }
 
-  // A prestrain run that starts from nothing starts from the identity.
-  auto& U = com_mod.prestrainU;
-  if (com_mod.prestrainEq && U.size() == 0) {
-    U.resize(nsd, com_mod.tnNo);
-    U = 0.0;
+  for (auto& msh : com_mod.msh) {
+    const int rows = nsd*nsd*msh.nG;
+
+    // The prestrain is read with the mesh's own number of Gauss points.
+    svmp::throw_if<svmp::InternalErrorException>(msh.F0.size() != 0 && msh.F0.nrows() != rows,
+        "The prestrain of the mesh named '" + msh.name + "' holds " + std::to_string(msh.F0.nrows() / (nsd*nsd)) +
+        " Gauss points per element but the mesh integrates with " + std::to_string(msh.nG) + ".");
+
+    if (com_mod.prestrainEq && msh.F0.size() == 0) {
+      // A prestrain run that starts from nothing starts from the identity.
+      msh.F0 = Array<double>(rows, msh.nEl);
+      msh.F0 = 0.0;
+      for (int e = 0; e < msh.nEl; e++) {
+        for (int g = 0; g < msh.nG; g++) {
+          for (int k = 0; k < nsd; k++) {
+            msh.F0(g*nsd*nsd + k*(nsd+1), e) = 1.0;
+          }
+        }
+      }
+    }
+
+    // The prestrain is held at the mesh's Gauss points, which the momentum and
+    // continuity integrations of a Taylor-Hood element do not use.
+    svmp::throw_if<svmp::NotImplementedException>(msh.F0.size() != 0 && msh.nFs != 1,
+        "A prestrain requires the same quadrature for the momentum and continuity "
+        "equations (P1P1) on the mesh named '" + msh.name + "'; Taylor-Hood is not supported.");
   }
+}
+
+/// @brief F0 <- (I + Grad u) F0 at Gauss point g of element e, in place.
+template <int nsd>
+static void compose(Array<double>& F0, const int e, const int g, const Array<double>& dl, const Array<double>& Nx)
+{
+  Eigen::Map<mat_fun::Matrix<nsd>> F(F0.data() + e*F0.nrows() + g*nsd*nsd);
+  const mat_fun::Matrix<nsd> F_step = mat_fun::Matrix<nsd>::Identity() +
+      mat_fun::eigen_view_rows<nsd>(dl, 0) * mat_fun::eigen_view<nsd>(Nx).transpose();
+  F = F_step * F;
 }
 
 void accumulate(ComMod& com_mod, const Array<double>& update)
@@ -107,28 +191,74 @@ void accumulate(ComMod& com_mod, const Array<double>& update)
     return;
   }
 
-  auto& U = com_mod.prestrainU;
-  for (int a = 0; a < com_mod.tnNo; a++) {
-    for (int i = 0; i < nsd; i++) {
-      U(i,a) += update(s+i,a);
+  for (auto& msh : com_mod.msh) {
+    if (msh.F0.size() == 0) {
+      continue;
+    }
+    const int eNoN = msh.eNoN;
+    Array<double> xl(nsd,eNoN), dl(nsd,eNoN), Nx(nsd,eNoN), ksix(nsd,nsd);
+    double Jac = 0.0;
+
+    for (int e = 0; e < msh.nEl; e++) {
+      for (int a = 0; a < eNoN; a++) {
+        const int Ac = msh.IEN(a,e);
+        for (int i = 0; i < nsd; i++) {
+          xl(i,a) = com_mod.x(i,Ac);
+          dl(i,a) = update(s+i,Ac);
+        }
+      }
+
+      for (int g = 0; g < msh.nG; g++) {
+        // Shape function gradients on the mesh, constant within linear elements
+        if (g == 0 || !msh.lShpF) {
+          auto Nx_g = msh.Nx.slice(g);
+          nn::gnn(eNoN, nsd, nsd, Nx_g, xl, Nx, Jac, ksix);
+        }
+        if (nsd == 3) {
+          compose<3>(msh.F0, e, g, dl, Nx);
+        } else {
+          compose<2>(msh.F0, e, g, dl, Nx);
+        }
+      }
     }
   }
 }
 
-void global_displacement(const ComMod& com_mod, const CmMod& cm_mod, const mshType& lM, Array<double>& gU)
+void gather(const ComMod& com_mod, const CmMod& cm_mod, const mshType& lM, Array<double>& gF0)
 {
-  const int nsd = com_mod.nsd;
-  const auto& U = com_mod.prestrainU;
+  const auto& cm = com_mod.cm;
 
-  // On the mesh's own nodes, in the mesh file's units like Displacement.
-  Array<double> uM(nsd, lM.nNo);
-  for (int a = 0; a < lM.nNo; a++) {
-    const int Ac = lM.gN(a);
-    for (int i = 0; i < nsd; i++) {
-      uM(i,a) = U(i,Ac) / lM.scF;
+  if (cm.seq()) {
+    gF0 = lM.F0;
+    return;
+  }
+
+  // Every rank holds the same row count; the columns are its own elements.
+  const int rows = lM.F0.nrows();
+  const int np = cm.np();
+
+  Vector<int> sCount(np), disps(np);
+  for (int i = 0; i < np; i++) {
+    disps(i) = lM.eDist(i) * rows;
+    sCount(i) = lM.eDist(i+1) * rows - disps(i);
+  }
+
+  Array<double> tmp;
+  if (cm.mas(cm_mod)) {
+    tmp.resize(rows, lM.gnEl);
+  }
+
+  MPI_Gatherv(lM.F0.data(), rows*lM.nEl, cm_mod::mpreal, tmp.data(), sCount.data(), disps.data(),
+      cm_mod::mpreal, cm_mod.master, cm.com());
+
+  // Back to the original element order, the inverse of the partitioning.
+  if (cm.mas(cm_mod)) {
+    gF0.resize(rows, lM.gnEl);
+    for (int e = 0; e < lM.gnEl; e++) {
+      const int Ec = lM.otnIEN(e);
+      gF0.set_col(e, tmp.col(Ec));
     }
   }
-  gU = all_fun::global(com_mod, cm_mod, lM, uM);
 }
 
 };

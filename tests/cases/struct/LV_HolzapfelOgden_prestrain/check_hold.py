@@ -1,6 +1,6 @@
-"""Equilibrium hold test for the imprinted-deformation-gradient prestrain.
+"""Equilibrium hold test for the prestrain.
 
-After prestrain.xml has imprinted the 10 mmHg state and forward.xml has run
+After prestrain.xml has found the 10 mmHg prestrain and forward.xml has run
 at the same 10 mmHg, the forward run must not move: its displacement stays at
 zero and its stress equals the stress the prestrain run ended with.
 
@@ -38,7 +38,7 @@ def main():
     fwd = pv.read(fwd_file)
 
     # The prestrain run's last displacement is that step's increment, which
-    # should already be small if the imprint converged.
+    # should already be small if the prestrain converged.
     b = np.array(fwd.bounds)
     size = np.linalg.norm(b[1::2] - b[0::2])   # bounding-box diagonal, mesh units
     pre_disp = np.linalg.norm(pre.point_data["Displacement"], axis=1).max() / size
@@ -49,21 +49,24 @@ def main():
     stress_scale = np.abs(s_pre).max()
     stress_diff = np.abs(s_fwd - s_pre).max() / stress_scale
 
-    has_U = "Prestrain_displacement" in pre.point_data
-    U_max = np.linalg.norm(pre.point_data["Prestrain_displacement"], axis=1).max() if has_U else float("nan")
+    # The prestrain: deformation gradient from the stress-free configuration
+    # to the mesh, one cell array per Gauss point.
+    F0_names = sorted(k for k in pre.cell_data.keys() if k.startswith("Prestrain_F_g"))
+    I = np.eye(3).ravel()
+    F0_dev = max((np.abs(pre.cell_data[k] - I).max() for k in F0_names), default=float("nan"))
 
     print(f"prestrain run : {pre_file}")
     print(f"  mesh bounding-box diagonal       : {size:.4e} (mesh units)")
     print(f"  last-step max nodal displacement : {pre_disp:.3e} of the mesh size")
-    print(f"  max |Prestrain_displacement|     : {U_max:.3e} (mesh units)")
+    print(f"  prestrain cell arrays            : {len(F0_names)}, max |F0 - I| = {F0_dev:.3e}")
     print(f"forward run   : {fwd_file}")
     print(f"  max nodal displacement           : {fwd_disp:.3e} of the mesh size   (tol {DISP_REL_TOL:.0e})")
     print(f"  max |Stress - Stress_prestrain|  : {stress_diff:.3e} relative   (tol {STRESS_REL_TOL:.0e})")
     print(f"  max |Stress|                     : {stress_scale:.4e} dyne/cm^2")
 
     ok = True
-    if not has_U:
-        print("FAIL: the prestrain result carries no Prestrain_displacement point array")
+    if not F0_names:
+        print("FAIL: the prestrain result carries no Prestrain_F_g* cell arrays")
         ok = False
     if fwd_disp > DISP_REL_TOL:
         print("FAIL: the prestrained geometry moved under the load it was prestrained at")
