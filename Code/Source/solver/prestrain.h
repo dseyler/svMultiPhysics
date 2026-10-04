@@ -126,6 +126,41 @@ void pull_back_fibers(const mat_fun::Matrix<nsd>& F0, const mshType& lM, const i
 /// spatial dimensions is not known at compile time.
 void pull_back_fibers(const mshType& lM, int e, int g, Array<double>& fN);
 
+/// @brief Make a solid kernel's tangent that of a prestrain step.
+///
+/// A prestrain step composes the displacement u it reaches into F0 and starts
+/// again from rest, so the residual the next step sees is that of the Cauchy
+/// stress on the mesh, which does not move. The kernel's tangent also carries
+/// the change of the current volume and of the current shape function gradients
+/// with u; this subtracts that part,
+///
+///     w (tau Grad_x N_a (x) Grad_x N_b - tau Grad_x N_b (x) Grad_x N_a),
+///
+/// with tau = P F^T the Kirchhoff stress, Grad_x N = F^-T Grad_0 N, and w the
+/// stress-free weight. Without it each step is an inexact Newton step whose
+/// error grows with the stress, and the prestrain can stop converging once the
+/// pseudo time step is large. The fibers' dependence on F0 is not included.
+///
+/// @param Nx0 shape function gradients on the stress-free configuration.
+/// @param w_afu the weight times the stiffness scaling of lK.
+/// @param lK the element tangent, lK(i*dof + j, a, b).
+template <int nsd, class Gradients>
+void correct_step_tangent(const mat_fun::Matrix<nsd>& F, const mat_fun::Matrix<nsd>& P, const Gradients& Nx0,
+                          const double w_afu, const int dof, Array3<double>& lK)
+{
+  const mat_fun::NodalMatrix<nsd> Nxs = F.inverse().transpose() * Nx0;
+  const mat_fun::NodalMatrix<nsd> tau_Nxs = (P * F.transpose()) * Nxs;
+  for (int b = 0; b < Nxs.cols(); b++) {
+    for (int a = 0; a < Nxs.cols(); a++) {
+      for (int i = 0; i < nsd; i++) {
+        for (int j = 0; j < nsd; j++) {
+          lK(i*dof + j, a, b) -= w_afu * (tau_Nxs(i,a) * Nxs(j,b) - tau_Nxs(i,b) * Nxs(j,a));
+        }
+      }
+    }
+  }
+}
+
 /// @brief Read the prestrain of a mesh from the Prestrain_F_g<g> cell arrays
 /// of a VTU file, in the mesh's original element order. Called on the master
 /// before the mesh is partitioned.
