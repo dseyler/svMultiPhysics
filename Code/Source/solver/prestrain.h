@@ -7,6 +7,7 @@
 #include "Array.h"
 #include "CmMod.h"
 #include "ComMod.h"
+#include "SolutionStates.h"
 #include "mat_fun.h"
 
 #include <cmath>
@@ -35,15 +36,17 @@
 /// shape functions are linear, so those elements are pulled back once. A
 /// prestrain run produces such fields, and read() checks fields from file.
 ///
-/// F0 is found by pseudo-transient continuation (see
-/// PseudoTransientContinuation.h). Every pseudo-step starts from rest on the
-/// imaged geometry under the full load; the displacement u it reaches is
-/// accumulated as F0 <- (I + Grad u) F0 and discarded. At the fixed point the
-/// mesh carries the load in Cauchy stress equilibrium without moving. This is
-/// the incremental scheme of Gee, Forster and Wall, Int. J. Numer. Meth.
-/// Biomed. Engng. 26 (2010) 52-72, section 3, with the increments composed on
-/// the imaged mesh, so that equilibrium holds on the imaged geometry rather
-/// than on a virtually deformed one.
+/// F0 is found incrementally. Every time step starts from rest on the imaged
+/// geometry under the full load; the displacement u it reaches is accumulated
+/// as F0 <- (I + Grad u) F0 and discarded. At the fixed point the mesh carries
+/// the load in Cauchy stress equilibrium without moving. This is the
+/// incremental scheme of Gee, Forster and Wall, Int. J. Numer. Meth. Biomed.
+/// Engng. 26 (2010) 52-72, section 3, with the increments composed on the
+/// imaged mesh, so that equilibrium holds on the imaged geometry rather than
+/// on a virtually deformed one. The steps are ordinary time steps, each
+/// iterated to convergence, unless the equation sets Pseudo_transient: each
+/// step then takes one Newton iteration, and its time step may be adapted
+/// (see PseudoTransientContinuation.h).
 ///
 /// F0 is stored per mesh as Array<double>(nsd*nsd*nG, nEl): one column per
 /// element holding the nG Gauss point tensors back to back, each in the
@@ -141,6 +144,11 @@ void pull_back_fibers(const mshType& lM, int e, int g, Array<double>& fN);
 /// error grows with the stress, and the prestrain can stop converging once the
 /// pseudo time step is large. The fibers' dependence on F0 is not included.
 ///
+/// Only for steps that take one Newton iteration, as in pseudo-transient
+/// continuation. A step iterated to convergence solves the kernel's own
+/// residual, whose tangent the kernel already has, and is composed only once
+/// converged.
+///
 /// @param Nx0 shape function gradients on the stress-free configuration.
 /// @param w_afu the weight times the stiffness scaling of lK.
 /// @param lK the element tangent, lK(i*dof + j, a, b).
@@ -171,12 +179,15 @@ void read(const std::string& file_name, mshType& mesh, int nsd);
 /// partitioned.
 void init(ComMod& com_mod);
 
-/// @brief Accumulate a pseudo-transient step into the prestrain,
-/// F0 <- (I + Grad u) F0 at every Gauss point. Registered with the
-/// Integrator's pseudo-transient continuation, which passes the step's
-/// displacement u as the full tDof x tnNo array; only the solid equation's
-/// displacement rows are read.
-void accumulate(ComMod& com_mod, const Array<double>& update);
+/// @brief Start a prestrain step: accumulate the displacement u the previous
+/// step reached into the prestrain, F0 <- (I + Grad u) F0 at every Gauss
+/// point, and reset the solution to rest. Called from the Integrator's
+/// predictor, once the previous step's solution has become the old one.
+///
+/// The kernels saw the generalized-alpha level displacement alpha_f*Dn, which
+/// is the state the step reached, so that is u; Dn itself would overshoot by
+/// 1/alpha_f.
+void start_step(ComMod& com_mod, SolutionStates& solutions);
 
 /// @brief Gather a mesh's prestrain onto the master, in the mesh's original
 /// element order, for writing. All ranks must call it.

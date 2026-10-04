@@ -21,9 +21,10 @@ python check_hold.py                                     # equilibrium hold test
 ```
 
 `prestrain.xml` applies the full load from the first step as a dead load
-(`Follower_pressure_load false`, as in the paper). The run is a
-pseudo-transient continuation: every step starts from rest, takes one Newton
-iteration and prints `Pseudo-transient: max update`. With
+(`Follower_pressure_load false`, as in the paper). With `Pseudo_transient`
+the run is a pseudo-transient continuation: every step starts from rest, takes
+one Newton iteration and prints `Pseudo-transient: max update`. Without it
+every step is an ordinary time step, iterated to convergence. With
 `Pseudo_transient_adaptive_dt` the pseudo time step grows as the state
 approaches equilibrium. Once it reaches its cap the residual falls by about half
 per step, so the 20 steps here bring it to 1e-9 of its first value. The last

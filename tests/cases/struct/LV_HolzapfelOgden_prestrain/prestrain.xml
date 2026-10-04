@@ -5,11 +5,13 @@
   Phase 1 of 2: prestrain the imaged LV geometry at 10 mmHg. The prestrain is
   a deformation gradient F0 at every Gauss point, from a stress-free
   configuration to the mesh; a displacement u from the mesh gives
-  F = (I + Grad u) F0. The geometry never moves. The run is a pseudo-transient
-  continuation: every step starts from rest under the full load, takes one
-  Newton iteration, and composes the displacement it reaches into the
+  F = (I + Grad u) F0. The geometry never moves. Every step starts from rest
+  under the full load and composes the displacement it reaches into the
   prestrain, F0 <- (I + Grad u) F0 (the incremental scheme of Gee, Forster &
-  Wall 2010). The printed "max update" tends to zero as the state converges.
+  Wall 2010). With Pseudo_transient the run is a pseudo-transient
+  continuation: every step takes one Newton iteration. Without it every step
+  is an ordinary time step iterated to convergence. The printed "max update"
+  tends to zero as the state converges.
 
   The load is a dead load on the imaged surface (Follower_pressure_load false).
   The last result_NNN.vtu carries the prestrain as the cell arrays
@@ -72,6 +74,7 @@
    <Tolerance> 1e-10 </Tolerance>
 
    <Prestrain> true </Prestrain>
+   <Pseudo_transient> true </Pseudo_transient>
    <Pseudo_transient_adaptive_dt> true </Pseudo_transient_adaptive_dt>
    <Pseudo_transient_max_dt> 100.0 </Pseudo_transient_max_dt>
 
