@@ -27,8 +27,9 @@ prints `Pseudo-transient: max update`, and `Max_iterations 1` makes each step
 a single Newton iteration. Without them every step is an ordinary time step,
 iterated to convergence. With
 `Pseudo_transient_adaptive_dt` the pseudo time step grows as the state
-approaches equilibrium. Once it reaches its cap the residual falls by about half
-per step, so the 20 steps here bring it to 1e-9 of its first value. The last
+approaches equilibrium. With one Newton iteration per step the tangent is that
+of the composed update, so once the time step is large the residual falls
+quadratically and reaches round-off by step 10 of the 20 here. The last
 result carries the prestrain as
 the cell arrays `Prestrain_F_g<g>`, one per Gauss point.
 
