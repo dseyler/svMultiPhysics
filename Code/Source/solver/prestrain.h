@@ -43,10 +43,9 @@
 /// incremental scheme of Gee, Forster and Wall, Int. J. Numer. Meth. Biomed.
 /// Engng. 26 (2010) 52-72, section 3, with the increments composed on the
 /// imaged mesh, so that equilibrium holds on the imaged geometry rather than
-/// on a virtually deformed one. The steps are ordinary time steps, each
-/// iterated to convergence, unless the equation sets Pseudo_transient: each
-/// step then takes one Newton iteration, and its time step may be adapted
-/// (see PseudoTransientContinuation.h).
+/// on a virtually deformed one. Each step is iterated like any other time
+/// step, up to Max_iterations. With Pseudo_transient its time step may be
+/// adapted to the residual (see PseudoTransientContinuation.h).
 ///
 /// F0 is stored per mesh as Array<double>(nsd*nsd*nG, nEl): one column per
 /// element holding the nG Gauss point tensors back to back, each in the
@@ -144,10 +143,9 @@ void pull_back_fibers(const mshType& lM, int e, int g, Array<double>& fN);
 /// error grows with the stress, and the prestrain can stop converging once the
 /// pseudo time step is large. The fibers' dependence on F0 is not included.
 ///
-/// Only for steps that take one Newton iteration, as in pseudo-transient
-/// continuation. A step iterated to convergence solves the kernel's own
-/// residual, whose tangent the kernel already has, and is composed only once
-/// converged.
+/// Only for steps of one Newton iteration (Max_iterations 1). A step iterated
+/// further solves the kernel's own residual, whose tangent the kernel already
+/// has, and is composed only once it stops.
 ///
 /// @param Nx0 shape function gradients on the stress-free configuration.
 /// @param w_afu the weight times the stiffness scaling of lK.
