@@ -451,6 +451,20 @@ void struct_2d(ComMod &com_mod, CepMod &cep_mod, const int eNoN, const int nFn,
   mat_models::compute_pk2cc<2>(com_mod, cep_mod, dmn, F, nFn, eigen_view<2>(fN), ya_g_f, ya_g_s,
                             ya_g_n, S, Dm, Ja);
 
+  // A prestrain step of one Newton iteration is composed into F0 at once, which
+  // also moves the fibers the material law sees (see prestrain.h).
+  const bool prestrain_step = com_mod.prestrainEq && eq.maxItr == 1;
+  if (prestrain_step) {
+    const auto stress = [&](const auto& fibers) {
+      Matrix<2> S_f;
+      Matrix<3> Dm_f;
+      double Ja_f;
+      mat_models::compute_pk2cc<2>(com_mod, cep_mod, dmn, F, nFn, fibers, ya_g_f, ya_g_s, ya_g_n, S_f, Dm_f, Ja_f);
+      return S_f;
+    };
+    prestrain::correct_step_tangent_fibers<2>(F0, F, S, Nxm, eigen_view<2>(fN), stress, w * afu, dof, lK);
+  }
+
   // Viscous 2nd Piola-Kirchhoff stress and tangent contributions.
   // Reuse from the previous Gauss point when shape function gradients
   // are constant within an element (e.g. linear triangles, tetrahedra).
@@ -527,8 +541,7 @@ void struct_2d(ComMod &com_mod, CepMod &cep_mod, const int eNoN, const int nFn,
     }
   }
 
-  // A prestrain step of one Newton iteration is composed into F0 at once.
-  if (com_mod.prestrainEq && eq.maxItr == 1) {
+  if (prestrain_step) {
     prestrain::correct_step_tangent<2>(F, P, Nxm, w * afu, dof, lK);
   }
 }
@@ -623,6 +636,20 @@ void struct_3d(ComMod &com_mod, CepMod &cep_mod, const int eNoN, const int nFn,
   double Ja;
   mat_models::compute_pk2cc<3>(com_mod, cep_mod, dmn, F, nFn, eigen_view<3>(fN), ya_g_f, ya_g_s,
                             ya_g_n, S, Dm, Ja);
+
+  // A prestrain step of one Newton iteration is composed into F0 at once, which
+  // also moves the fibers the material law sees (see prestrain.h).
+  const bool prestrain_step = com_mod.prestrainEq && eq.maxItr == 1;
+  if (prestrain_step) {
+    const auto stress = [&](const auto& fibers) {
+      Matrix<3> S_f;
+      Matrix<6> Dm_f;
+      double Ja_f;
+      mat_models::compute_pk2cc<3>(com_mod, cep_mod, dmn, F, nFn, fibers, ya_g_f, ya_g_s, ya_g_n, S_f, Dm_f, Ja_f);
+      return S_f;
+    };
+    prestrain::correct_step_tangent_fibers<3>(F0, F, S, Nxm, eigen_view<3>(fN), stress, w * afu, dof, lK);
+  }
 
   // Viscous 2nd Piola-Kirchhoff stress and tangent contributions.
   // Reuse from the previous Gauss point when shape function gradients
@@ -729,8 +756,7 @@ void struct_3d(ComMod &com_mod, CepMod &cep_mod, const int eNoN, const int nFn,
     }
   }
 
-  // A prestrain step of one Newton iteration is composed into F0 at once.
-  if (com_mod.prestrainEq && eq.maxItr == 1) {
+  if (prestrain_step) {
     prestrain::correct_step_tangent<3>(F, P, Nxm, w * afu, dof, lK);
   }
 }

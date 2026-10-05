@@ -18,9 +18,11 @@
   Prestrain_F_g<g>, one per Gauss point, which forward.xml reads.
 
   With Pseudo_transient_adaptive_dt the pseudo time step grows by the ratio of
-  successive first residuals as the state approaches equilibrium. Once it
-  reaches its cap the residual falls by about half per step: the 20 steps here
-  bring it to 1e-9 of its first value. At a fixed dt the run is
+  successive first residuals as the state approaches equilibrium. With one
+  Newton iteration per step the tangent is that of the composed update, so
+  once the time step is large the residual falls quadratically: it reaches
+  round-off, about 1e-14 of its first value, by step 10 of the 20 here. At a
+  fixed dt the run is
   a dynamic relaxation and converges at the rate of the softest mode, about
   0.96 per step at dt = 1e-2, some 160 steps.
 -->

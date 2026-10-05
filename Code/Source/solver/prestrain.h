@@ -10,6 +10,7 @@
 #include "SolutionStates.h"
 #include "mat_fun.h"
 
+#include <array>
 #include <cmath>
 #include <string>
 
@@ -141,7 +142,8 @@ void pull_back_fibers(const mshType& lM, int e, int g, Array<double>& fN);
 /// with tau = P F^T the Kirchhoff stress, Grad_x N = F^-T Grad_0 N, and w the
 /// stress-free weight. Without it each step is an inexact Newton step whose
 /// error grows with the stress, and the prestrain can stop converging once the
-/// pseudo time step is large. The fibers' dependence on F0 is not included.
+/// pseudo time step is large. The fibers' part is added by
+/// correct_step_tangent_fibers.
 ///
 /// Only for steps of one Newton iteration (Max_iterations 1). A step iterated
 /// further solves the kernel's own residual, whose tangent the kernel already
@@ -161,6 +163,116 @@ void correct_step_tangent(const mat_fun::Matrix<nsd>& F, const mat_fun::Matrix<n
       for (int i = 0; i < nsd; i++) {
         for (int j = 0; j < nsd; j++) {
           lK(i*dof + j, a, b) -= w_afu * (tau_Nxs(i,a) * Nxs(j,b) - tau_Nxs(i,b) * Nxs(j,a));
+        }
+      }
+    }
+  }
+}
+
+/// @brief An orthonormal basis of the directions perpendicular to the unit
+/// vector d.
+template <int nsd>
+std::array<Eigen::Matrix<double, nsd, 1>, nsd - 1> perpendicular_directions(const Eigen::Matrix<double, nsd, 1>& d)
+{
+  if constexpr (nsd == 2) {
+    return {Eigen::Vector2d(-d(1), d(0))};
+  } else {
+    // Cross with the axis least aligned with d.
+    int k = 0;
+    d.cwiseAbs().minCoeff(&k);
+    const Eigen::Vector3d t = d.cross(Eigen::Vector3d::Unit(k)).normalized();
+    return {t, d.cross(t)};
+  }
+}
+
+/// @brief Add the fibers' part of a prestrain step's tangent to a solid
+/// kernel's tangent.
+///
+/// Composing a step into F0 pulls the mesh's fibers back anew (see
+/// pull_back_fibers), so the fibers the material law sees change with u. To
+/// first order, with G = F0^-1 Grad u F0, the gradient on the mesh carried to
+/// the stress-free configuration, a fiber f0 pulled back on its own changes by
+///
+///     df0 = -(I - f^ f^T) G f0,
+///
+/// and a sheet s0 kept perpendicular to the fiber f^ also turns with it:
+///
+///     ds0 = -(I - s^ s^T) G s0 + |s0| f^.(G + G^T) s^ f^,
+///
+/// with ^ marking unit vectors. Both changes are perpendicular to the fiber
+/// they move. The kernel's tangent holds the fibers fixed; this adds
+///
+///     w F (dS/df0 . df0) Grad_0 N_a,
+///
+/// taking the derivative of the material law's S along nsd - 1 directions
+/// perpendicular to each fiber by one-sided finite differences, so it costs
+/// nsd - 1 calls of the material law per fiber.
+///
+/// @param S the material law's stress at F and the given fibers.
+/// @param Nx0 shape function gradients on the stress-free configuration.
+/// @param fibers the pulled-back fibers, nsd x nFn.
+/// @param stress the material law's S at F for other fibers, nsd x nFn.
+/// @param w_afu the weight times the stiffness scaling of lK.
+/// @param lK the element tangent, lK(i*dof + j, a, b).
+template <int nsd, class Gradients, class Fibers, class Stress>
+void correct_step_tangent_fibers(const mat_fun::Matrix<nsd>& F0, const mat_fun::Matrix<nsd>& F,
+                                 const mat_fun::Matrix<nsd>& S, const Gradients& Nx0, const Fibers& fibers,
+                                 const Stress& stress, const double w_afu, const int dof, Array3<double>& lK)
+{
+  using Direction = Eigen::Matrix<double, nsd, 1>;
+  const int nFn = fibers.cols();
+  if (nFn == 0) {
+    return;
+  }
+
+  // Step of the finite differences, relative to the fiber's length
+  constexpr double h = 1.0e-7;
+
+  // pull_back_fibers keeps a sheet perpendicular to the fiber when they are
+  // perpendicular on the mesh; the pulled-back pair is then perpendicular to
+  // round-off, and otherwise is not.
+  constexpr double perpendicular_tol = 1.0e-10;
+  const double lf = fibers.col(0).norm();
+  const double ls = (nFn >= 2) ? fibers.col(1).norm() : 0.0;
+  const bool sheet_follows_fiber = lf > 0.0 && ls > 0.0 &&
+      std::abs(fibers.col(0).dot(fibers.col(1))) <= perpendicular_tol * lf * ls;
+  const Direction fiber = (lf > 0.0) ? Direction(fibers.col(0) / lf) : Direction::Zero();
+
+  const mat_fun::Matrix<nsd> F0_inv_t = F0.inverse().transpose();
+  const mat_fun::NodalVector fiber_Nx = Nx0.transpose() * fiber;
+  Eigen::Matrix<double, nsd, Eigen::Dynamic> f = fibers;
+
+  for (int k = 0; k < nFn; k++) {
+    const Direction fk = fibers.col(k);
+    const double lk = fk.norm();
+    if (lk == 0.0) {
+      continue;
+    }
+    const Direction fk_hat = fk / lk;
+    const mat_fun::NodalVector fk_Nx = Nx0.transpose() * fk;
+
+    for (const Direction& t : perpendicular_directions<nsd>(fk_hat)) {
+      // The material law's S along t
+      f.col(k) = fk + (h * lk) * t;
+      const mat_fun::Matrix<nsd> dS = (stress(f) - S) / (h * lk);
+      f.col(k) = fk;
+
+      // t . df0 = sum over b of C(:,b) . du_b
+      mat_fun::NodalMatrix<nsd> C = -(F0_inv_t * t) * fk_Nx.transpose();
+      if (k == 1 && sheet_follows_fiber) {
+        C += (lk * t.dot(fiber)) * ((F0_inv_t * fiber) * (fk_Nx / lk).transpose() + (F0_inv_t * fk_hat) * fiber_Nx.transpose());
+      }
+
+      // F dS Grad_0 N_a
+      const mat_fun::NodalMatrix<nsd> dP_Nx = (F * dS) * Nx0;
+
+      for (int b = 0; b < Nx0.cols(); b++) {
+        for (int a = 0; a < Nx0.cols(); a++) {
+          for (int i = 0; i < nsd; i++) {
+            for (int j = 0; j < nsd; j++) {
+              lK(i*dof + j, a, b) += w_afu * dP_Nx(i,a) * C(j,b);
+            }
+          }
         }
       }
     }
