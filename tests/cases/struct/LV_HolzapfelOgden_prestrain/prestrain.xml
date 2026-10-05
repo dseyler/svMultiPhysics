@@ -9,9 +9,9 @@
   under the full load and composes the displacement it reaches into the
   prestrain, F0 <- (I + Grad u) F0 (the incremental scheme of Gee, Forster &
   Wall 2010). With Pseudo_transient the run is a pseudo-transient
-  continuation: every step takes one Newton iteration. Without it every step
-  is an ordinary time step iterated to convergence. The printed "max update"
-  tends to zero as the state converges.
+  continuation, and Max_iterations 1 makes every step a single Newton
+  iteration. Without them every step is an ordinary time step iterated to
+  convergence. The printed "max update" tends to zero as the state converges.
 
   The load is a dead load on the imaged surface (Follower_pressure_load false).
   The last result_NNN.vtu carries the prestrain as the cell arrays
@@ -69,8 +69,8 @@
 <!-- Using cgs units -->
 <Add_equation type="struct" >
    <Coupled> true </Coupled>
-   <Min_iterations> 3 </Min_iterations>
-   <Max_iterations> 20 </Max_iterations>
+   <Min_iterations> 1 </Min_iterations>
+   <Max_iterations> 1 </Max_iterations>
    <Tolerance> 1e-10 </Tolerance>
 
    <Prestrain> true </Prestrain>

@@ -527,8 +527,8 @@ void struct_2d(ComMod &com_mod, CepMod &cep_mod, const int eNoN, const int nFn,
     }
   }
 
-  // A prestrain step that takes one Newton iteration is composed into F0 at once.
-  if (com_mod.prestrainEq && com_mod.pseudoTransient.enabled) {
+  // A prestrain step of one Newton iteration is composed into F0 at once.
+  if (com_mod.prestrainEq && eq.maxItr == 1) {
     prestrain::correct_step_tangent<2>(F, P, Nxm, w * afu, dof, lK);
   }
 }
@@ -729,8 +729,8 @@ void struct_3d(ComMod &com_mod, CepMod &cep_mod, const int eNoN, const int nFn,
     }
   }
 
-  // A prestrain step that takes one Newton iteration is composed into F0 at once.
-  if (com_mod.prestrainEq && com_mod.pseudoTransient.enabled) {
+  // A prestrain step of one Newton iteration is composed into F0 at once.
+  if (com_mod.prestrainEq && eq.maxItr == 1) {
     prestrain::correct_step_tangent<3>(F, P, Nxm, w * afu, dof, lK);
   }
 }

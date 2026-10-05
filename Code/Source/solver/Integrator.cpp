@@ -978,8 +978,7 @@ void Integrator::corrector()
   }
 
   double r1 = eq.FSILS.RI.iNorm / eq.iNorm;
-  // One Newton iteration per pseudo-transient step
-  bool l1 = (eq.itr >= eq.maxItr) || pseudo_transient_.enabled();
+  bool l1 = (eq.itr >= eq.maxItr);
   bool l2 = (r1 <= eq.tol);
   bool l3 = (r1 <= eq.tol*eq.pNorm);
   bool l4 = (eq.itr >= eq.minItr);
